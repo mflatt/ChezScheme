@@ -14,7 +14,7 @@
 ;;; limitations under the License.
 
 ;;; regression and other tests that don't fit somewhere more logical
-  
+
 (define-syntax biglet
   (lambda (x)
     (syntax-case x ()
@@ -2696,354 +2696,6 @@
   (time=? (cost-center-time $cc-3) (make-time 'time-duration 0 0))
 )
 
-(mat lock-object
-  (begin
-    (define $locked-objects (foreign-procedure "(cs)locked_objects" () ptr))
-    #t)
-  (let ([ls ($locked-objects)])
-    (unless (null? ls) (errorf #f "found locked objects ~s" ls))
-    #t)
-  (let ()
-    (define-record user-event (x))
-    (do ([n 20 (- n 1)])
-        ((= n 0))
-      (for-each unlock-object
-        (map (lambda (x) (lock-object x) x)
-          (map make-user-event
-            (make-list 10000)))))
-    #t)
-  (let ([ls ($locked-objects)])
-    (unless (null? ls) (errorf #f "found locked objects ~s" ls))
-    #t)
-  (let ()
-    (define-record user-event (x))
-    (do ([n 20 (- n 1)])
-        ((= n 0))
-      (for-each unlock-object
-        (map (lambda (x)
-               (let ([x (case x
-                          [(0) (lambda () x)]
-                          [(1) (cons x x)]
-                          [(2) (vector x)]
-                          [(3) (vector x x)]
-                          [(4) (string #\a #\b)]
-                          [(5) (box (cons 3 4))]
-                          [(6) (/ 8 17)]
-                          [(7) (exact (sin 3.0))]
-                          [(8) (exact (sqrt -73.0))]
-                          [(9) (call/cc values)]
-                          [(10) (make-user-event x)])])
-                 (lock-object x)
-                 x))
-             (map random (make-list 2000 11)))))
-    #t)
-  (let ([ls ($locked-objects)])
-    (unless (null? ls) (errorf #f "found locked objects ~s" ls))
-    #t)
-  (eqv?
-    (let ()
-      (define (pick ls) (list-ref ls (random (length ls))))
-     ; we don't pick then remq-first because the picked element may be
-     ; an unlocked flonum and may be cloned into two copies by the
-     ; collector between the pick and the remq-first
-      (define (pick-rem ls)
-        (let f ([ls ls] [i (random (length ls))])
-          (if (fx= i 0)
-              (values (car ls) (cdr ls))
-              (let-values ([(x d) (f (cdr ls) (fx- i 1))])
-                (values x (cons (car ls) d))))))
-      (module (random-tree)
-        (define leaves
-          `(,(lambda () '())
-            ,(lambda () 0)
-            ,(lambda () #f)
-            ,(lambda () #t)
-            ,(lambda () #\q)
-            ,(lambda () (* 3.4 5))
-            ,(lambda () (* 15/16 5))
-            ,(lambda () (* 1+2i 5))
-            ,(lambda () (* 3.0-2.5i 5))
-            ,(lambda () (pick (oblist)))
-            ,gensym
-            ,(lambda () (make-string (random 10) (pick '(#\$ #\! #\*))))
-            ))
-        (define nodes
-          `(,(lambda (th) (cons (th) (th)))
-            ,(lambda (th) (weak-cons (th) (th)))
-            ,(lambda (th) (list->vector (map (lambda (x) (th)) (make-list (+ 1 (random 4))))))
-            ,(lambda (th)
-               (define-record frob ((immutable x) (immutable y)))
-               (record-reader 'frob1 (type-descriptor frob))
-               (make-frob (th) (th)))
-            ,(lambda (th)
-               (define-record frob ((immutable x) (mutable y)))
-               (record-reader 'frob2 (type-descriptor frob))
-               (make-frob (th) (th)))
-            ,(lambda (th)
-               (define-record frob ((immutable x) (immutable integer-32 y)))
-               (record-reader 'frob3 (type-descriptor frob))
-               (make-frob (th) (random 200000)))
-            ,(lambda (th)
-               (define-record frob ((immutable x) (mutable integer-32 y)))
-               (record-reader 'frob4 (type-descriptor frob))
-               (make-frob (th) (random 200000)))
-            ,(lambda (th)
-               (let ([x (th)] [y (th)])
-                 (let ([f (lambda () (cons x y))])
-                   (values f (#%$closure-code f)))))
-            ,(lambda (th)
-               (let ([x (th)] [y (th)])
-                 (call/cc
-                   (lambda (k)
-                     (call/cc (lambda (k1) (k k1)))
-                     (cons x y)))))
-            ))
-        (define random-tree
-          (lambda (n)
-            (let ([objects '()])
-              (let ([t (let f ([n n])
-                         (let-values ([t* (if (= n 0)
-                                              ((pick leaves))
-                                              ((pick nodes) (lambda () (f (- n 1)))))])
-                           (set! objects (append t* objects))
-                           (car t*)))])
-                objects)))))
-      (define (chew n)
-        (let f ([ls (make-list n)])
-          (if (< (length ls) 2)
-              (random-tree 2)
-              (append (f (cddr ls)) (f (cdr ls))))))
-      (define (randomize ls)
-        (if (null? ls)
-            '()
-            (let-values ([(a d) (pick-rem ls)])
-              (cons a (randomize d)))))
-      (define (split ls)
-        (if (null? ls)
-            (values '() '())
-            (let-values ([(a ls) (pick-rem ls)])
-              (let-values ([(ls1 ls2) (split ls)])
-                (if (= (random 2) 0)
-                    (values (cons a ls1) ls2)
-                    (values ls1 (cons a ls2)))))))
-      (define (locktest)
-        (define m 5)
-        (let f ([n 100] [l0 '()] [l1 '()] [l2 '()])
-          (let ([l1addr (map #%$fxaddress l1)] [l2addr (map #%$fxaddress l2)])
-            (chew 15)
-            (let ([bad (remq f
-                         (map (lambda (x a) (if (fx= (#%$fxaddress x) a) f x))
-                              (append l1 l2)
-                              (append l1addr l2addr)))])
-              (unless (andmap flonum? bad)
-                (errorf 'locktest "locked object address(es) changed for ~s" bad))))
-          (if (= n 0)
-              (begin
-                (for-each unlock-object l1)
-                (for-each unlock-object l2)
-                (for-each unlock-object l2)
-                'yippee!)
-              (let-values ([(l0drop l0keep) (split l0)]
-                           [(l1drop l1keep) (split l1)]
-                           [(l2drop l2keep) (split l2)])
-                (for-each unlock-object l1drop)
-                (for-each unlock-object l2drop)
-                (for-each unlock-object l2drop)
-                (let-values ([(l0stay l0up) (split l0keep)]
-                             [(l1down l1up) (split l1keep)]
-                             [(l2down l2stay) (split l2keep)])
-                  (for-each lock-object l0up)
-                  (for-each lock-object l1up)
-                  (for-each unlock-object l1down)
-                  (for-each unlock-object l2down)
-                  (f (- n 1)
-                     (randomize (append l0stay l1down))
-                     (let ([l1new (random-tree m)])
-                       (for-each lock-object l1new)
-                       (randomize (append l0up l2down l1new)))
-                     (randomize (append l1up l2stay))))))))
-      (locktest))
-    'yippee!)
-  (let ([ls ($locked-objects)])
-    (unless (null? ls) (errorf #f "found locked objects ~s" ls))
-    #t)
-  (eqv?
-    (let ()
-      (define-record frob ((immutable x) (immutable y))
-        ([(immutable hash) (hash-frob x y)]))
-      (define leaves
-        `(,(lambda () '())
-          ,(lambda () 0)
-          ,(lambda () #f)
-          ,(lambda () #t)
-          ,(lambda () #\q)
-          ,(lambda () (* 3.4 5))
-          ,(lambda () (* 15/16 5))
-          ,(lambda () (* 1+2i 5))
-          ,(lambda () (* 3.0-2.5i 5))
-          ,(lambda () (pick (oblist)))
-          ,gensym
-          ,(lambda () (make-string (random 10) (pick '(#\$ #\! #\*))))
-          ))
-      (define (hash-frob x y) (+ 13 (ash (hash x) 4) (* (hash y) 7)))
-      (define (hash x)
-        (case x
-          [(()) 1]
-          [(0) 2]
-          [(#f) 3]
-          [(#t) 4]
-          [(#\q) 5]
-          [(17.0) 6]
-          [(75/16) 7]
-          [(5+10i) 8]
-          [(15.0-12.5i) 9]
-          [else
-           (cond
-             [(gensym? x) (+ 10 (ash (hash-string (symbol->string x)) 4))]
-             [(symbol? x) (+ 11 (ash (hash-string (symbol->string x)) 4))]
-             [(string? x) (+ 12 (ash (hash-string x) 4))]
-             [(frob? x) (hash-frob (frob-x x) (frob-y x))]
-             [else (errorf 'hash "unexpected object ~s" x)])]))
-      (define (hash-string s)
-        (apply logxor (map char->integer (string->list s))))
-      (define (check-hash x)
-        (let ([h (hash x)]) ; run regardless for error check
-          (when (frob? x)
-            (unless (= (hash x) (frob-hash x))
-              (errorf 'check-hash "hash mismatch for ~s" x)))))
-      (define (pick ls) (list-ref ls (random (length ls))))
-     ; we don't pick then remq-first because the picked element may be
-     ; an unlocked flonum and may be cloned into two copies by the
-     ; collector between the pick and the remq-first
-      (define (pick-rem ls)
-        (let f ([ls ls] [i (random (length ls))])
-          (if (fx= i 0)
-              (values (car ls) (cdr ls))
-              (let-values ([(x d) (f (cdr ls) (fx- i 1))])
-                (values x (cons (car ls) d))))))
-      (define random-tree
-        (lambda (n)
-          (let ([objects '()])
-            (let ([t (let f ([n n])
-                       (let-values ([t* (if (= n 0)
-                                            ((pick leaves))
-                                            (make-frob (f (- n 1)) (f (- n 1))))])
-                         (set! objects (append t* objects))
-                         (car t*)))])
-                objects))))
-      (define (chew n)
-        (let f ([ls (make-list n)])
-          (if (< (length ls) 2)
-              (random-tree 2)
-              (append (f (cddr ls)) (f (cdr ls))))))
-      (define (randomize ls)
-        (if (null? ls)
-            '()
-            (let-values ([(a d) (pick-rem ls)])
-              (cons a (randomize d)))))
-      (define (split ls)
-        (if (null? ls)
-            (values '() '())
-            (let-values ([(a ls) (pick-rem ls)])
-              (let-values ([(ls1 ls2) (split ls)])
-                (if (= (random 2) 0)
-                    (values (cons a ls1) ls2)
-                    (values ls1 (cons a ls2)))))))
-      (define (locktest)
-        (define m 5)
-        (let f ([n 100] [l0 '()] [l1 '()] [l2 '()])
-          (let ([l1addr (map #%$fxaddress l1)] [l2addr (map #%$fxaddress l2)])
-            (chew 15)
-            (let ([bad (remq f
-                         (map (lambda (x a) (if (fx= (#%$fxaddress x) a) f x))
-                              (append l1 l2)
-                              (append l1addr l2addr)))])
-              (unless (andmap flonum? bad)
-                (errorf 'locktest "locked object address(es) changed for ~s" bad))))
-          (for-each check-hash l0)
-          (for-each check-hash l1)
-          (for-each check-hash l2)
-          (if (= n 0)
-              (begin
-                (for-each unlock-object l1)
-                (for-each unlock-object l2)
-                (for-each unlock-object l2)
-                'yippee!)
-              (let-values ([(l0drop l0keep) (split l0)]
-                           [(l1drop l1keep) (split l1)]
-                           [(l2drop l2keep) (split l2)])
-                (for-each unlock-object l1drop)
-                (for-each unlock-object l2drop)
-                (for-each unlock-object l2drop)
-                (let-values ([(l0stay l0up) (split l0keep)]
-                             [(l1down l1up) (split l1keep)]
-                             [(l2down l2stay) (split l2keep)])
-                  (for-each lock-object l0up)
-                  (for-each lock-object l1up)
-                  (for-each unlock-object l1down)
-                  (for-each unlock-object l2down)
-                  (f (- n 1)
-                     (randomize (append l0stay l1down))
-                     (let ([l1new (random-tree m)])
-                       (for-each lock-object l1new)
-                       (randomize (append l0up l2down l1new)))
-                     (randomize (append l1up l2stay))))))))
-      (locktest))
-    'yippee!)
-  (let ([ls ($locked-objects)])
-    (unless (null? ls) (errorf #f "found locked objects ~s" ls))
-    #t)
-  (parameterize ([collect-request-handler void])
-    (define x (cons 3 4))
-    (lock-object x)
-    (collect 1 1) ; should leave segment containing x with locked bit
-    (set-cdr! x (cons 0 0)) ; should mark the card containing x in the segment dirty
-    (collect 0 0) ; should crash if sweep_dirty doesn't ignore locked objects
-    (unlock-object x)
-    #t)
-  (let ([ls ($locked-objects)])
-    (unless (null? ls) (errorf #f "found locked objects ~s" ls))
-    #t)
-  ; shouldn't include immediates in locked-object lists
-  (begin
-    (lock-object -17)
-    (lock-object #f)
-    (lock-object #!eof)
-    (lock-object #\newline)
-    (let ([ls ($locked-objects)])
-      (unless (null? ls) (errorf #f "found locked objects ~s" ls))
-      #t))
-  ; cons should be static, and shouldn't include static objects in locked-object lists
-  (begin
-    (lock-object 'cons)
-    (let ([ls ($locked-objects)])
-      (unless (null? ls) (errorf #f "found locked objects ~s" ls))
-      #t))
-  ; locked objects promoted to static generation are listed in the static-generation locked list
-  ; so mutated locked objects are properly swept (and the cards they're in, which might contain
-  ; random stuff, aren't)
-  #;(parameterize ([collect-request-handler void])
-    (define x (cons 3 4))
-    (lock-object x)
-    (collect (collect-maximum-generation) 'static)
-    (let ([ls ($locked-objects)])
-      (unless (null? ls) (errorf #f "found locked objects ~s" ls))
-      #t))
-
-  ;; Make sure a locked object that spans segments is appropriately
-  ;; swept when it's modified to ceate a backpointer
-  (let* ([N 100000]
-         [v (make-vector N)])
-    (lock-object v)
-    (collect 0)
-    (let ([p (cons 1 2)])
-      (vector-set! v (sub1 N) p)
-      (collect 0)
-      (set-car! p 'yes)
-      (unlock-object v)
-      (equal? '(yes . 2) (vector-ref v (sub1 N)))))
-)
-
 (mat eval-order
   (eqv? (call/cc (lambda (k) (0 (k 1)))) 1)
   (eqv? (let ([zero 0]) (call/cc (lambda (k) (zero (k 1))))) 1)
@@ -4853,23 +4505,17 @@
             'other-data))
 
   (let ([a (make-wrapper-procedure (lambda args args) 8 #f)])
-    (lock-object a)
     (collect)
     (let ([g (gensym)])
       (set-wrapper-procedure-data! a g)
       (collect)
-      (and
-       (equal? (wrapper-procedure-data a) g)
-       (begin (unlock-object a) #t))))
+      (equal? (wrapper-procedure-data a) g)))
   (let ([a (make-arity-wrapper-procedure (lambda args args) 8 #f)])
-    (lock-object a)
     (collect)
     (let ([g (gensym)])
       (set-wrapper-procedure-data! a g)
       (collect)
-      (and
-       (equal? (wrapper-procedure-data a) g)
-       (begin (unlock-object a) #t))))
+      (equal? (wrapper-procedure-data a) g)))
 
   )
 
@@ -5140,4 +4786,82 @@
     (< (* 0.75 $pre-allocated)
        (bytes-allocated)
        (* 1.25 $pre-allocated)))
-)
+  )
+
+(mat immobile
+  (error? (box-immobile))
+  (error? (box-immobile 1 2))
+
+  (error? (make-immobile-vector))
+  (error? (make-immobile-vector 'a))
+  (error? (make-immobile-vector -10))
+  (error? (make-immobile-vector (expt 2 100)))
+  (error? (make-immobile-vector 10 1 2))
+
+  (error? (make-immobile-bytevector))
+  (error? (make-immobile-bytevector 'a))
+  (error? (make-immobile-byte-vector -10))
+  (error? (make-immobile-bytevector (expt 2 100)))
+  (error? (make-immobile-bytevector 10 1024))
+  (error? (make-immobile-bytevector 10 1 2))
+
+  (box? (box-immobile 10))
+  (vector? (make-immobile-vector 10))
+  (eqv? 0 (vector-ref (make-immobile-vector 10) 9))
+  (bytevector? (make-immobile-bytevector 10))
+  (eqv? 0 (bytevector-u8-ref (make-immobile-bytevector 10 0) 9))
+
+  (begin
+    (define (make-objects)
+      (let loop ([i 16])
+        (cond
+          [(zero? i) '()]
+          [else
+           (let* ([b (box-immobile (format "box ~a" i))]
+                  [b-addr (#%$fxaddress b)]
+                  [v (make-immobile-vector (expt 2 i) b)]
+                  [v-addr (#%$fxaddress v)]
+                  [s (make-immobile-bytevector (expt 2 i) i)]
+                  [s-addr (#%$fxaddress s)])
+             (cons (list i
+                         b b-addr
+                         v v-addr
+                         s s-addr)
+                   (loop (sub1 i))))])))
+    (define (check-objects l)
+      (let loop ([l l])
+        (or (null? l)
+            (let-values ([(i b b-addr v v-addr s s-addr) (apply values (car l))])
+              (and (equal? (format "box ~a" i) (unbox b))
+                   (equal? (format "box ~a" i) (unbox (vector-ref v (sub1 (vector-length v)))))
+                   (eqv? i (bytevector-u8-ref s (sub1 (bytevector-length s))))
+                   (eqv? b-addr (#%$fxaddress b))
+                   (eqv? v-addr (#%$fxaddress v))
+                   (eqv? s-addr (#%$fxaddress s))
+                   (loop (cdr l)))))))
+    (define (mutate-objects l)
+      (let loop ([l l])
+        (or (null? l)
+            (let-values ([(i b b-addr v v-addr s s-addr) (apply values (car l))])
+              (set-box! b (format "box ~a" i))
+              (vector-set! v (sub1 (vector-length v)) (box (unbox b)))
+              (loop (cdr l))))))
+    #t)
+
+  (with-interrupts-disabled
+   (let ([objs (make-objects)])
+     (and (check-objects objs)
+          (begin
+            (collect 0 1)
+            (and
+             (check-objects objs)
+             (begin
+               (mutate-objects objs)
+               (collect 0 0)
+               (and
+                (check-objects objs)
+                (begin
+                  (collect (collect-maximum-generation))
+                  (check-objects objs)))))))))
+
+  )

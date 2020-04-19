@@ -70,8 +70,8 @@
 ;;  - (vspace <vspace>) : target for vfasl
 ;;  - (size <size> [<scale>]) : size for copy
 ;;  - (mark <flag>) : possible <flags>:
-;;      * one-bit : record as one bit; inferred when size matches alignment
-;;                  or for `space-data`
+;;      * one-bit : record as one bit per segment; inferred when size matches
+;;                  alignment or for `space-data`
 ;;      * within-segment : alloacted within on segment; can be inferred from size
 ;;      * no-sweep : no need to sweep content (perhaps covered by `trace-now`);
 ;;                   inferred for `space-data`
@@ -89,6 +89,7 @@
 ;;  - (count <counter> [<size> [<scale> [<modes>]]]) :
 ;;       uses preceding `size` declaration unless <size>;
 ;;       normally counts in copy mode, but <modes> can override
+;;  - (count-as <statment> ...) : declares that <statement>s implement counting
 ;;  - (skip-forwarding) : disable forward-pointer installation in copy mode
 ;;  - (assert <expr>) : assertion
 ;;
@@ -143,6 +144,7 @@
 ;;  - _                 : object being copied, swept, etc.
 ;;  - _copy_            : target in copy or vfasl mode, same as _ otherwise
 ;;  - _tf_              : type word
+;;  - _tg_              : target generation
 ;;  - _backreferences?_ : dynamic flag indicating whether backreferences are on
 ;;
 ;; Stylistically, prefer constants and fields using the hyphenated
@@ -219,8 +221,8 @@
               (define stack : uptr (cast uptr (continuation-stack _)))
               (trace-stack stack
                            (+ stack (continuation-stack-clength _))
-                           (cast uptr (continuation-return-address _)))])])
-         (count countof-continuation)])]
+                           (cast uptr (continuation-return-address _)))])])])
+       (count countof-continuation)]
 
       [else
        ;; closure (not a continuation)
@@ -244,9 +246,11 @@
        (when-mark
         (case-space
          [space-pure
-          (mark one-bit)]
+          (mark one-bit)
+          (count countof-closure)]
          [else
-          (mark)]))
+          (mark)
+          (count countof-closure)]))
        (when (or-not-as-dirty
               (& (code-type code) (<< code-flag-mutable-closure code-flags-offset)))
          (copy-clos-code code)
@@ -527,8 +531,8 @@
        [else
         (copy-type thread-type)
         (when (and-not-as-dirty 1)
-          (trace-tc thread-tc))
-        (count countof-thread)])]
+          (trace-tc thread-tc))])
+      (count countof-thread)]
 
      [rtd-counts
       (space space-data)
@@ -546,9 +550,11 @@
       (copy-type phantom-type)
       (copy phantom-length)
       (case-mode
-       [copy (set! (array-ref S_G.phantom_sizes tg)
-                   +=
-                   (phantom-length _))]
+       [(copy mark)
+        (count-as
+         (set! (array-ref S_G.phantom_sizes _tg_)
+               +=
+               (phantom-length _)))]
        [measure (set! measure_total += (phantom-length _))]
        [else])])]))
 
@@ -577,9 +583,10 @@
       [(&& (!= cdr_p _)
            (&& (== (TYPEBITS cdr_p) type_pair)
                (&& (!= (set! qsi (MaybeSegInfo (ptr_get_segment cdr_p))) NULL)
-                   (&& (== (-> qsi space) (-> si space))
-                       (&& (!= (FWDMARKER cdr_p) forward_marker)
-                           (! (to_be_marked qsi cdr_p)))))))
+                   (&& (-> qsi old_space)
+                       (&& (== (-> qsi space) (-> si space))
+                           (&& (!= (FWDMARKER cdr_p) forward_marker)
+                               (! (-> qsi mark_space))))))))
        (check_triggers qsi)
        (size size-pair 2)
        (define new_cdr_p : ptr (cast ptr (+ (cast uptr _copy_) size_pair)))
@@ -620,7 +627,7 @@
 
 (define-trace-macro (assert-stencil-vector-size)
   ;; needed for within-mark-byte
-  (assert (< (+ (* (stencil-vector-mask-width) (constant ptr-bytes))
+  (assert (< (+ (* (constant stencil-vector-mask-bits) (constant ptr-bytes))
                 (constant header-size-stencil-vector)
                 (constant byte-alignment))
              (constant bytes-per-segment))))
@@ -698,17 +705,20 @@
     (define next : ptr (tlc-next _))
     (define keyval : ptr (tlc-keyval _))
     (set! (tlc-next _copy_) next)
-    (set! (tlc-keyval _copy_) keyval)
+    (set! (tlc-keyval _copy_) keyval)]
+   [else
+    (trace-nonself tlc-keyval)
+    (trace-nonself tlc-next)])
+  (case-mode
+   [(copy mark)
     ;; If next isn't false and keyval is old, add tlc to a list of tlcs
     ;; to process later. Determining if keyval is old is a (conservative)
     ;; approximation to determining if key is old. We can't easily
     ;; determine if key is old, since keyval might or might not have been
     ;; swept already. NB: assuming keyvals are always pairs.
-    (when (&& (!= next Sfalse) (& (SPACE keyval) space_old))
+    (when (&& (!= next Sfalse) (OLDSPACE keyval))
       (set! tlcs_to_rehash (S_cons_in space_new 0 _copy_ tlcs_to_rehash)))]
-   [else
-    (trace-nonself tlc-keyval)
-    (trace-nonself tlc-next)]))
+   [else]))
 
 (define-trace-macro (trace-record trd len)
   (case-mode
@@ -802,49 +812,50 @@
    [else]))
 
 (define-trace-macro (count-record rtd)
-  (case-mode
-   [copy
-    (case-flag counts?
-     [on
-      (when S_G.enable_object_counts
-        (let* ([c_rtd : ptr (cond
-                              [(== _tf_ _) _copy_]
-                              [else rtd])]
-               [counts : ptr (record-type-counts c_rtd)])
-          (cond
-            [(== counts Sfalse)
-             (let* ([grtd : IGEN (GENERATION c_rtd)])
-               (set! (array-ref (array-ref S_G.countof grtd) countof_rtd_counts) += 1)
-               ;; Allocate counts struct in same generation as rtd. Initialize timestamp & counts.
-               (find_room space_data grtd type_typed_object size_rtd_counts counts)
-               (set! (rtd-counts-type counts) type_rtd_counts)
-               (set! (rtd-counts-timestamp counts) (array-ref S_G.gctimestamp 0))
-               (let* ([g : IGEN 0])
-                 (while
-                  :? (<= g static_generation)
-                  (set! (rtd-counts-data counts g) 0)
-                  (set! g += 1)))
-               (set! (record-type-counts c_rtd) counts)
-               (set! (array-ref S_G.rtds_with_counts grtd)
-                     ;; For max_copied_generation, the list will get copied again in `rtds_with_counts` fixup;
-                     ;; meanwhile, allocating in `space_impure` would copy and sweep old list entries causing
-                     ;; otherwise inaccessible rtds to be retained
-                     (S_cons_in (cond [(<= grtd max_copied_generation) space_new] [else space_impure])
-                                (cond [(<= grtd max_copied_generation) 0] [else grtd])
-                                c_rtd
-                                (array-ref S_G.rtds_with_counts grtd)))
-               (set! (array-ref (array-ref S_G.countof grtd) countof_pair) += 1))]
-            [else
-             (trace-early (just counts))
-             (set! (record-type-counts c_rtd) counts)
-             (when (!= (rtd-counts-timestamp counts) (array-ref S_G.gctimestamp 0))
-               (S_fixup_counts counts))])
-          (set! (rtd-counts-data counts tg) (+ (rtd-counts-data counts tg) 1))))
-      ;; Copies size that we may have already gathered, but needed for counting from roots:
-      (when (== p_spc space-count-impure) (set! count_root_bytes += p_sz))
-      (count countof-record)]
-     [off])]
-   [else]))
+  (count-as
+   (case-flag counts?
+    [on
+     (when S_G.enable_object_counts
+       (let* ([c_rtd : ptr (cond
+                             [(== _tf_ _) _copy_]
+                             [else rtd])]
+              [counts : ptr (record-type-counts c_rtd)])
+         (cond
+           [(== counts Sfalse)
+            (let* ([grtd : IGEN (GENERATION c_rtd)])
+              (set! (array-ref (array-ref S_G.countof grtd) countof_rtd_counts) += 1)
+              ;; Allocate counts struct in same generation as rtd. Initialize timestamp & counts.
+              (find_room space_data grtd type_typed_object size_rtd_counts counts)
+              (set! (rtd-counts-type counts) type_rtd_counts)
+              (set! (rtd-counts-timestamp counts) (array-ref S_G.gctimestamp 0))
+              (let* ([g : IGEN 0])
+                (while
+                 :? (<= g static_generation)
+                 (set! (rtd-counts-data counts g) 0)
+                 (set! g += 1)))
+              (set! (record-type-counts c_rtd) counts)
+              (set! (array-ref S_G.rtds_with_counts grtd)
+                    ;; For max_copied_generation, the list will get copied again in `rtds_with_counts` fixup;
+                    ;; meanwhile, allocating in `space_impure` would copy and sweep old list entries causing
+                    ;; otherwise inaccessible rtds to be retained
+                    (S_cons_in (cond [(<= grtd max_copied_generation) space_new] [else space_impure])
+                               (cond [(<= grtd max_copied_generation) 0] [else grtd])
+                               c_rtd
+                               (array-ref S_G.rtds_with_counts grtd)))
+              (set! (array-ref (array-ref S_G.countof grtd) countof_pair) += 1))]
+           [else
+            (trace-early (just counts))
+            (set! (record-type-counts c_rtd) counts)
+            (when (!= (rtd-counts-timestamp counts) (array-ref S_G.gctimestamp 0))
+              (S_fixup_counts counts))])
+         (set! (rtd-counts-data counts _tg_) (+ (rtd-counts-data counts _tg_) 1))))
+     ;; Copies size that we may have already gathered, but needed for counting from roots:
+     (case-mode
+      [(copy)
+       (when (== p_spc space-count-impure) (set! count_root_bytes += p_sz))]
+      [else])
+     (count countof-record)]
+    [off])))
 
 (define-trace-macro (trace-buffer flag port-buffer port-last)
   (case-mode
@@ -902,6 +913,7 @@
       (trace (tc-W tc))
       (trace (tc-X tc))
       (trace (tc-Y tc))
+      (trace (tc-locked-objects tc))
       (trace (tc-threadno tc))
       (trace (tc-current-input tc))
       (trace (tc-current-output tc))
@@ -978,7 +990,7 @@
     (case-mode
      [sweep
       (define x_si : seginfo* (SegInfo (ptr_get_segment xcp)))
-      (when (& (-> x_si space) space_old)
+      (when (-> x_si old_space)
         (trace-return-code field xcp x_si))]
      [else
       (trace-return-code field xcp no_x_si)])]))
@@ -1347,18 +1359,18 @@
        (case (lookup 'mode config)
          [(copy)
           (code-block
-           "if (si->space & space_mark) {"
-           "  return mark_object(si, p);"
+           "if (si->mark_space) {"
+           "  return mark_object(p, si);"
            "}"
+           "change = 1;"
            (cond
              [(lookup 'counts? config #f)
               (code
-               "if (!(si->space & space_old)) {"
+               "if (!si->old_space) {"
                "  if (measure_all_enabled) push_measure(p);"
                "  return p;"
                "}")]
              [else #f])
-           "change = 1;"
            "check_triggers(si);"
            (code-block
             "ptr new_p;"
@@ -1369,6 +1381,14 @@
             (and (lookup 'maybe-backreferences? config #f)
                  "ADD_BACKREFERENCE(p)")
             "return new_p;"))]
+         [(mark)
+          (code-block
+           "change = 1;"
+           "check_triggers(si);"
+           (ensure-segment-mark-mask "si" "")
+           (body)
+           "ADD_BACKREFERENCE(p)"
+           "return p;")]
          [(sweep)
           (code-block
            (and (lookup 'maybe-backreferences? config #f)
@@ -1395,15 +1415,6 @@
            "uptr result_sz;"
            (body)
            "return result_sz;")]
-         [(mark)
-          (code-block
-           "if (!si->marked_mask) {"
-           "  find_room(space_data, target_generation, typemod, ptr_align(segment_bitmap_bytes), si->marked_mask);"
-           "  memset(si->marked_mask, 0, segment_bitmap_bytes);"
-           "}"
-           (body)
-           "ADD_BACKREFERENCE(p)"
-           "return p;")]
          [else
           (body)]))))
 
@@ -1470,7 +1481,7 @@
               (format "ISPC p_at_spc = ~a;"
                       (case (lookup 'mode config)
                         [(copy mark vfasl-copy) "si->space"]
-                        [else "SPACE(p) & ~(space_mark | space_old)"]))
+                        [else "SPACE(p)"]))
               (let loop ([all-clauses all-clauses] [else? #f])
                 (match all-clauses
                   [`([else . ,body])
@@ -1481,10 +1492,7 @@
                    (code
                     (format "~aif (p_at_spc == ~a)"
                             (if else? "else " "")
-                            (case (lookup 'mode config)
-                              [(copy) (format "(~a | space_old)" (as-c spc))]
-                              [(mark) (format "(~a | space_old | space_mark)" (as-c spc))]
-                              [else (as-c spc)]))
+                            (as-c spc))
                     (code-block (statements body config))
                     (loop rest #t))])))
              (statements (cdr l) config))]
@@ -1532,7 +1540,7 @@
                [(measure vfasl-copy vfasl-sweep)
                 (statements (list `(trace ,field)) config)]
                [(mark)
-                (format "mark(~a);" (field-expression field config "p" #f))]
+                (relocate-statement (field-expression field config "p" #t) config)]
                [else
                 (trace-statement field config #f)])
              (statements (cdr l) config))]
@@ -1622,6 +1630,13 @@
                                    (cons `(constant-size? ,(symbol? size))
                                          config))
                   (statements (cdr l) config))]
+           [`(count-as . ,stmts)
+            (statements (cons
+                         `(case-mode
+                           [(copy mark) . ,stmts]
+                           [else])
+                         (cdr l))
+                        config)]
            [`(space ,s)
             (case (lookup 'mode config)
               [(copy)
@@ -1665,6 +1680,10 @@
                                     (eqv? scale 1))
                                (cons `(known-size ,sz) config)
                                config)]
+                   [config (if (symbol? sz)
+                               (cons '(constant-size? #t)
+                                     config)
+                               config)]
                    [rest
                     (case mode
                       [(copy vfasl-copy)
@@ -1698,10 +1717,7 @@
                                                            (cdr l))
                                                      (cdr l)))))
                                          (cons '(copy-ready? #t)
-                                               (if (symbol? sz)
-                                                   (cons '(constant-size? #t)
-                                                         config)
-                                                   config))))]
+                                               config)))]
                       [(size)
                        (hashtable-set! (lookup 'used config) 'p_sz #t)
                        (code "return p_sz;")]
@@ -1740,7 +1756,26 @@
                       flags)
             (case (lookup 'mode config)
               [(mark)
-               (mark-statement flags config)]
+               (let* ([count-stmt (let loop ([l (cdr l)])
+                                   (cond
+                                     [(null? l) (error 'mark "could not find `count` ~s" config)]
+                                     [else
+                                      (match (car l)
+                                        [`(count . ,rest) (car l)]
+                                        [`(count-as . ,stmts) (car l)]
+                                        [`(case-mode . ,all-clauses)
+                                         (let ([body (find-matching-mode 'mark all-clauses)])
+                                           (loop (append body (cdr l))))]
+                                        [`(,id . ,args)
+                                         (let ([m (eq-hashtable-ref trace-macros id #f)])
+                                           (if m
+                                               (loop (append (apply-macro m args)
+                                                             (cdr l)))
+                                               (loop (cdr l))))]
+                                        [else (loop (cdr l))])]))])
+                 (code
+                  (mark-statement flags config)
+                  (statements (list count-stmt) config)))]
               [else
                (statements (cdr l) config)])]
            [`(define ,id : ,type ,rhs)
@@ -1867,6 +1902,10 @@
                    [else "p"])]
         [`_tf_
          (lookup 'tf config "TYPEFIELD(p)")]
+        [`_tg_
+         (case (lookup 'mode config)
+           [(copy) "tg"]
+           [else "target_generation"])]
         [`_backreferences?_
          (if (lookup 'maybe-backreferences? config #f)
              "BACKREFERENCES_ENABLED"
@@ -2030,12 +2069,13 @@
       [else #f]))
 
   (define (count-statement counter size scale modes config)
-    (let ([mode (lookup 'mode config)])
+    (let* ([real-mode (lookup 'mode config)]
+           [mode (if (eq? real-mode 'mark) 'copy real-mode)])
       (cond
         [(or (eq? mode modes) (and (pair? modes) (memq mode modes)))
          (cond
            [(lookup 'counts? config #f)
-            (let ([tg (if (eq? mode 'copy)
+            (let ([tg (if (eq? real-mode 'copy)
                           "tg"
                           "target_generation")])
               (code
@@ -2070,47 +2110,84 @@
            [no-sweep? (or (memq 'no-sweep flags)
                           (eq? known-space 'space-data))]
            [within-loop-statement
-            (lambda (decl si step)
+            (lambda (decl si step count?)
               (code-block
                "uptr offset = 0;"
                "while (offset < p_sz) {"
                "  ptr mark_p = (ptr)((uptr)p + offset);"
                decl
                (format "  ~a->marked_mask[segment_bitmap_byte(mark_p)] |= segment_bitmap_bit(mark_p);" si)
+               (and count? (format "  ~a->marked_count += ~a;" si step))
                (format "  offset += ~a;" step)
-               "}"))])
+               "}"))]
+           [type (as-c 'type (lookup 'basetype config))])
+      (hashtable-set! (lookup 'used config) 'p_sz #t)
       (code
        (cond
          [one-bit?
-          "si->marked_mask[segment_bitmap_byte(p)] |= segment_bitmap_bit(p);"]
+          (code
+           "si->marked_mask[segment_bitmap_byte(p)] |= segment_bitmap_bit(p);"
+           (cond
+             [within-segment?
+              "si->marked_count += p_sz;"]
+             [else
+              (code-block
+               (format "uptr addr = (uptr)UNTYPE(p, ~a);" type)
+               "uptr seg = addr_get_segment(addr);"
+               "uptr end_seg = addr_get_segment(addr + p_sz - 1);"
+               "if (seg == end_seg) {"
+               "  si->marked_count += p_sz;"
+               "} else {"
+               "  seginfo *mark_si;"
+               "  si->marked_count += ((uptr)build_ptr(seg+1,0)) - (uptr)p;"
+               "  seg++;"
+               "  while (seg < end_seg) {"
+               "    mark_si = SegInfo(seg);"
+               (ensure-segment-mark-mask "mark_si" "    ")
+               "    mark_si->marked_mask[0] |= 0x1;"
+               "    mark_si->marked_count = segment_bitmap_bytes;"
+               "    seg++;"
+               "  }"
+               "  mark_si = SegInfo(end_seg);"
+               (ensure-segment-mark-mask "mark_si" "  ")
+               "  mark_si->marked_mask[0] |= 0x1;"
+               "  mark_si->marked_count += (uptr)p + p_sz - (uptr)build_ptr(end_seg,0);"
+               "}")]))]
          [within-segment?
-          (cond
-            [sz
-             (code-block
-              "ptr mark_p = p;"
-              (let loop ([sz sz])
-                (code
-                 "si->marked_mask[segment_bitmap_byte(mark_p)] |= segment_bitmap_bit(mark_p);"
-                 (let ([sz (- sz (constant byte-alignment))])
-                   (if (zero? sz)
-                       #f
-                       (code
-                        "mark_p = (ptr)((uptr)mark_p + byte_alignment);"
-                        (loop sz)))))))]
-            [else
-             (hashtable-set! (lookup 'used config) 'p_sz #t)
-             (within-loop-statement #f "si" "byte_alignment")])]
+          (code
+           "si->marked_count += p_sz;"
+           (cond
+             [sz
+              (code-block
+               "ptr mark_p = p;"
+               (let loop ([sz sz])
+                 (code
+                  "si->marked_mask[segment_bitmap_byte(mark_p)] |= segment_bitmap_bit(mark_p);"
+                  (let ([sz (- sz (constant byte-alignment))])
+                    (if (zero? sz)
+                        #f
+                        (code
+                         "mark_p = (ptr)((uptr)mark_p + byte_alignment);"
+                         (loop sz)))))))]
+             [else
+              (within-loop-statement #f "si" "byte_alignment" #f)]))]
          [else
           (let ([step (if dense?
                           "ptr_bytes"
                           "byte_alignment")])
-            (hashtable-set! (lookup 'used config) 'p_sz #t)
-            (code "if (ptr_get_segment(p) == ptr_get_segment((ptr)((uptr)p + p_sz - 1))"
-                  (within-loop-statement #f "si" step)
-                  "else"
-                  (within-loop-statement "  seginfo *mark_si = SegInfo(ptr_get_segment(mark_p));"
-                                         "mark_si"
-                                         step)))])
+            (code-block
+             (format "uptr addr = (uptr)UNTYPE(p, ~a);" type)
+             "if (addr_get_segment(addr) == addr_get_segment(addr + p_sz - 1))"
+             (code-block
+              "si->marked_count += p_sz;"
+              (within-loop-statement #f "si" step #f))
+             "else"
+             (within-loop-statement (code
+                                     "  seginfo *mark_si = SegInfo(ptr_get_segment(mark_p));"
+                                     (ensure-segment-mark-mask "mark_si" "  "))
+                                    "mark_si"
+                                    step
+                                    #t)))])
        (cond
          [no-sweep? #f]
          [else "push_sweep(p);"]))))
@@ -2147,6 +2224,14 @@
          (when (and index (not (eq? index 0)))
            (error 'field-ref "index not allowed for non-array field ~s" acc-name))
          (format "~a(~a)" c-ref obj)])))
+  
+  (define (ensure-segment-mark-mask si inset)
+    (code
+     (format "~aif (!~a->marked_mask) {" inset si)
+     (format "~a  find_room(space_data, target_generation, typemod, ptr_align(segment_bitmap_bytes), ~a->marked_mask);"
+             inset si)
+     (format "~a  memset(~a->marked_mask, 0, segment_bitmap_bytes);" inset si)
+     (format "~a}" inset)))
 
   (define (just-mark-bit-space? sp)
     (case sp
@@ -2324,11 +2409,6 @@
                              `((mode sweep)
                                (maybe-backreferences? ,count?)
                                (counts? ,count?))))
-       (print-code (generate "sweep_dirty_object"
-                             `((mode sweep)
-                               (maybe-backreferences? ,count?)
-                               (counts? ,count?)
-                               (as-dirty? #t))))
        (letrec ([sweep1
                  (case-lambda
                   [(type) (sweep1 type (format "sweep_~a" type) '())]
@@ -2355,7 +2435,8 @@
        (print-code (generate "size_object"
                              `((mode size))))
        (print-code (generate "mark_object"
-                             `((mode mark))))
+                             `((mode mark)
+                               (counts? ,count?))))
        (print-code (generate "object_directly_refers_to_self"
                              `((mode self-test))))
        (when measure?

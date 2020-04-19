@@ -182,10 +182,6 @@ void S_prim_init() {
     Sforeign_symbol("(cs)lookup_library_entry", (void *)S_lookup_library_entry);
     Sforeign_symbol("(cs)link_code_object", (void *)s_link_code_object);
     Sforeign_symbol("(cs)lookup_c_entry", (void *)S_lookup_c_entry);
-    Sforeign_symbol("(cs)lock_object", (void *)Slock_object);
-    Sforeign_symbol("(cs)unlock_object", (void *)Sunlock_object);
-    Sforeign_symbol("(cs)locked_objectp", (void *)Slocked_objectp);
-    Sforeign_symbol("(cs)locked_objects", (void *)S_locked_objects);
     Sforeign_symbol("(cs)maxgen", (void *)S_maxgen);
     Sforeign_symbol("(cs)set_maxgen", (void *)S_set_maxgen);
     Sforeign_symbol("(cs)minfreegen", (void *)S_minfreegen);
@@ -215,6 +211,8 @@ static void s_instantiate_code_object() {
     tc_mutex_acquire()
     new = S_code(tc, CODETYPE(old), CODELEN(old));
     tc_mutex_release()
+
+    Slock_object(new);
 
     oldreloc = CODERELOC(old);
     size = RELOCSIZE(oldreloc);

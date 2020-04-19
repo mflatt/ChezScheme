@@ -367,7 +367,6 @@
         (export "void" "Sset_top_level_value" "(ptr, ptr)")
         (export "void" "Slock_object" "(ptr)")
         (export "void" "Sunlock_object" "(ptr)")
-        (export "int" "Slocked_objectp" "(ptr)")
         (export "void" "Sforeign_symbol" "(const char *, void *)")
         (export "void" "Sregister_symbol" "(const char *, void *)")
   

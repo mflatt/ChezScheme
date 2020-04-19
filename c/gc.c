@@ -20,13 +20,11 @@
 #include <sys/wait.h>
 #endif /* WIN32 */
 #include "popcount.h"
+#include <assert.h>
 
 /* locally defined functions */
-static uptr list_length PROTO((ptr ls));
-static ptr copy_list PROTO((ptr ls, IGEN tg));
-static ptr dosort PROTO((ptr ls, uptr n));
-static ptr domerge PROTO((ptr l1, ptr l2));
 static ptr copy PROTO((ptr pp, seginfo *si));
+static ptr mark_object PROTO((ptr pp, seginfo *si));
 static void sweep PROTO((ptr tc, ptr p));
 static void sweep_in_old PROTO((ptr tc, ptr p));
 static IBOOL object_directly_refers_to_self PROTO((ptr p));
@@ -34,6 +32,8 @@ static ptr copy_stack PROTO((ptr old, iptr *length, iptr clength));
 static void resweep_weak_pairs PROTO((IGEN g));
 static void forward_or_bwp PROTO((ptr *pp, ptr p));
 static void sweep_generation PROTO((ptr tc, IGEN g));
+static void sweep_from_stack PROTO((ptr tc));
+static void enlarge_sweep_stack PROTO(());
 static uptr size_object PROTO((ptr p));
 static iptr sweep_typed_object PROTO((ptr tc, ptr p));
 static void sweep_symbol PROTO((ptr p));
@@ -47,8 +47,6 @@ static IGEN sweep_dirty_symbol PROTO((ptr x, IGEN tg, IGEN youngest));
 static void sweep_code_object PROTO((ptr tc, ptr co));
 static void record_dirty_segment PROTO((IGEN from_g, IGEN to_g, seginfo *si));
 static void sweep_dirty PROTO((void));
-static IGEN sweep_dirty_intersecting PROTO((ptr lst, ptr *pp, ptr *ppend, IGEN tg, IGEN youngest));
-static IGEN sweep_dirty_object PROTO((ptr p, IGEN tg, IGEN youngest));
 static void resweep_dirty_weak_pairs PROTO((void));
 static void add_pending_guardian PROTO((ptr gdn, ptr tconc));
 static void add_trigger_guardians_to_recheck PROTO((ptr ls));
@@ -62,6 +60,7 @@ static void clear_trigger_ephemerons PROTO(());
 
 #ifdef ENABLE_OBJECT_COUNTS
 static uptr total_size_so_far();
+static uptr list_length PROTO((ptr ls));
 #endif
 static uptr target_generation_space_so_far();
 
@@ -79,8 +78,6 @@ static void add_trigger_ephemerons_to_pending_measure(ptr pe);
 static void check_ephemeron_measure(ptr pe);
 static void check_pending_measure_ephemerons();
 #endif
-
-#define OLDSPACE(x) (SPACE(x) & space_old)
 
 /* #define DEBUG */
 
@@ -101,6 +98,12 @@ static uptr count_root_bytes;
 #else
 # define COUNTING_OR(e) e
 #endif
+
+static ptr *sweep_stack_start, *sweep_stack, *sweep_stack_limit;
+
+#define push_sweep(p) { \
+  if (sweep_stack == sweep_stack_limit) enlarge_sweep_stack(); \
+  *(sweep_stack++) = p; }
 
 #ifdef ENABLE_MEASURE
 static uptr measure_total; /* updated by `measure` */
@@ -142,21 +145,15 @@ enum {
   GUARDIAN_PENDING_FINAL
 };
 
-static ptr copy_list(ptr ls, IGEN tg) {
-  ptr ls2 = Snil;
-  for (; ls != Snil; ls = Scdr(ls))
-    ls2 = S_cons_in(space_impure, tg, Scar(ls), ls2);
-  return ls2;
-}
-
-#define CARLT(x, y) (Scar(x) < Scar(y))
-mkmergesort(dosort, domerge, ptr, Snil, CARLT, INITCDR)
-
+#ifdef ENABLE_OBJECT_COUNTS
 uptr list_length(ptr ls) {
   uptr i = 0;
   while (ls != Snil) { ls = Scdr(ls); i += 1; }
   return i;
 }
+#endif
+
+#define marked(si, p) (si->marked_mask && (si->marked_mask[segment_bitmap_byte(p)] & segment_bitmap_bit(p)))
 
 #ifdef PRESERVE_FLONUM_EQ
 
@@ -207,7 +204,7 @@ static int flonum_is_forwarded_p(ptr p, seginfo *si) {
 #define relocate_dirty(ppp,tg,youngest) {\
   ptr PP = *ppp; seginfo *SI;\
   if (!IMMEDIATE(PP) && (SI = MaybeSegInfo(ptr_get_segment(PP))) != NULL) {\
-    if (SI->space & space_old) {\
+    if (SI->old_space) {\
       relocate_help_help(ppp, PP, SI)\
       youngest = tg;\
     } else {\
@@ -221,21 +218,17 @@ static int flonum_is_forwarded_p(ptr p, seginfo *si) {
 
 #define relocate_help(ppp, pp) {\
   seginfo *SI; \
-  if (!IMMEDIATE(pp) && (SI = MaybeSegInfo(ptr_get_segment(pp))) != NULL && COUNTING_OR(SI->space & space_old)) \
+  if (!IMMEDIATE(pp) && (SI = MaybeSegInfo(ptr_get_segment(pp))) != NULL && COUNTING_OR(SI->old_space)) \
     relocate_help_help(ppp, pp, SI)\
 }
 
 #define relocate_help_help(ppp, pp, si) {       \
   if (FORWARDEDP(pp, si)) \
     *ppp = GET_FWDADDRESS(pp); \
-  else if (!marked(pp, si)) \
-    *ppp = copy(pp, si);\
+  else if (!marked(si, pp)) \
+    *ppp = copy(pp, si); \
 }
-
-#define marked(si, p) (si->marked_mask && (si->marked_mask[segment_bitmap_byte(p)] & segment_bitmap_bit(p)))
-
-#define to_be_marked(si, p) locked(si, p)
-
+  
 #ifdef ENABLE_OBJECT_COUNTS
 # define is_counting_root(si, p) (si->counting_mask && (si->counting_mask[segment_bitmap_byte(p)] & segment_bitmap_bit(p)))
 #endif
@@ -290,7 +283,7 @@ static void sweep_in_old(ptr tc, ptr p) {
 static ptr copy_stack(old, length, clength) ptr old; iptr *length, clength; {
   iptr n, m; ptr new;
 
-  /* Don't copy non-oldspace stacks, since we may be sweeping a locked
+  /* Don't copy non-oldspace stacks, since we may be sweeping a
      continuation that is older than target_generation.  Doing so would
      be a waste of work anyway. */
   if (!OLDSPACE(old)) return old;
@@ -323,7 +316,7 @@ static ptr copy_stack(old, length, clength) ptr old; iptr *length, clength; {
     next = GUARDIANNEXT(ls); \
  \
     if (FILTER(si, obj)) { \
-      if (!(si->space & space_old) || marked(si, obj)) { \
+      if (!si->old_space || marked(si, obj)) { \
         INITGUARDIANNEXT(ls) = pend_hold_ls; \
         pend_hold_ls = ls; \
       } else if (FORWARDEDP(obj, si)) { \
@@ -334,7 +327,7 @@ static ptr copy_stack(old, length, clength) ptr old; iptr *length, clength; {
         seginfo *t_si; \
         tconc = GUARDIANTCONC(ls); \
         t_si = SegInfo(ptr_get_segment(tconc)); \
-        if (!(t_si->space & space_old) || marked(t_si, tconc)) { \
+        if (!t_si->old_space || marked(t_si, tconc)) { \
           INITGUARDIANNEXT(ls) = final_ls; \
           final_ls = ls; \
         } else if (FWDMARKER(tconc) == forward_marker) { \
@@ -392,6 +385,8 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
     target_generation = tg;
     max_copied_generation = mcg;
 
+    sweep_stack_start = sweep_stack = sweep_stack_limit = NULL;
+
   /* set up generations to be copied */
     for (s = 0; s <= max_real_space; s++)
         for (g = 0; g <= mcg; g++) {
@@ -415,21 +410,18 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
     oldspacesegments = (seginfo *)NULL;
     for (s = 0; s <= max_real_space; s += 1) {
       for (g = 0; g <= mcg; g += 1) {
-        IBOOL maybe_mark = ((tg == S_G.max_nonstatic_generation) && (g == tg));
+        IBOOL maybe_mark = ((tg == S_G.max_nonstatic_generation) && (g == tg) && (s == space_data)); /* REMOVEME */
         for (si = S_G.occupied_segments[s][g]; si != NULL; si = nextsi) {
-          ISPC mark_flag;
-          if (maybe_mark
-              && segment_not_too_sparse(si)
-              /* could end up with `space_new` in old generation via object locking */
-              && (si->space != space_new))
-            mark_flag = space_mark;
-          else
-            mark_flag = 0;
           nextsi = si->next;
           si->next = oldspacesegments;
           oldspacesegments = si;
-          si->space = s | space_old | mark_flag; /* NB: implicitly clearing space_locked and maybe space_mark */
+          si->old_space = 1;
+          if (si->must_mark
+              || (maybe_mark && (!si->marked_mask
+                                 || (si->marked_count > (bytes_per_segment >> 1)))))
+            si->mark_space = 1;
           si->marked_mask = NULL; /* clear old mark bits, if any */
+          si->marked_count = 0;
         }
         S_G.occupied_segments[s][g] = NULL;
       }
@@ -457,7 +449,7 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
       S_G.gcbackreference[g] = Snil;
    }
 
-   SET_BACKREFERENCE(Sfalse) /* #f => root or locked */
+   SET_BACKREFERENCE(Sfalse) /* #f => root */
 
 #ifdef ENABLE_OBJECT_COUNTS
   /* set flag on count_roots objects so they get copied to space_count_root */
@@ -482,8 +474,8 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
            si->counting_mask[segment_bitmap_byte(p)] |= segment_bitmap_bit(p);
 
            count_roots[i].p = p;
-           count_roots[i].weak = (((ls_si->space & ~(space_old|space_locked|space_mark)) == space_weakpair)
-                                  || ((ls_si->space & ~(space_old|space_locked|space_mark)) == space_ephemeron));
+           count_roots[i].weak = ((ls_si->space == space_weakpair)
+                                  || (ls_si->space == space_ephemeron));
          }
        }
      } else {
@@ -491,29 +483,6 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
        count_roots = NULL;
      }
 #endif
-     
-
-   /* for locked objects, force the enclosing space(s) to mark mode */
-     for (si = oldspacesegments; si != NULL; si = si->next) {
-       if (si->locked_objects != Snil) {
-         si->space |= space_mark;
-         
-         /* If a locked object extends to more segments, put those in `space_mark` mode, too */
-         for (ls = si->locked_objects; ls != Snil; ls = Scdr(ls)) {
-           ptr p = Scar(ls);
-           uptr n = size_object(p);
-           ptr a1 = UNTYPE_ANY(p);
-           ptr a2 = (ptr)((uptr)a1 + n - 1);
-           uptr seg;
-
-           for (seg = addr_get_segment(a1)+1; seg <= addr_get_segment(a2); seg += 1) {
-             seginfo *si = SegInfo(seg);
-             si->space |= space_mark;
-           }
-         }
-       }
-       si->unlocked_objects = Snil;
-     }
 
 #ifdef ENABLE_OBJECT_COUNTS
   /* sweep count_roots in order and accumulate counts */
@@ -535,11 +504,11 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
 
            si->counting_mask[segment_bitmap_byte(p)] -= segment_bitmap_bit(p);
 
-           if (!(si->space & space_old) || FORWARDEDP(p, si) || marked(si, p)
+           if (!si->old_space || FORWARDEDP(p, si) || marked(si, p)
                || !count_roots[i].weak) {
              /* reached or older; sweep transitively */
              relocate(&p)
-             if ((si->space & ~(space_old|space_locked|space_mark)) != space_ephemeron) /* not ok to resweep ephemeron */
+             if (si->space != space_ephemeron) /* not ok to resweep ephemeron */
                sweep(tc, p);
              ADD_BACKREFERENCE(p)
              sweep_generation(tc, tg);
@@ -580,18 +549,6 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
        }
      }
 #endif
-
-   /* mark younger locked objects */
-     for (si = oldspacesegments; si != NULL; si = si->next) {
-       if (si->locked_objects != Snil) {
-         ls = copy_list(si->locked_objects, tg);
-         
-         while (ls != Snil) {
-           mark(si, Scar(ls));
-           ls = Scdr(ls);
-         }
-       }
-     }
 
   /* sweep non-oldspace threads, since any thread may have an active stack */
     for (ls = S_threads; ls != Snil; ls = Scdr(ls)) {
@@ -730,7 +687,7 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
                     pend_hold_ls = ls;
                   } else {
                     seginfo *si;
-                    if (!IMMEDIATE(rep) && (si = MaybeSegInfo(ptr_get_segment(rep))) != NULL && (si->space & space_old) && !marked(si, rep)) {
+                    if (!IMMEDIATE(rep) && (si = MaybeSegInfo(ptr_get_segment(rep))) != NULL && si->old_space && !marked(si, rep)) {
                       PUSH_BACKREFERENCE(rep)
                       sweep_in_old(tc, rep);
                       POP_BACKREFERENCE()
@@ -768,7 +725,7 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
 
                     t_si = SegInfo(ptr_get_segment(tconc));
 
-                    if ((t_si->space & space_old) && !marked(t_si, tconc)) {
+                    if (t_si->old_space && !marked(t_si, tconc)) {
                         if (FWDMARKER(tconc) == forward_marker)
                             tconc = FWDADDRESS(tconc);
                         else {
@@ -867,16 +824,6 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
    /* still-pending ephemerons all go to bwp */
     clear_trigger_ephemerons();
 
-   /* forward car fields of locked oldspace weak pairs */
-     for (si = oldspacesegments; si != NULL; si = si->next) {
-       if ((si->locked_objects != Snil) && (si->space == (space_weakpair | space_old | space_mark))) {
-         for (ls = si->locked_objects; ls != Snil; ls = Scdr(ls)) {
-           ptr x = Scar(ls);
-           forward_or_bwp(&INITCAR(x), Scar(x));
-         }
-       }
-     }
-
    /* post-gc oblist handling.  rebuild old buckets in the target generation, pruning unforwarded symbols */
     { bucket_list *bl, *blnext; bucket *b, *bnext; bucket_pointer_list *bpl; bucket **pb;
       ptr sym; seginfo *si;
@@ -923,7 +870,7 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
           count++;
           p = Scar(ls);
           si = SegInfo(ptr_get_segment(p));
-          if (!(si->space & space_old) || marked(si, p)) {
+          if (!si->old_space || marked(si, p)) {
             newls = S_cons_in(space_impure, tg, p, newls);
             S_G.countof[tg][countof_pair] += 1;
           } else if (FWDMARKER(p) == forward_marker) {
@@ -963,10 +910,11 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
      marked old space segments to the target generation */
     for (si = oldspacesegments; si != NULL; si = nextsi) {
       nextsi = si->next;
-      s = si->space;
-      if (s->marked_mask != NULL) {
-        s &= ~(space_old|space_mark);
-        si->space = s;
+      si->old_space = 0;
+      si->mark_space = 0;
+      if (si->marked_mask != NULL) {
+        si->min_dirty_byte = 0xff;
+        s = si->space;
         si->generation = tg;
         if (tg == static_generation) S_G.number_of_nonstatic_segments -= 1;
         si->next = S_G.occupied_segments[s][tg];
@@ -1095,7 +1043,7 @@ static void resweep_weak_pairs(g) IGEN g; {
 static void forward_or_bwp(pp, p) ptr *pp; ptr p; {
   seginfo *si;
  /* adapted from relocate */
-  if (!IMMEDIATE(p) && (si = MaybeSegInfo(ptr_get_segment(p))) != NULL && si->space & space_old && !marked(si, p)) {
+  if (!IMMEDIATE(p) && (si = MaybeSegInfo(ptr_get_segment(p))) != NULL && si->old_space && !marked(si, p)) {
     if (FORWARDEDP(p, si)) {
       *pp = GET_FWDADDRESS(p);
     } else {
@@ -1109,6 +1057,9 @@ static void sweep_generation(tc, g) ptr tc; IGEN g; {
   
   do {
     change = 0;
+
+    sweep_from_stack(tc);
+    
     sweep_space(space_impure, {
         SET_BACKREFERENCE(TYPE((ptr)pp, type_pair)) /* only pairs put here in backreference mode */
         relocate_help(pp, p)
@@ -1199,6 +1150,27 @@ static void sweep_generation(tc, g) ptr tc; IGEN g; {
     if (!change)
       check_pending_ephemerons();
   } while (change);
+}
+
+void enlarge_sweep_stack() {
+  uptr sz = ptr_bytes * (sweep_stack_limit - sweep_stack_start);
+  uptr new_sz = 2 * ((sz == 0) ? 256 : sz);
+  ptr new_sweep_stack;
+  find_room(space_data, 0, typemod, ptr_align(new_sz), new_sweep_stack);
+  if (sz != 0)
+    memcpy(new_sweep_stack, sweep_stack_start, sz);
+  sweep_stack_start = (ptr *)new_sweep_stack;
+  sweep_stack_limit = (ptr *)((uptr)new_sweep_stack + new_sz);
+  sweep_stack = (ptr *)((uptr)new_sweep_stack + sz);
+}
+
+void sweep_from_stack(tc) ptr tc; {
+  if (sweep_stack > sweep_stack_start) {
+    change = 1;
+  
+    while (sweep_stack > sweep_stack_start)
+      sweep(tc, *(--sweep_stack));
+  }
 }
 
 static iptr sweep_typed_object(tc, p) ptr tc; ptr p; {
@@ -1306,40 +1278,12 @@ static void sweep_dirty(void) {
                 /* assume we won't find any wrong-way pointers */
                 youngest = 0xff;
 
-                if (dirty_si->locked_objects && (s == space_new)) {
-                  /* Since `space_new` has a mixture of object types, we have to
-                     use the `[un]locked_objects` list. Look only at bytes that
-                     intersect with a locked or unlocked object. */
-                  ptr backp;
-                  seginfo *prev_si;
-
-                  youngest = sweep_dirty_intersecting(dirty_si->locked_objects, pp, ppend, tg, youngest);
-                  youngest = sweep_dirty_intersecting(dirty_si->unlocked_objects, pp, ppend, tg, youngest);
-
-                  /* Look for previous segment that might have locked objects running into this one */
-                  backp = (ptr)((uptr)build_ptr(seg, 0) - ptr_bytes);
-                  while (1) {
-                    ISPC s2;
-                    prev_si = MaybeSegInfo(ptr_get_segment(backp));
-                    if (!prev_si) break;
-                    s2 = prev_si->space;
-                    if (!(s2 & space_locked)) break;
-                    s2 &= ~space_locked;
-                    if (SIMPLE_DIRTY_SPACE_P(s2)) break;
-                    if ((prev_si->locked_objects != Snil) || (prev_si->unlocked_objects != Snil)) {
-                      youngest = sweep_dirty_intersecting(prev_si->locked_objects, pp, ppend, tg, youngest);
-                      youngest = sweep_dirty_intersecting(prev_si->unlocked_objects, pp, ppend, tg, youngest);
-                      break;
-                    } else {
-                      backp = (ptr)(((uptr)backp) - bytes_per_segment);
-                    }
-                  }
-                } else if ((s == space_impure)
-                           || (s == space_impure_typed_object) || (s == space_count_impure)
-                           || (s == space_closure)) {
+                if ((s == space_impure) || (s == space_immobile_impure)
+                    || (s == space_impure_typed_object) || (s == space_count_impure)
+                    || (s == space_closure)) {
                   while (pp < ppend && *pp != forward_marker) {
                     /* handle two pointers at a time */
-                    if (!dirty_si->marked_mask || marked(p, dirty_si)) {
+                    if (!dirty_si->marked_mask || marked(dirty_si, pp)) {
                       relocate_dirty(pp,tg,youngest)
                       pp += 1;
                       relocate_dirty(pp,tg,youngest)
@@ -1361,7 +1305,7 @@ static void sweep_dirty(void) {
                   while (pp < ppend && *pp != forward_marker) { /* might overshoot card by part of a symbol.  no harm. */
                     ptr p = TYPE((ptr)pp, type_symbol);
 
-                    if (!dirty_si->marked_mask || marked(p, dirty_si))
+                    if (!dirty_si->marked_mask || marked(dirty_si, p))
                       youngest = sweep_dirty_symbol(p, tg, youngest);
 
                     pp += size_symbol / sizeof(ptr);
@@ -1380,7 +1324,7 @@ static void sweep_dirty(void) {
                   while (pp < ppend && *pp != forward_marker) { /* might overshoot card by part of a port.  no harm. */
                     ptr p = TYPE((ptr)pp, type_typed_object);
 
-                    if (!dirty_si->marked_mask || marked(p, dirty_si))
+                    if (!dirty_si->marked_mask || marked(dirty_si, p))
                       youngest = sweep_dirty_port(p, tg, youngest);
 
                     pp += size_port / sizeof(ptr);
@@ -1390,8 +1334,8 @@ static void sweep_dirty(void) {
                   if (dirty_si->marked_mask) {
                     /* To get to the start of a record, move backward as long as bytes
                        are marked and segment space+generation+marked is the same. */
-                    uptr byte = segment_bitmap_byte(p);
-                    uptr bit = segment_bitmap_bit(p);
+                    uptr byte = segment_bitmap_byte(pp);
+                    uptr bit = segment_bitmap_bit(pp);
                     uptr at_seg = seg;
                     seginfo *si = dirty_si;
                   
@@ -1404,8 +1348,8 @@ static void sweep_dirty(void) {
                           seginfo *prev_si = MaybeSegInfo(at_seg-1);
                           if (prev_si
                               && (prev_si->space == si->space)
-                              && (prev_si->g == si->g)
-                              && prev_si->marked-mask
+                              && (prev_si->generation == si->generation)
+                              && prev_si->marked_mask
                               /* object can only continue from the previous segment
                                  if that segment is fully marked (including last words) */
                               && (prev_si->marked_mask[segment_bitmap_bytes-1] == 0xFF)) {
@@ -1460,7 +1404,7 @@ static void sweep_dirty(void) {
                     /* now sweep, but watch out for unmarked holes in the dirty region */
                     while ((ptr *)UNTYPE(p, type_typed_object) < ppend) {
                       seginfo *si = SegInfo(ptr_get_segment(p));
-                      if (!marked(p, si)) {
+                      if (!marked(si, p)) {
                         /* skip unmarked word */
                         p = (ptr)((uptr)p + ptr_bytes);
                       } else {
@@ -1522,7 +1466,7 @@ static void sweep_dirty(void) {
                 } else if (s == space_weakpair) {
                   while (pp < ppend && *pp != forward_marker) {
                     /* skip car field and handle cdr field */
-                    if (!dirty_si->marked_mask || marked(pp, dirty_si)) {
+                    if (!dirty_si->marked_mask || marked(dirty_si, pp)) {
                       pp += 1;
                       relocate_dirty(pp, tg, youngest)
                       pp += 1;
@@ -1532,7 +1476,7 @@ static void sweep_dirty(void) {
                 } else if (s == space_ephemeron) {
                   while (pp < ppend && *pp != forward_marker) {
                     ptr p = TYPE((ptr)pp, type_pair);
-                    if (!dirty_si->marked_mask || marked(p, dirty_si))
+                    if (!dirty_si->marked_mask || marked(dirty_si, p))
                       youngest = check_dirty_ephemeron(p, tg, youngest);
                     pp += size_ephemeron / sizeof(ptr);
                   }
@@ -1561,25 +1505,6 @@ static void sweep_dirty(void) {
   }
 
   POP_BACKREFERENCE()
-}
-
-IGEN sweep_dirty_intersecting(ptr lst, ptr *pp, ptr *ppend, IGEN tg, IGEN youngest)
-{
-  ptr p, *pu, *puend;
-
-  for (; lst != Snil; lst = Scdr(lst)) {
-    p = (ptr *)Scar(lst);
-
-    pu = (ptr*)UNTYPE_ANY(p);
-    puend = (ptr*)((uptr)pu + size_object(p));
-
-    if (((pu >= pp) && (pu < ppend))
-        || ((puend >= pp) && (puend < ppend))
-        || ((pu <= pp) && (puend >= ppend)))
-      youngest = sweep_dirty_object(p, tg, youngest);
-  }
-
-  return youngest;
 }
 
 static void resweep_dirty_weak_pairs() {
@@ -1618,7 +1543,7 @@ static void resweep_dirty_weak_pairs() {
 
               /* handle car field */
               if (!IMMEDIATE(p) && (si = MaybeSegInfo(ptr_get_segment(p))) != NULL) {
-                if (si->space & space_old) {
+                if (si->old_space) {
                   if (marked(si, p)) {
                     youngest = tg;
                   } else if (FORWARDEDP(p, si)) {
@@ -1710,7 +1635,7 @@ static void check_ephemeron(ptr pe, int add_to_trigger) {
   PUSH_BACKREFERENCE(pe);
 
   p = Scar(pe);
-  if (!IMMEDIATE(p) && (si = MaybeSegInfo(ptr_get_segment(p))) != NULL && si->space & space_old && !marked(si, p)) {
+  if (!IMMEDIATE(p) && (si = MaybeSegInfo(ptr_get_segment(p))) != NULL && si->old_space && !marked(si, p)) {
     if (FORWARDEDP(p, si)) {
       INITCAR(pe) = FWDADDRESS(p);
       relocate(&INITCDR(pe))
@@ -1764,7 +1689,7 @@ static int check_dirty_ephemeron(ptr pe, int tg, int youngest) {
  
   p = Scar(pe);
   if (!IMMEDIATE(p) && (si = MaybeSegInfo(ptr_get_segment(p))) != NULL) {
-    if (si->space & space_old && !marked(si, p)) {
+    if (si->old_space && !marked(si, p)) {
       if (FORWARDEDP(p, si)) {
         INITCAR(pe) = GET_FWDADDRESS(p);
         relocate(&INITCDR(pe))
@@ -1909,7 +1834,7 @@ static void push_measure(ptr p)
   if (!si)
     return;
 
-  if (si->space & space_old) {
+  if (si->old_space) {
     /* We must be in a GC--measure fusion, so switch back to GC */
     if (!marked(si, p)) {
       relocate(&p)
@@ -1955,7 +1880,7 @@ static void push_measure(ptr p)
 
 static void measure_add_stack_size(ptr stack, uptr size) {
   seginfo *si = SegInfo(ptr_get_segment(stack));
-  if (!(si->space & space_old)
+  if (!(si->old_space)
       && (si->generation <= max_measure_generation)
       && (si->generation >= min_measure_generation))
     measure_total += size;
@@ -1985,7 +1910,7 @@ static void check_ephemeron_measure(ptr pe) {
   if (!IMMEDIATE(p) && (si = MaybeSegInfo(ptr_get_segment(p))) != NULL
       && (si->generation <= max_measure_generation)
       && (si->generation >= min_measure_generation)
-      && (!(si->space & space_old) || !FORWARDEDP(p, si))
+      && (!(si->old_space) || !FORWARDEDP(p, si))
       && (measure_unreached(si, p)
           || (si->counting_mask
               && (si->counting_mask[segment_bitmap_byte(p)] & segment_bitmap_bit(p))))) {

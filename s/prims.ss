@@ -321,6 +321,18 @@
          ($oops who "~s is not a valid vector length" n))
        (make-vector n)]))
 
+(define-who make-immobile-vector
+  (let ([$make-immobile-vector (foreign-procedure "(cs)make_immobile_vector" (uptr ptr) ptr)])
+   (case-lambda
+      [(n x)
+       (unless (and (fixnum? n) (not ($fxu< (constant maximum-vector-length) n)))
+         ($oops who "~s is not a valid vector length" n))
+       ($make-immobile-vector n x)]
+      [(n)
+       (unless (and (fixnum? n) (not ($fxu< (constant maximum-vector-length) n)))
+         ($oops who "~s is not a valid vector length" n))
+       ($make-immobile-vector n 0)])))
+
 (define $make-eqhash-vector
   (case-lambda
     [(n)
@@ -1279,6 +1291,8 @@
 
 (define box-immutable (lambda (x) (box-immutable x)))
 
+(define box-immobile (foreign-procedure "(cs)box_immobile" (ptr) ptr))
+
 (define unbox
    (lambda (b)
       (if (box? b)
@@ -1552,13 +1566,6 @@
      (unless (list? w)
        ($oops '$current-attachments "malformed attachments ~s" w))
      ($current-attachments w)]))
-
-(define lock-object
-  (foreign-procedure "(cs)lock_object" (scheme-object) void))
-(define unlock-object
-  (foreign-procedure "(cs)unlock_object" (scheme-object) void))
-(define locked-object?
-  (foreign-procedure "(cs)locked_objectp" (scheme-object) boolean))
 
 (define-who $install-guardian
   (lambda (obj rep tconc)

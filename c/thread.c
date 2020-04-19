@@ -74,6 +74,8 @@ ptr S_create_thread_object(who, p_tc) const char *who; ptr p_tc; {
     CODERANGESTOFLUSH(tc) = Snil;
   }
 
+  LOCKEDOBJECTS(tc) = Snil;
+
  /* override nonclonable tc fields */
   THREADNO(tc) = S_G.threadno;
   S_G.threadno = S_add(S_G.threadno, FIX(1));

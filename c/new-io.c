@@ -418,10 +418,11 @@ ptr S_close_fd(ptr file, IBOOL gzflag) {
 #endif /* WIN32 */
 
 /* Returns string on error, #!eof on end-of-file and integer-count otherwise */
-ptr S_bytevector_read(ptr file, ptr bv, iptr start, iptr count, IBOOL gzflag) {
+ptr S_bytevector_read(ptr file, ptr bv_in, iptr start_in, iptr count, IBOOL gzflag) {
   INT saved_errno = 0;
   ptr tc = get_thread_context();
-  iptr m, flag = 0;
+  ptr bv, box;
+  iptr m, flag = 0, start;
   INT fd = gzflag ? 0 : GET_FD(file);
   glzFile gzfile = gzflag ? GZXFILE_GZFILE(file) : NULL;
 
@@ -431,6 +432,17 @@ ptr S_bytevector_read(ptr file, ptr bv, iptr start, iptr count, IBOOL gzflag) {
 #if (iptr_bits > 32)
   if ((WIN32 || gzflag) && (unsigned int)count != count) count = 0xffffffff;
 #endif
+
+  bv = S_lockable_bytevector(bv_in, 0, count, 0);
+  if (bv == bv_in) {
+    start = start_in;
+    box = Sfalse;
+  } else {
+    /* Just in case nothing holds to to `bv_in`, put it in a locked box */
+    start = 0;
+    box = S_box2(bv_in, 1);
+    Slock_object(box);
+  }
 
   LOCKandDEACTIVATE(tc, bv)
 #ifdef WIN32
@@ -461,6 +473,13 @@ ptr S_bytevector_read(ptr file, ptr bv, iptr start, iptr count, IBOOL gzflag) {
   }
   saved_errno = errno;
   REACTIVATEandUNLOCK(tc, bv)
+
+  if (box != Sfalse) {
+    Sunlock_object(box);
+    bv_in = Sunbox(box);
+    if (!flag && (m != 0))
+      memcpy(&BVIT(bv_in, start_in), &BVIT(bv, 0), m);
+  }
 
   if (Sboolean_value(KEYBOARDINTERRUPTPENDING(tc))) {
     return Sstring("interrupt");
@@ -535,12 +554,16 @@ ptr S_bytevector_read_nb(ptr file, ptr bv, iptr start, iptr count, IBOOL gzflag)
 #endif /* WIN32 */
 }
 
-ptr S_bytevector_write(ptr file, ptr bv, iptr start, iptr count, IBOOL gzflag) {
+ptr S_bytevector_write(ptr file, ptr bv_in, iptr start, iptr count, IBOOL gzflag) {
   iptr i, s, c;
+  ptr bv;
   ptr tc = get_thread_context();
   INT flag = 0, saved_errno = 0;
   INT fd = gzflag ? 0 : GET_FD(file);
   glzFile gzfile = gzflag ? GZXFILE_GZFILE(file) : NULL;
+
+  bv = S_lockable_bytevector(bv_in, start, count, 1);
+  if (bv != bv_in) start = 0;
 
   for (s = start, c = count; c > 0; s += i, c -= i) {
     iptr cx = c;

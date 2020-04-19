@@ -733,7 +733,6 @@ ftype operators:
                                                      #'x
                                                      (map indirect-ftd-pointer (ftd-function-arg-type* ftd))
                                                      (indirect-ftd-pointer (ftd-function-result-type ftd)))])
-                                         (lock-object co)
                                          (foreign-callable-entry-point co))]
                                       ;; otherwise, it is a string, so lookup the foreign-entry
                                       [(string? x) (foreign-entry x)]

@@ -455,14 +455,23 @@ ptr Scons(car, cdr) ptr car, cdr; {
     return p;
 }
 
-ptr Sbox(ref) ptr ref; {
+ptr S_box2(ref, lockable) ptr ref; IBOOL lockable; {
     ptr tc = get_thread_context();
     ptr p;
 
-    thread_find_room(tc, type_typed_object, size_box, p);
+    if (lockable) {
+      tc_mutex_acquire()
+      find_room(space_immobile_impure, 0, type_typed_object, size_box, p);
+      tc_mutex_release()
+    } else
+      thread_find_room(tc, type_typed_object, size_box, p);
     BOXTYPE(p) = type_box;
     INITBOXREF(p) = ref;
     return p;
+}
+
+ptr Sbox(ref) ptr ref; {
+    return S_box2(ref, 0);
 }
 
 ptr S_symbol(name) ptr name; {
@@ -557,6 +566,10 @@ ptr S_fxvector(n) iptr n; {
 }
 
 ptr S_bytevector(n) iptr n; {
+  return S_bytevector2(n, 0);
+}
+
+ptr S_bytevector2(n, lockable) iptr n; IBOOL lockable; {
     ptr tc;
     ptr p; iptr d;
 
@@ -568,7 +581,12 @@ ptr S_bytevector(n) iptr n; {
     tc = get_thread_context();
 
     d = size_bytevector(n);
-    thread_find_room(tc, type_typed_object, d, p);
+    if (lockable) {
+      tc_mutex_acquire()
+      find_room(space_immobile_data, 0, type_typed_object, d, p);
+      tc_mutex_release()
+    } else
+      thread_find_room(tc, type_typed_object, d, p);
     BYTEVECTOR_TYPE(p) = (n << bytevector_length_offset) | type_bytevector;
     return p;
 }

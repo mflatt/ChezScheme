@@ -246,16 +246,6 @@ EXPORT void call_twice(void (*foo)(int), int x, int y) {
   foo(y);
 }
 
-EXPORT void unlock_callback(int (* f)(int)) {
-  Sunlock_object(Sforeign_callable_code_object(f));
-}
-
-EXPORT int call_and_unlock(int (* f)(int), int arg) {
-  int ans = f(arg);
-  Sunlock_object(Sforeign_callable_code_object(f));
-  return ans;
-}
-
 EXPORT void init_lock (uptr *u) {
   INITLOCK(u);
 }
