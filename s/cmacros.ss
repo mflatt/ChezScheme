@@ -606,8 +606,8 @@
 (define-constant ERROR_MVLET 8)
 
 ;;; allocation spaces
-(define-constant space-locked #x20)         ; lock flag
-(define-constant space-old #x40)            ; oldspace flag
+(define-constant space-marked #x20)         ; marked flag, used during GC only
+(define-constant space-old    #x40)         ; oldspace flag, used during GC only
 
 (define-syntax define-alloc-spaces
   (lambda (x)
@@ -634,8 +634,8 @@
                        [(cchar ...) #'(real-cchar ... unreal-cchar ... last-unreal-cchar)]
                        [(value ...) #'(real-value ... unreal-value ... last-unreal-value)])
            (with-syntax ([(space-name ...) (map (lambda (n) (construct-name n "space-" n)) #'(name ...))])
-             (unless (< (syntax->datum #'last-unreal-value) (constant space-locked))
-               ($oops 'define-alloc-spaces "conflict with space-locked"))
+             (unless (< (syntax->datum #'last-unreal-value) (constant space-marked))
+               ($oops 'define-alloc-spaces "conflict with space-marked"))
              (unless (< (syntax->datum #'last-unreal-value) (constant space-old))
                ($oops 'define-alloc-spaces "conflict with space-old"))
              #'(begin

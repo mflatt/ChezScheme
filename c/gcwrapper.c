@@ -248,7 +248,7 @@ void Slock_object(x) ptr x; {
     if (S_G.enable_object_counts) {
       if (g != 0) S_G.countof[g][countof_pair] += 1;
     }
-    if (si->space & space_locked)
+    if ((si->space == space_new) && si->marked_mask)
       (void)remove_first_nomorep(x, &si->unlocked_objects, 0);
     S_pants_down -= 1;
   }
@@ -265,7 +265,7 @@ void Sunlock_object(x) ptr x; {
     S_pants_down += 1;
    /* remove first occurrence of x from locked list. if there are no
       others, add x to unlocked list */
-    if (remove_first_nomorep(x, &si->locked_objects, si->space & space_locked)) {
+    if (remove_first_nomorep(x, &si->locked_objects, (si->space == space_new) && si->marked_mask)) {
       si->unlocked_objects = S_cons_in((g == 0 ? space_new : space_impure), g, x, si->unlocked_objects);
       if (S_G.enable_object_counts) {
         if (g != 0) S_G.countof[g][countof_pair] += 1;

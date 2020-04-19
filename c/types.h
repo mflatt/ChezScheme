@@ -141,7 +141,7 @@ typedef struct _seginfo {
   ptr trigger_guardians;                    /* guardians to re-check if object in segment is copied out */
   ptr locked_objects;                       /* list of objects (including duplicates) for locked in this segment */
   ptr unlocked_objects;                     /* list of objects (no duplicates) for formerly locked */
-  octet *locked_mask;                       /* bitmap of locked objects, used only during GC */
+  octet *marked_mask;                       /* bitmap of live objects for a segment in "compacting" mode */
 #ifdef PRESERVE_FLONUM_EQ
   octet *forwarded_flonums;                 /* bitmap of flonums whose payload is a forwarding pointer */
 #endif
