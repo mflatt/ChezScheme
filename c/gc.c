@@ -457,7 +457,7 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
     oldspacesegments = (seginfo *)NULL;
     for (s = 0; s <= max_real_space; s += 1) {
       for (g = 0; g <= mcg; g += 1) {
-        IBOOL maybe_mark = ((tg == S_G.max_nonstatic_generation) && (g == tg));
+        IBOOL maybe_mark = ((tg == S_G.min_mark_gen) && (g == tg));
         for (si = S_G.occupied_segments[s][g]; si != NULL; si = nextsi) {
           nextsi = si->next;
           si->next = oldspacesegments;

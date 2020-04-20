@@ -76,6 +76,7 @@
 ;;       * within-segment : alloacted within on segment; can be inferred from size
 ;;       * no-sweep : no need to sweep content (perhaps covered by `trace-now`);
 ;;                    inferred for `space-data`
+;;       * counting-root : check a counting root before pushing to sweep stack
 ;;  - (trace <field>) : relocate for sweep, copy for copy, recur otherwise
 ;;  - (trace-early <field>) : relocate for sweep or copy, recur otherwise
 ;;  - (trace-now <field>) : direct recur
@@ -193,7 +194,7 @@
                 [else space-continuation]))
        (vfasl-fail "closure")
        (size size-continuation)
-       (mark one-bit)
+       (mark one-bit counting-root)
        (case-mode
         [self-test]
         [else
@@ -247,10 +248,10 @@
        (when-mark
         (case-space
          [space-pure
-          (mark one-bit)
+          (mark one-bit counting-root)
           (count countof-closure)]
          [else
-          (mark)
+          (mark counting-root)
           (count countof-closure)]))
        (when (or-not-as-dirty
               (& (code-type code) (<< code-flag-mutable-closure code-flags-offset)))
@@ -335,7 +336,7 @@
       (vfasl-check-parent-rtd rtd)
       (define len : uptr (UNFIX (record-type-size rtd)))
       (size (size_record_inst len))
-      (mark)
+      (mark counting-root)
       (trace-record rtd len)
       (vfasl-set-base-rtd)
       (pad (when (or-vfasl
@@ -1737,7 +1738,7 @@
                (statements (cdr l) config)])]
            [`(mark . ,flags)
             (for-each (lambda (flag)
-                        (unless (memq flag '(one-bit no-sweep within-segment))
+                        (unless (memq flag '(one-bit no-sweep within-segment counting-root))
                           (error 'mark "bad flag ~s" flag)))
                       flags)
             (case (lookup 'mode config)
@@ -2180,7 +2181,14 @@
                                     #t)))])
        (cond
          [no-sweep? #f]
-         [else "push_sweep(p);"]))))
+         [else
+          (let ([push "push_sweep(p);"])
+            (cond
+              [(and (memq 'counting-root flags)
+                    (lookup 'counts? config #f))
+               (code "if (!is_counting_root(si, p))"
+                     (code-block push))]
+              [else push]))]))))
 
   (define (field-expression field config arg protect?)
     (if (symbol? field)

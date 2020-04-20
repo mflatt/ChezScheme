@@ -332,6 +332,26 @@ if (a) the two parameters have the same value before the change, or (b)
 
 %----------------------------------------------------------------------------
 \entryheader
+\formdef{in-place-minimum-generation}{\categoryglobalparameter}{in-place-minimum-generation}
+\listlibraries
+\endentryheader
+
+This parameter determines when the storage-management system attempts
+to trade long-term space usage for the benefit of collection time and
+short-term space usage. When performing a collection at the generation
+at least as large as this parameter's value, objects already residing
+at the generation are kept in place---unless the objects are in a
+memory region where previously keeping them in place resulted in too
+much fragmentation.
+
+Typically, the value of \scheme{release-minimum-generation} should
+match the value of the \scheme{collect-maximum-generation} parameter,
+but the value of this parameter can be lower to move objects even less
+frequently, or it can be higher to disable attempts to keep otherwise
+mobile objects in place.
+
+%----------------------------------------------------------------------------
+\entryheader
 \formdef{heap-reserve-ratio}{\categoryglobalparameter}{heap-reserve-ratio}
 \listlibraries
 \endentryheader
@@ -914,74 +934,53 @@ pointers registered with guardians created by
 (Section~\ref{SECTTHREADFTYPEGUARDIANS}).
 
 
-\section{Locking Objects\label{SECTSMGMTLOCKING}}
+\section{Immobile Objects\label{SECTSMGMTLOCKING}}
 
 All pointers from C variables or data structures to Scheme objects
-should generally be discarded before entry (or reentry) into Scheme.
-When this guideline cannot be followed, the object may be
-\emph{locked} via \scheme{lock-object} or via the equivalent
-C library procedure \index{\scheme{Slock_object}}\scheme{Slock_object}
-(Section~\ref{SECTFOREIGNCLIB}).
+should generally be discarded before entry (or reentry) into Scheme,
+since they may be moved by the storage-management system, but an
+\emph{immobile} object will not be moved as long as it remains
+reachable. Foreign-callable code objects are immobile, as are objects
+allocated by functions that specifically create immobile objects,
+while all other objects are mobile.
 
 %----------------------------------------------------------------------------
 \entryheader
-\formdef{lock-object}{\categoryprocedure}{(lock-object \var{obj})}
-\returns unspecified
+\formdef{box-immobile}{\categoryprocedure}{(box-immobile \var{obj})}
+\returns a box
 \listlibraries
 \endentryheader
 
 \noindent
-Locking an object prevents the storage manager from reclaiming or
-relocating the object.
-Locking should be used sparingly, as it introduces memory fragmentation
-and increases storage management overhead.
-
-Locking can also lead to accidental retention of storage if objects
-are not unlocked.
-Objects may be unlocked via \scheme{unlock-object} or the equivalent
-C library procedure
-\index{\scheme{Sunlock_object}}\scheme{Sunlock_object}.
-
-Locking immediate values, such as fixnums, booleans, and characters,
-or objects that have been made static is unnecessary but harmless.
+Like \scheme{box}, but creates a box that will not be moved in memory
+by the storage management system until it is retained.
 
 
 %----------------------------------------------------------------------------
 \entryheader
-\formdef{unlock-object}{\categoryprocedure}{(unlock-object \var{obj})}
-\returns unspecified
+\formdef{make-immobile-vector}{\categoryprocedure}{(make-immobile-vector \var{n})}
+\formdef{make-immobile-vector}{\categoryprocedure}{(make-immobile-vector \var{n} \var{obj})}
+\returns a vector
 \listlibraries
 \endentryheader
 
 \noindent
-An object may be locked more than once by successive calls to
-\scheme{lock-object}, \scheme{Slock_object}, or both, in which case it must
-be unlocked by an equal number of calls to
-\scheme{unlock-object} or \scheme{Sunlock_object} before it is
-truly unlocked.
-
-An object contained within a locked object, such as an object in the
-car of a locked pair, need not also be locked unless a separate C
-pointer to the object exists.
-That is, if the inner object is accessed only via an indirection of the
-outer object, it should be left unlocked so that the collector is free
-to relocate it during collection.
-
-Unlocking immediate values, such as fixnums, booleans, and characters,
-or objects that have been made static is unnecessary and ineffective but harmless.
+Like \scheme{make-vector}, but creates a vector that will not be moved
+in memory by the storage management system until it is retained.
 
 
 %----------------------------------------------------------------------------
 \entryheader
-\formdef{locked-object?}{\categoryprocedure}{(locked-object? \var{obj})}
-\returns \scheme{#t} if \var{obj} is locked, immediate, or static
+\formdef{make-immobile-bytevector}{\categoryprocedure}{(make-immobile-bytevector \var{n})}
+\formdef{make-immobile-bytevector}{\categoryprocedure}{(make-immobile-bytevector \var{n} \var{byte})}
+\returns a vector
 \listlibraries
 \endentryheader
 
 \noindent
-This predicate returns true if \var{obj} cannot be relocated or reclaimed
-by the collector, including immediate values, such as fixnums,
-booleans, and characters, and objects that have been made static.
+Like \scheme{make-bytevector}, but creates a bytevector that will not be moved
+in memory by the storage management system until it is retained.
+
 
 
 \section{Phantom Bytevectors\label{SECTSMGMTPHANTOM}}

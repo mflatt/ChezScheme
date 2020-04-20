@@ -2076,7 +2076,8 @@
           (and
             (equal? (apply Sargtest addr args1) (reverse args1))
             (equal? (apply Sargtest addr args2) (reverse args2))
-            (equal? (apply Sargtest addr args3) (reverse args3))))))
+            (equal? (apply Sargtest addr args3) (reverse args3))
+            (eqv? addr (foreign-callable-entry-point Fargtest))))))
   (let ()
     (define Fargtest2
       (foreign-callable
@@ -2100,7 +2101,8 @@
           (and
             (equal? (apply Sargtest2 addr args1) (reverse args1))
             (equal? (apply Sargtest2 addr args2) (reverse args2))
-            (equal? (apply Sargtest2 addr args3) (reverse args3))))))
+            (equal? (apply Sargtest2 addr args3) (reverse args3))
+            (eqv? addr (foreign-callable-entry-point Fargtest2))))))
   (let ()
     (define Frvtest_int32
       (foreign-callable
@@ -2203,7 +2205,8 @@
     (let ([x 5])
       (define call-twice (foreign-procedure "call_twice" (void* int int) void))
       (let ([co (foreign-callable (lambda (y) (set! x (+ x y))) (int) void)])
-        (call-twice (foreign-callable-entry-point co) 7 31))
+        (call-twice (foreign-callable-entry-point co) 7 31)
+        (when (eq? x co) (error 'dummy "just keeping co live")))
       x)
     43)
   (equal?

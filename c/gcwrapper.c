@@ -52,7 +52,8 @@ void S_gc_init() {
   S_G.max_nonstatic_generation = 
     S_G.new_max_nonstatic_generation = 
       S_G.min_free_gen = 
-        S_G.new_min_free_gen = default_max_nonstatic_generation;
+        S_G.new_min_free_gen =
+          S_G.min_mark_gen = default_max_nonstatic_generation;
 
   for (g = 0; g <= static_generation; g += 1) {
     for (i = 0; i < countof_types; i += 1) {
@@ -161,6 +162,14 @@ void S_set_minfreegen(IGEN g) {
   if (S_G.new_max_nonstatic_generation == S_G.max_nonstatic_generation) {
     S_G.min_free_gen = g;
   }
+}
+
+IGEN S_minmarkgen(void) {
+  return S_G.min_mark_gen;
+}
+
+void S_set_minmarkgen(IGEN g) {
+  S_G.min_mark_gen = g;
 }
 
 void S_immobilize_object(x) ptr x; {

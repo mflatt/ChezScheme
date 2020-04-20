@@ -149,6 +149,8 @@ extern void S_set_maxgen PROTO((IGEN g));
 extern IGEN S_maxgen PROTO((void));
 extern void S_set_minfreegen PROTO((IGEN g));
 extern IGEN S_minfreegen PROTO((void));
+extern void S_set_minmarkgen PROTO((IGEN g));
+extern IGEN S_minmarkgen PROTO((void));
 #ifndef WIN32
 extern void S_register_child_process PROTO((INT child));
 #endif /* WIN32 */

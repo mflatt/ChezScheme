@@ -259,8 +259,8 @@ foreign procedure is called, and the thread is activated again when
 the foreign procedure returns. The \scheme{__collect_safe} declaration
 is useful, for example, when calling a blocking I/O call to allow
 other Scheme threads to run normally. Refrain from passing collectable memory to a
-\scheme{__collect_safe} foreign procedure, or use \scheme{lock-object}
-to lock the memory in place; see also \scheme{Sdeactivate_thread}. The
+\scheme{__collect_safe} foreign procedure, or allocate an immobile
+objects that stays place; see also \scheme{Sdeactivate_thread}. The
 \scheme{__collect_safe} declaration has no effect on a non-threaded
 version of the system.
 
@@ -1069,30 +1069,22 @@ the address of the entry point within the code object.
 (The C-callable library function \scheme{Sforeign_callable_entry_point}, described in
 Section~\ref{SECTFOREIGNCLIB}, may be used to obtain the entry point
 as well.)  
-This is an implicit pointer into a Scheme object, and
-in many cases, it is necessary to lock the code object
-(using \index{\scheme{lock-object}}\scheme{lock-object})
-before converting it into an entry point
-to prevent Scheme's storage management system from
-relocating or destroying the code object, e.g., when the entry point is
+This is an implicit pointer into an immobile Scheme object, so
+it will not be relocated by the storage management system, but
+it may be reclaimed if the code object becomes unreachable on the Scheme
+side; retain a global reference if the entry point is, for example,
 registered as a callback and retained in the ``C'' side indefinitely.
 
-The following code creates a foreign-callable code object, locks
-the code object, and returns the entry point.
+The following code creates a foreign-callable code object and returns
+the entry point.
 
 \schemedisplay
 (let ([x (foreign-callable
            (lambda (x y) (pretty-print (cons x (* y 2))))
            (string integer-32)
            void)])
-  (lock-object x)
   (foreign-callable-entry-point x))
 \endschemedisplay
-
-\noindent
-Unless the entry point is intended to be permanent, a pointer to the
-code object returned by \scheme{foreign-callable} should be retained
-so that it can be unlocked when no longer needed.
 
 Mixed use of \scheme{foreign-callable} and \scheme{foreign-procedure}
 may result in nesting of foreign and Scheme calls, and this
@@ -1156,7 +1148,6 @@ A callback for selected characters can then be defined.
 (define callback
   (lambda (p)
     (let ([code (foreign-callable __collect_safe p (char) void)])
-      (lock-object code)
       (foreign-callable-entry-point code))))
 (define ouch
   (callback
@@ -1269,7 +1260,7 @@ involving any C code.
     (define th (lambda () (call/cc p)))
     (define-ftype ->ptr (function () ptr))
     (let ([fptr (make-ftype-pointer ->ptr th)])
-      (let ([v ((ftype-ref ->ptr () fptr))])
+      ((ftype-ref ->ptr () fptr)))))
         (unlock-object
           (foreign-callable-code-object
             (ftype-pointer-address fptr)))
@@ -1871,36 +1862,12 @@ Thus, \scheme{make-ftype-pointer} with a function ftype is an alternative
 to \scheme{foreign-callable} for creating C-callable wrappers for Scheme
 procedures.
 
-Since all Scheme objects, including code objects, can be relocated or
-even reclaimed by the garbage collector the foreign-callable code object
-is automatically locked, as if via \scheme{lock-object}, before it is
-embedded in the ftype pointer.
-The code object should be unlocked after its last use from C,
-since locked objects take up space, cause fragmentation, and
-increase the cost of collection.
-Since the system cannot determine automatically when the last use
-from C occurs, the program must explicitly unlock the code object,
-which it can do by extracting the address from the ftype-pointer
-converting the address (back) into a code object, and passing it
-to \scheme{unlock-object}:
-
-\schemedisplay
-(unlock-object
-  (foreign-callable-code-object
-    (ftype-pointer-address fact-fptr)))
-\endschemedisplay
-
-Once unlocked, the ftype pointer should not be used again, unless
-it is relocked, e.g., via:
-
-\schemedisplay
-(lock-object
-  (foreign-callable-code-object
-    (ftype-pointer-address fact-fptr)))
-\endschemedisplay
-
-A program can determine whether an object is already locked via
-the \scheme{locked-object?} predicate.
+All Scheme objects, including code objects, can be reclaimed by the
+garbage collector, and the system cannot determine automatically when
+a last use of a callable from C occurs. So, a program must explicitly
+retain a reference to the callable object (or, at least, its code
+object) until after the last use. The callable object is immobile, so
+it will not be relocated in memory until it is reclaimed.
 
 A \index{function ftype}function ftype can be also used with
 \scheme{make-ftype-pointer} to create an ftype-pointer to a C function,
@@ -3027,11 +2994,13 @@ sequence of octets (unsignec chars).
 \scheme{Sbytevector_data} returns a pointer to the start of the sequence
 of octets.
 Extreme care should be taken to stop dereferencing the pointer returned by
-\scheme{Sbytevector_data} or to lock the bytevector into memory (see
-\scheme{Slock_object} below) before any Scheme code is executed,
-whether by calling into Scheme or returning to a Scheme caller.
+\scheme{Sbytevector_data} before any Scheme code is executed,
+whether by calling into Scheme or returning to a Scheme caller,
+unless the bytevector is known to be reachable and immobile (e.g.,
+allocated by \scheme{make-immobile-bytevector}).
 The storage manager may otherwise relocate or discard the object into which
-the pointer points and may copy other data over the object.
+the pointer points, and it may copy other data into the object's former
+mmeory.
 
 \begin{flushleft}
 \cmacro{octet *}{Sbytevector_data}{ptr \var{bytevec}}
@@ -3248,7 +3217,7 @@ To access the current interaction-environment binding for a symbol, it
 is necessary to call the Scheme \scheme{top-level-value} and
 \scheme{set-top-level-value!} procedures instead.
 
-\parheader{Locking Scheme objects}
+\parheader{Immobile Scheme objects}
 The storage manager periodically relocates objects in order to reclaim
 storage and compact the heap.
 This relocation is completely transparent to Scheme programs, since all
@@ -3277,58 +3246,11 @@ into C equivalents, if possible.
 In certain cases, it is not possible to do so, yet retention of the
 Scheme object is essential to the design of the C portions of the
 program.
-In these cases, the object may be \emph{locked} via the library routine
-\scheme{Slock_object} (or from Scheme, the equivalent procedure
-\index{\scheme{lock-object}}\scheme{lock-object}).
-
-\begin{flushleft}
-\cfunction{void}{Slock_object}{ptr \var{obj}}
-\end{flushleft}
-
-\noindent
-Locking an object prevents the storage manager from reclaiming or
-relocating the object.
-Locking should be used sparingly, as it introduces memory fragmentation
-and increases storage management overhead.
-Locking can also lead to accidental retention of storage if objects
-are not unlocked.
-Locking objects that have been made static via heap compaction
-(see \index{\scheme{Scompact_heap}}\scheme{Scompact_heap} above)
-is unnecessary but harmless.
-
-Objects may be unlocked via \scheme{Sunlock_object}
-(\index{\scheme{unlock-object}}\scheme{unlock-object}).
-
-\begin{flushleft}
-\cfunction{void}{Sunlock_object}{ptr \var{obj}}
-\end{flushleft}
-
-\noindent
-An object may be locked more than once by successive calls to
-\scheme{Slock_object} or \scheme{lock-object}, in which case it must
-be unlocked by an equal number of calls to
-\scheme{Sunlock_object} or \scheme{unlock-object} before it is
-truly unlocked.
-
-The function \scheme{Sunlocked_objectp} can be used to determine
-if an object is locked.
-
-\begin{flushleft}
-\cfunction{int}{Sunlocked_objectp}{ptr \var{obj}}
-\end{flushleft}
-
-When a foreign procedure call is made into Scheme, a return address
-pointing into the Scheme code object associated with the foreign
-procedure is passed implicitly to the C routine.
-The system therefore locks the code object before calls are
-made from C back into Scheme and unlocks it upon return from
-Scheme.
-This locking is performed automatically; user
-code should never need to lock such code objects.
-
-An object contained within a locked object, such as an object in the car
-of a locked pair, need not also be locked unless a separate C pointer
-to the object exists.
+In these cases, an \emph{immobile} object may be used, which will at least
+not be relocated as long as it remains reachable to Scheme code.
+Immobile objects are created by functions like \scheme{make-immobile-bytevector},
+\scheme{make-immobile-vector}, and \scheme{box-immobile}. The code
+object of a foreign-callable object is also immobile.
 
 \parheader{Registering foreign entry points}
 Foreign entry points may be made visible to Scheme via
@@ -3368,9 +3290,7 @@ operation as its Scheme counterpart, i.e., the Scheme procedure
 
 \noindent
 This can be used to avoid converting the code object into an address
-until just when it is needed, which may eliminate the need to lock
-the code object in some circumstances, assuming that the code object
-is not saved across any calls back into Scheme.
+until just when it is needed.
 
 The inverse translation can be made via \scheme{Sforeign_callable_code_object}.
 
@@ -3531,10 +3451,10 @@ This is especially important whenever the thread calls a C library
 function, like \scheme{read}, that may block indefinitely.
 Once deactivated, the thread must not touch any Scheme data or
 execute any Scheme code until it is reactivated, with one exception.
-The exception is that the thread may access or even modify a locked
-Scheme object, such as a locked string, that contains no pointers to
+The exception is that the thread may access or even modify an immobile
+Scheme object, such as an immobile bytevector, that contains no pointers to
 other, unlocked Scheme objects.
-(Objects that are not locked may be relocated by the garbage collector
+(Objects that are not immobile may be relocated by the garbage collector
 while the thread is inactive.)
 
 \scheme{Sdestroy_thread} is used to notify the Scheme system that the

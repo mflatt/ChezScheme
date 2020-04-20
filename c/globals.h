@@ -127,6 +127,7 @@ EXTERN struct S_G_struct {
     IGEN new_min_free_gen;
     IGEN max_nonstatic_generation;
     IGEN new_max_nonstatic_generation;
+    IGEN min_mark_gen;
     uptr countof[static_generation+1][countof_types];
     uptr bytesof[static_generation+1][countof_types];
     uptr gctimestamp[static_generation+1];

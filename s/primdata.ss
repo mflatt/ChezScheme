@@ -979,6 +979,7 @@
   (gensym-prefix [sig [() -> (ptr)] [(ptr) -> (void)]] [flags unrestricted])
   (heap-reserve-ratio [sig [() -> (number)] [(sub-number) -> (void)]] [flags])
   (import-notify [sig [() -> (boolean)] [(ptr) -> (void)]] [flags unrestricted])
+  (in-place-minimum-generation [sig [() -> (ufixnum)] [(sub-ufixnum) -> (void)]] [flags])
   (interaction-environment [sig [() -> (environment)] [(environment) -> (void)]] [flags ieee r5rs])
   (internal-defines-as-letrec* [sig [() -> (boolean)] [(ptr) -> (void)]] [flags unrestricted])
   (invoke-library [sig [(ptr) -> (void)]] [flags true])
