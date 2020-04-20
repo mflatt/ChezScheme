@@ -48,6 +48,7 @@ static void sweep_code_object PROTO((ptr tc, ptr co));
 static void record_dirty_segment PROTO((IGEN from_g, IGEN to_g, seginfo *si));
 static void sweep_dirty PROTO((void));
 static void resweep_dirty_weak_pairs PROTO((void));
+static void mark_typemod_data_object PROTO((ptr p, uptr len, seginfo *si));
 static void add_pending_guardian PROTO((ptr gdn, ptr tconc));
 static void add_trigger_guardians_to_recheck PROTO((ptr ls));
 static void add_ephemeron_to_pending PROTO((ptr p));
@@ -310,14 +311,30 @@ static void sweep_in_old(ptr tc, ptr p) {
 
 static ptr copy_stack(old, length, clength) ptr old; iptr *length, clength; {
   iptr n, m; ptr new;
+  seginfo *si = SegInfo(ptr_get_segment(old));
 
   /* Don't copy non-oldspace stacks, since we may be sweeping a
      continuation that is older than target_generation.  Doing so would
      be a waste of work anyway. */
-  if (!OLDSPACE(old)) return old;
+  if (!si->old_space) return old;
+
+  n = *length;
+    
+  if (si->use_marks) {
+    if (!marked(si, old)) {
+      mark_typemod_data_object(old, n, si);
+    
+#ifdef ENABLE_OBJECT_COUNTS
+      S_G.countof[target_generation][countof_stack] += 1;
+      S_G.bytesof[target_generation][countof_stack] += n;
+#endif
+    }
+
+    return old;
+  }
 
   /* reduce headroom created for excessively large frames (typically resulting from apply with long lists) */
-  if ((n = *length) != clength && n > default_stack_size && n > (m = clength + one_shot_headroom)) {
+  if (n != clength && n > default_stack_size && n > (m = clength + one_shot_headroom)) {
     *length = n = m;
   }
 
@@ -326,6 +343,7 @@ static ptr copy_stack(old, length, clength) ptr old; iptr *length, clength; {
   S_G.countof[target_generation][countof_stack] += 1;
   S_G.bytesof[target_generation][countof_stack] += n;
 #endif /* ENABLE_OBJECT_COUNTS */
+
   find_room(space_data, target_generation, typemod, n, new);
   n = ptr_align(clength);
  /* warning: stack may have been left non-double-aligned by split_and_resize */

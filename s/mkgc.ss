@@ -1069,15 +1069,18 @@
                  (== 0 (& (code-type _) (<< code_flag_template code_flags_offset)))))
          (set! (code-reloc _) (cast ptr 0))]
         [else
-         ;; Don't copy non-oldspace relocation tables, since we may be
-         ;; sweeping a locked code object that is older than target_generation.
-         ;; Doing so would be a waste of work anyway.
-         (when (OLDSPACE t)
-           (let* ([oldt : ptr t])
-             (set! n (size_reloc_table (reloc-table-size oldt)))
+         (let* ([t_si : seginfo* (SegInfo (ptr_get_segment t))])
+           (when (-> t_si old_space)
+             (set! n (size_reloc_table (reloc-table-size t)))
              (count countof-relocation-table (just n) 1 sweep)
-             (find_room space_data target_generation typemod n t)
-             (memcpy_aligned t oldt n)))
+             (cond
+               [(-> t_si use_marks)
+                ;; Assert: (! (marked t_si t))
+                (mark_typemod_data_object t n t_si)]
+               [else
+                (let* ([oldt : ptr t])
+                  (find_room space_data target_generation typemod n t)
+                  (memcpy_aligned t oldt n))])))
          (set! (reloc-table-code t) _)
          (set! (code-reloc _) t)])
       (S_record_code_mod tc_in (cast uptr (& (code-data _ 0))) (cast uptr (code-length _)))]
@@ -1372,7 +1375,7 @@
           (code-block
            "change = 1;"
            "check_triggers(si);"
-           (ensure-segment-mark-mask "si" "")
+           (ensure-segment-mark-mask "si" "" '())
            (body)
            "ADD_BACKREFERENCE(p)"
            "return p;")]
@@ -2102,7 +2105,14 @@
                (and count? (format "  ~a->marked_count += ~a;" si step))
                (format "  offset += ~a;" step)
                "}"))]
-           [type (as-c 'type (lookup 'basetype config))])
+           [type (let ([t (lookup 'basetype config)])
+                   (if (eq? t 'typemod)
+                       #f
+                       (as-c 'type (lookup 'basetype config))))]
+           [untype (lambda ()
+                     (if type
+                         (format "(uptr)UNTYPE(p, ~a)" type)
+                         (format "(uptr)p")))])
       (hashtable-set! (lookup 'used config) 'p_sz #t)
       (code
        (cond
@@ -2114,7 +2124,7 @@
               "si->marked_count += p_sz;"]
              [else
               (code-block
-               (format "uptr addr = (uptr)UNTYPE(p, ~a);" type)
+               (format "uptr addr = ~a;" (untype))
                "uptr seg = addr_get_segment(addr);"
                "uptr end_seg = addr_get_segment(addr + p_sz - 1);"
                "if (seg == end_seg) {"
@@ -2125,14 +2135,14 @@
                "  seg++;"
                "  while (seg < end_seg) {"
                "    mark_si = SegInfo(seg);"
-               (ensure-segment-mark-mask "mark_si" "    ")
-               "    mark_si->marked_mask[0] |= 0x1;"
+               (ensure-segment-mark-mask "mark_si" "    " '(no-clear))
+               "    /* no need to set a bit: just make sure `maeked_mask` is non-NULL */"
                "    mark_si->marked_count = segment_bitmap_bytes;"
                "    seg++;"
                "  }"
                "  mark_si = SegInfo(end_seg);"
-               (ensure-segment-mark-mask "mark_si" "  ")
-               "  mark_si->marked_mask[0] |= 0x1;"
+               (ensure-segment-mark-mask "mark_si" "  " '())
+               "    /* no need to set a bit: just make sure `marked_mask` is non-NULL */"
                "  mark_si->marked_count += addr + p_sz - (uptr)build_ptr(end_seg,0);"
                "}")]))]
          [within-segment?
@@ -2164,7 +2174,7 @@
              "else"
              (within-loop-statement (code
                                      "  seginfo *mark_si = SegInfo(ptr_get_segment(mark_p));"
-                                     (ensure-segment-mark-mask "mark_si" "  "))
+                                     (ensure-segment-mark-mask "mark_si" "  " '()))
                                     "mark_si"
                                     step
                                     #t)))])
@@ -2205,12 +2215,14 @@
            (error 'field-ref "index not allowed for non-array field ~s" acc-name))
          (format "~a(~a)" c-ref obj)])))
   
-  (define (ensure-segment-mark-mask si inset)
+  (define (ensure-segment-mark-mask si inset flags)
     (code
      (format "~aif (!~a->marked_mask) {" inset si)
      (format "~a  find_room(space_data, target_generation, typemod, ptr_align(segment_bitmap_bytes), ~a->marked_mask);"
              inset si)
-     (format "~a  memset(~a->marked_mask, 0, segment_bitmap_bytes);" inset si)
+     (if (memq 'no-clear flags)
+         (format "~a  /* no clearing needed */" inset)
+         (format "~a  memset(~a->marked_mask, 0, segment_bitmap_bytes);" inset si))
      (format "~a}" inset)))
 
   (define (just-mark-bit-space? sp)
@@ -2419,6 +2431,13 @@
                                (counts? ,count?))))
        (print-code (generate "object_directly_refers_to_self"
                              `((mode self-test))))
+       (print-code (code "static void mark_typemod_data_object(ptr p, uptr p_sz, seginfo *si)"
+                         (code-block
+                          (ensure-segment-mark-mask "si" "" '())
+                          (mark-statement '(one-bit no-sweep)
+                                          (cons
+                                           (list 'used (make-eq-hashtable))
+                                           '((basetype typemod)))))))
        (when measure?
          (print-code (generate "measure" `((mode measure))))))))
 
