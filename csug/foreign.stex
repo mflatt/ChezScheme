@@ -1260,10 +1260,8 @@ involving any C code.
     (define th (lambda () (call/cc p)))
     (define-ftype ->ptr (function () ptr))
     (let ([fptr (make-ftype-pointer ->ptr th)])
-      ((ftype-ref ->ptr () fptr)))))
-        (unlock-object
-          (foreign-callable-code-object
-            (ftype-pointer-address fptr)))
+      (let ([v ((ftype-ref ->ptr () fptr))])
+        (keep-live fptr)
         v))))
 \endschemedisplay
 
@@ -1844,7 +1842,8 @@ created for the procedure, as if via
 \index{\scheme{foreign-callable}}\scheme{foreign-callable}
 (Section~\ref{SECTFOREIGNCALLABLE}).
 The address encapsulated in the resulting ftype-pointer object is the
-address of the procedure's entry point.
+address of the procedure's entry point. The foreign-callable code object 
+remains immobile as long as the ftype-pointer object is retained.
 
 \schemedisplay
 (define fact

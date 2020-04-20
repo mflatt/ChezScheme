@@ -4123,7 +4123,7 @@
           [(e1 e2)
            (or (relop-length RELOP= e1 e2)
                (%inline eq? ,e1 ,e2))])
-        (define-inline 2 $keep-live
+        (define-inline 2 keep-live
           [(e) (%seq ,(%inline keep-live ,e) ,(%constant svoid))])
         (let ()
           (define (zgo src sexpr e e1 e2 r6rs?)
@@ -7582,7 +7582,16 @@
                     (set! ,(%mref ,t ,(constant record-type-disp)) ,e-ftype)
                     (set! ,(%mref ,t ,(constant record-data-disp))
                       ,(ptr->integer e-addr (constant ptr-bits)))
-                    ,t)))])])
+                    ,t)))])]
+          [(e-ftype e-addr e-retain)
+            (bind #f (e-ftype e-addr e-retain)
+              (bind #t ([t (%constant-alloc type-typed-object (fx* 3 (constant ptr-bytes)))])
+                (%seq
+                  (set! ,(%mref ,t ,(constant record-type-disp)) ,e-ftype)
+                  (set! ,(%mref ,t ,(constant record-data-disp))
+                    ,(ptr->integer e-addr (constant ptr-bits)))
+                  (set! ,(%mref ,t ,(fx+ (constant record-data-disp) (constant ptr-bytes))) ,e-retain)
+                  ,t)))])
         (define-inline 3 ftype-pointer-address
           [(e-fptr)
            (build-object-ref #f

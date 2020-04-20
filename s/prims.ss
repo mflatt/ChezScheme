@@ -1811,7 +1811,7 @@
        (when (eq? addr 0)
          ($oops 'mutex-acquire "mutex is defunct"))
        (let ([r ((if block? ma ma-nb) addr)])
-         ($keep-live m)
+         (keep-live m)
          r))]))
 
 (set! mutex-release
@@ -1856,8 +1856,8 @@
       (when (eq? maddr 0)
         ($oops 'condition-wait "mutex is defunct"))
       (let ([r (cw caddr maddr t)])
-        ($keep-live c)
-        ($keep-live m)
+        (keep-live c)
+        (keep-live m)
         r))]))
 
 (set! condition-broadcast
@@ -2545,9 +2545,9 @@
   (lambda ()
     (#3%$read-time-stamp-counter)))
 
-(define $keep-live
+(define keep-live
   (lambda (x)
-    (#2%$keep-live x)))
+    (#2%keep-live x)))
 
 (when-feature windows
 (let ()

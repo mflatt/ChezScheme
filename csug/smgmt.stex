@@ -368,6 +368,19 @@ Setting it to a smaller value may result in a smaller average virtual
 memory footprint, while setting it to a larger value may result in fewer
 calls into the operating system to request and free memory space.
 
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{keep-live}{\categoryprocedure}{(keep-live \var{v})}
+\returns unspecified
+\listlibraries
+\endentryheader
+
+\noindent
+Ensures that the value produced by \var{v} is retained by the store
+manager until the \scheme{keep-live} call is performed. This function
+can be particularly useful for ensuring that an immobile object
+remains in place.
+
 
 \section{Weak Pairs, Ephemeron Pairs, and Guardians\label{SECTGUARDWEAKPAIRS}}
 

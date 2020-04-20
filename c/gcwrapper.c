@@ -187,6 +187,8 @@ void S_immobilize_object(x) ptr x; {
       S_error_abort("S_immoblize_object(): object canot be immobilized");
 
     if (si->generation != static_generation) {
+      /* Try a little to to support cancellation of segment-level
+       * immobilzation --- but we don't try too hard */
       if (si->must_mark < 3)
         si->must_mark++;
     }
@@ -209,6 +211,7 @@ void S_mobilize_object(x) ptr x; {
     if (si->generation != static_generation) {
       if (si->must_mark == 0)
         S_error_abort("S_mobilize_object(): object was definitely not immobilzed");
+      /* See S_immobilize_object() about this vague try at canceling immobilation: */
       if (si->must_mark < 3)
         --si->must_mark;
     }
@@ -229,6 +232,8 @@ void Sunlock_object(x) ptr x; {
   ptr tc = get_thread_context();
   ptr ls, prev = NULL;
 
+  /* We expect FIFO locking on a small number of objects, but support
+     reordering, just in case: */
   for (ls = LOCKEDOBJECTS(tc); ls != Snil; ls = Scdr(ls)) {
     if (Scar(ls) == x) {
       if (!prev)
@@ -247,6 +252,10 @@ void Sunlock_object(x) ptr x; {
 
 ptr S_lockable_bytevector(ptr bv, iptr start, iptr count, iptr copy) {
   seginfo *si;
+
+  /* Allocate a new bytevector if `bv` isn't lockable. This can create
+     extra garbage and copying, but that problem will fix itself: a
+     given `bv` won't stay unlockable after a minor GC. */
 
   tc_mutex_acquire()
 
