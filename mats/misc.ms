@@ -4865,3 +4865,44 @@
                   (check-objects objs)))))))))
 
   )
+
+(mat compacting
+  ;; try to provoke the GC into putting a record into marked
+  ;; (insteda of copied) space and check the write barrier there
+  (let loop ([N 2])
+    (or (= N 8192)
+        (let sel-loop ([sels (list car cadr)])
+          (cond
+            [(null? sels) (loop (* N 2))]
+            [else
+             (let ()
+               (define rtd (make-record-type
+                            "r"
+                            (let loop ([i N])
+                              (if (zero? i)
+                                  (list '[ptr y])
+                                  (cons `[uptr ,(string->symbol (format "x~a" i))]
+                                        (loop (sub1 i)))))))
+               
+               (define (make-r)
+                 (apply (record-constructor rtd)
+                        (let loop ([i N])
+                          (if (zero? i)
+                              '(the-y-value)
+                              (cons 0 (loop (sub1 i)))))))
+               
+               (define r-y (record-accessor rtd N))
+               (define set-r-y! (record-mutator rtd N))
+               
+               (define rs (list (make-r)
+                                (make-r)
+                                (make-r)))
+               (collect (collect-maximum-generation))
+               (set! rs (list (car rs) (caddr rs)))
+               (collect (collect-maximum-generation))
+               (set-r-y! ((car sels) rs) (string-copy "new-string-to-go"))
+               (collect)
+               (and (equal? (r-y ((car sels) rs))
+                            "new-string-to-go")
+                    (sel-loop (cdr sels))))]))))
+  )

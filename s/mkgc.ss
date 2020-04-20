@@ -68,14 +68,15 @@
 ;; this order (but there are exceptions to the order):
 ;;  - (space <space>) : target for copy; works as a constraint for other modes
 ;;  - (vspace <vspace>) : target for vfasl
-;;  - (size <size> [<scale>]) : size for copy
-;;  - (mark <flag>) : possible <flags>:
-;;      * one-bit : record as one bit per segment; inferred when size matches
-;;                  alignment or for `space-data`
-;;      * within-segment : alloacted within on segment; can be inferred from size
-;;      * no-sweep : no need to sweep content (perhaps covered by `trace-now`);
-;;                   inferred for `space-data`
-;;      * dense : mark all bits, not just based on allocation alignment
+;;  - (size <size> [<scale>]) : size for copy; skips rest in size mode
+;;  - (mark <flag>) : in mark mode, skips rest except counting;
+;;      possible <flags>:
+;;       * one-bit : record as one bit per segment; inferred when size matches
+;;                   alignment or for `space-data`
+;;       * within-segment : alloacted within on segment; can be inferred from size
+;;       * no-sweep : no need to sweep content (perhaps covered by `trace-now`);
+;;                    inferred for `space-data`
+;;       * dense : mark all bits, not just based on allocation alignment
 ;;  - (trace <field>) : relocate for sweep, copy for copy, recur otherwise
 ;;  - (trace-early <field>) : relocate for sweep or copy, recur otherwise
 ;;  - (trace-now <field>) : direct recur
@@ -89,7 +90,8 @@
 ;;  - (count <counter> [<size> [<scale> [<modes>]]]) :
 ;;       uses preceding `size` declaration unless <size>;
 ;;       normally counts in copy mode, but <modes> can override
-;;  - (count-as <statment> ...) : declares that <statement>s implement counting
+;;  - (as-mark-end <statment> ...) : declares that <statement>s implement counting,
+;;       which means that it's included for mark mode
 ;;  - (skip-forwarding) : disable forward-pointer installation in copy mode
 ;;  - (assert <expr>) : assertion
 ;;
@@ -424,8 +426,9 @@
       (mark)
       (copy-type tlc-type)
       (trace-nonself tlc-ht)
-      (trace-tlc tlc-next tlc-keyval)
-      (count countof-tlc)]
+      (as-mark-end
+       (trace-tlc tlc-next tlc-keyval)
+       (count countof-tlc))]
 
      [box
       (space
@@ -551,7 +554,7 @@
       (copy phantom-length)
       (case-mode
        [(copy mark)
-        (count-as
+        (as-mark-end
          (set! (array-ref S_G.phantom_sizes _tg_)
                +=
                (phantom-length _)))]
@@ -701,16 +704,14 @@
 
 (define-trace-macro (trace-tlc tlc-next tlc-keyval)
   (case-mode
-   [copy
+   [(copy mark)
     (define next : ptr (tlc-next _))
     (define keyval : ptr (tlc-keyval _))
-    (set! (tlc-next _copy_) next)
-    (set! (tlc-keyval _copy_) keyval)]
-   [else
-    (trace-nonself tlc-keyval)
-    (trace-nonself tlc-next)])
-  (case-mode
-   [(copy mark)
+    (case-mode
+     [copy
+      (set! (tlc-next _copy_) next)
+      (set! (tlc-keyval _copy_) keyval)]
+     [else])
     ;; If next isn't false and keyval is old, add tlc to a list of tlcs
     ;; to process later. Determining if keyval is old is a (conservative)
     ;; approximation to determining if key is old. We can't easily
@@ -718,7 +719,9 @@
     ;; swept already. NB: assuming keyvals are always pairs.
     (when (&& (!= next Sfalse) (OLDSPACE keyval))
       (set! tlcs_to_rehash (S_cons_in space_new 0 _copy_ tlcs_to_rehash)))]
-   [else]))
+   [else
+    (trace-nonself tlc-keyval)
+    (trace-nonself tlc-next)]))
 
 (define-trace-macro (trace-record trd len)
   (case-mode
@@ -812,50 +815,53 @@
    [else]))
 
 (define-trace-macro (count-record rtd)
-  (count-as
-   (case-flag counts?
-    [on
-     (when S_G.enable_object_counts
-       (let* ([c_rtd : ptr (cond
-                             [(== _tf_ _) _copy_]
-                             [else rtd])]
-              [counts : ptr (record-type-counts c_rtd)])
-         (cond
-           [(== counts Sfalse)
-            (let* ([grtd : IGEN (GENERATION c_rtd)])
-              (set! (array-ref (array-ref S_G.countof grtd) countof_rtd_counts) += 1)
-              ;; Allocate counts struct in same generation as rtd. Initialize timestamp & counts.
-              (find_room space_data grtd type_typed_object size_rtd_counts counts)
-              (set! (rtd-counts-type counts) type_rtd_counts)
-              (set! (rtd-counts-timestamp counts) (array-ref S_G.gctimestamp 0))
-              (let* ([g : IGEN 0])
-                (while
-                 :? (<= g static_generation)
-                 (set! (rtd-counts-data counts g) 0)
-                 (set! g += 1)))
+  (case-mode
+   [(copy mark)
+    (as-mark-end
+     (case-flag counts?
+      [on
+       (when S_G.enable_object_counts
+         (let* ([c_rtd : ptr (cond
+                               [(== _tf_ _) _copy_]
+                               [else rtd])]
+                [counts : ptr (record-type-counts c_rtd)])
+           (cond
+             [(== counts Sfalse)
+              (let* ([grtd : IGEN (GENERATION c_rtd)])
+                (set! (array-ref (array-ref S_G.countof grtd) countof_rtd_counts) += 1)
+                ;; Allocate counts struct in same generation as rtd. Initialize timestamp & counts.
+                (find_room space_data grtd type_typed_object size_rtd_counts counts)
+                (set! (rtd-counts-type counts) type_rtd_counts)
+                (set! (rtd-counts-timestamp counts) (array-ref S_G.gctimestamp 0))
+                (let* ([g : IGEN 0])
+                  (while
+                   :? (<= g static_generation)
+                   (set! (rtd-counts-data counts g) 0)
+                   (set! g += 1)))
+                (set! (record-type-counts c_rtd) counts)
+                (set! (array-ref S_G.rtds_with_counts grtd)
+                      ;; For max_copied_generation, the list will get copied again in `rtds_with_counts` fixup;
+                      ;; meanwhile, allocating in `space_impure` would copy and sweep old list entries causing
+                      ;; otherwise inaccessible rtds to be retained
+                      (S_cons_in (cond [(<= grtd max_copied_generation) space_new] [else space_impure])
+                                 (cond [(<= grtd max_copied_generation) 0] [else grtd])
+                                 c_rtd
+                                 (array-ref S_G.rtds_with_counts grtd)))
+                (set! (array-ref (array-ref S_G.countof grtd) countof_pair) += 1))]
+             [else
+              (trace-early (just counts))
               (set! (record-type-counts c_rtd) counts)
-              (set! (array-ref S_G.rtds_with_counts grtd)
-                    ;; For max_copied_generation, the list will get copied again in `rtds_with_counts` fixup;
-                    ;; meanwhile, allocating in `space_impure` would copy and sweep old list entries causing
-                    ;; otherwise inaccessible rtds to be retained
-                    (S_cons_in (cond [(<= grtd max_copied_generation) space_new] [else space_impure])
-                               (cond [(<= grtd max_copied_generation) 0] [else grtd])
-                               c_rtd
-                               (array-ref S_G.rtds_with_counts grtd)))
-              (set! (array-ref (array-ref S_G.countof grtd) countof_pair) += 1))]
-           [else
-            (trace-early (just counts))
-            (set! (record-type-counts c_rtd) counts)
-            (when (!= (rtd-counts-timestamp counts) (array-ref S_G.gctimestamp 0))
-              (S_fixup_counts counts))])
-         (set! (rtd-counts-data counts _tg_) (+ (rtd-counts-data counts _tg_) 1))))
-     ;; Copies size that we may have already gathered, but needed for counting from roots:
-     (case-mode
-      [(copy)
-       (when (== p_spc space-count-impure) (set! count_root_bytes += p_sz))]
-      [else])
-     (count countof-record)]
-    [off])))
+              (when (!= (rtd-counts-timestamp counts) (array-ref S_G.gctimestamp 0))
+                (S_fixup_counts counts))])
+           (set! (rtd-counts-data counts _tg_) (+ (rtd-counts-data counts _tg_) 1))))
+       ;; Copies size that we may have already gathered, but needed for counting from roots:
+       (case-mode
+        [(copy)
+         (when (== p_spc space-count-impure) (set! count_root_bytes += p_sz))]
+        [else])
+       (count countof-record)]
+      [off]))]
+   [else]))
 
 (define-trace-macro (trace-buffer flag port-buffer port-last)
   (case-mode
@@ -1630,12 +1636,8 @@
                                    (cons `(constant-size? ,(symbol? size))
                                          config))
                   (statements (cdr l) config))]
-           [`(count-as . ,stmts)
-            (statements (cons
-                         `(case-mode
-                           [(copy mark) . ,stmts]
-                           [else])
-                         (cdr l))
+           [`(as-mark-end . ,stmts)
+            (statements (append stmts (cdr l))
                         config)]
            [`(space ,s)
             (case (lookup 'mode config)
@@ -1758,11 +1760,11 @@
               [(mark)
                (let* ([count-stmt (let loop ([l (cdr l)])
                                    (cond
-                                     [(null? l) (error 'mark "could not find `count` ~s" config)]
+                                     [(null? l) (error 'mark "could not find `count` or `as-mark-end` ~s" config)]
                                      [else
                                       (match (car l)
                                         [`(count . ,rest) (car l)]
-                                        [`(count-as . ,stmts) (car l)]
+                                        [`(as-mark-end . ,stmts) (car l)]
                                         [`(case-mode . ,all-clauses)
                                          (let ([body (find-matching-mode 'mark all-clauses)])
                                            (loop (append body (cdr l))))]

@@ -410,7 +410,7 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
     oldspacesegments = (seginfo *)NULL;
     for (s = 0; s <= max_real_space; s += 1) {
       for (g = 0; g <= mcg; g += 1) {
-        IBOOL maybe_mark = ((tg == S_G.max_nonstatic_generation) && (g == tg) && (s == space_data)); /* REMOVEME */
+        IBOOL maybe_mark = ((tg == S_G.max_nonstatic_generation) && (g == tg));
         for (si = S_G.occupied_segments[s][g]; si != NULL; si = nextsi) {
           nextsi = si->next;
           si->next = oldspacesegments;
@@ -422,6 +422,7 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
             si->mark_space = 1;
           si->marked_mask = NULL; /* clear old mark bits, if any */
           si->marked_count = 0;
+          si->min_dirty_byte = 0; /* prevent registering as dirty while GCing */
         }
         S_G.occupied_segments[s][g] = NULL;
       }
@@ -642,10 +643,10 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
         }
 
        /* invariants after partition_guardians:
-        * for entry in pend_hold_ls, obj is !OLDSPACE or marked
-        * for entry in final_ls, obj is OLDSPACE and !marked
-        * for entry in final_ls, tconc is !OLDSPACE or marked
-        * for entry in pend_final_ls, obj and tconc are OLDSPACE and !marked
+        * for entry in pend_hold_ls, obj is !OLDSPACE
+        * for entry in final_ls, obj is OLDSPACE
+        * for entry in final_ls, tconc is !OLDSPACE
+        * for entry in pend_final_ls, obj and tconc are OLDSPACE
         */
 
         hold_ls = S_G.guardians[tg];
@@ -687,7 +688,7 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
                     pend_hold_ls = ls;
                   } else {
                     seginfo *si;
-                    if (!IMMEDIATE(rep) && (si = MaybeSegInfo(ptr_get_segment(rep))) != NULL && si->old_space && !marked(si, rep)) {
+                    if (!IMMEDIATE(rep) && (si = MaybeSegInfo(ptr_get_segment(rep))) != NULL && si->old_space) {
                       PUSH_BACKREFERENCE(rep)
                       sweep_in_old(tc, rep);
                       POP_BACKREFERENCE()
@@ -913,10 +914,16 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
       si->old_space = 0;
       si->mark_space = 0;
       if (si->marked_mask != NULL) {
+        int d;
+        for (d = 0; d < cards_per_segment; d += sizeof(ptr)) {
+          iptr *dp = (iptr *)(si->dirty_bytes + d);
+          /* fill sizeof(iptr) bytes at a time with 0xff */
+          *dp = -1;
+        }
         si->min_dirty_byte = 0xff;
-        s = si->space;
         si->generation = tg;
         if (tg == static_generation) S_G.number_of_nonstatic_segments -= 1;
+        s = si->space;
         si->next = S_G.occupied_segments[s][tg];
         S_G.occupied_segments[s][tg] = si;
         si->trigger_ephemerons = NULL;
@@ -1338,7 +1345,7 @@ static void sweep_dirty(void) {
                     uptr bit = segment_bitmap_bit(pp);
                     uptr at_seg = seg;
                     seginfo *si = dirty_si;
-                  
+
                     while (si->marked_mask[byte] & (bit >> 1))
                       bit >>= 1;
                     if (bit == 1) {
@@ -1376,8 +1383,12 @@ static void sweep_dirty(void) {
                               at_seg++;
                               byte = 0;
                               si = SegInfo(at_seg);
-                            } else
+                            } else {
                               byte--;
+                              /* find bit contiguous with highest bit */
+                              while (si->marked_mask[byte] & (bit >> 1))
+                                bit >>= 1;
+                            }
                             break;
                           } else {
                             /* next byte is empty, so don't go there */
@@ -1385,18 +1396,13 @@ static void sweep_dirty(void) {
                           }
                         }
                       }
-
-                      /* find bit contiguous with highest bit */
-                      bit = 0x80;
-                      while (si->marked_mask[byte] & (bit >> 1))
-                        bit >>= 1;
                     }
 
                     /* `bit` and `byte` refer to a non-0 mark bit that must be
                        the start of an object */
-                    p = build_ptr(at_seg, (byte << 3));
+                    p = build_ptr(at_seg, (byte << (log2_ptr_bytes+3)));
                     while (bit > 1) {
-                      p = (ptr)((uptr)pp + ptr_bytes);
+                      p = (ptr)((uptr)p + ptr_bytes);
                       bit >>= 1;
                     }
                     p = TYPE(p, type_typed_object);
@@ -1635,8 +1641,12 @@ static void check_ephemeron(ptr pe, int add_to_trigger) {
   PUSH_BACKREFERENCE(pe);
 
   p = Scar(pe);
-  if (!IMMEDIATE(p) && (si = MaybeSegInfo(ptr_get_segment(p))) != NULL && si->old_space && !marked(si, p)) {
-    if (FORWARDEDP(p, si)) {
+  if (!IMMEDIATE(p) && (si = MaybeSegInfo(ptr_get_segment(p))) != NULL && si->old_space) {
+    if (marked(si, p)) {
+      relocate(&INITCDR(pe))
+      if (!add_to_trigger)
+        EPHEMERONTRIGGERNEXT(pe) = Strue; /* in trigger list, #t means "done" */
+    } else if (FORWARDEDP(p, si)) {
       INITCAR(pe) = FWDADDRESS(p);
       relocate(&INITCDR(pe))
       if (!add_to_trigger)
@@ -1689,8 +1699,11 @@ static int check_dirty_ephemeron(ptr pe, int tg, int youngest) {
  
   p = Scar(pe);
   if (!IMMEDIATE(p) && (si = MaybeSegInfo(ptr_get_segment(p))) != NULL) {
-    if (si->old_space && !marked(si, p)) {
-      if (FORWARDEDP(p, si)) {
+    if (si->old_space) {
+      if (marked(si, p)) {
+        relocate(&INITCDR(pe))
+        youngest = tg;
+      } else if (FORWARDEDP(p, si)) {
         INITCAR(pe) = GET_FWDADDRESS(p);
         relocate(&INITCDR(pe))
         youngest = tg;
@@ -1836,10 +1849,9 @@ static void push_measure(ptr p)
 
   if (si->old_space) {
     /* We must be in a GC--measure fusion, so switch back to GC */
-    if (!marked(si, p)) {
-      relocate(&p)
-      return;
-    }
+    if (!marked(si, p))
+      relocate(&p);
+    return;
   }
 
   if (si->generation > max_measure_generation)
