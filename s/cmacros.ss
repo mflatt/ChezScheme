@@ -409,6 +409,8 @@
 ; This is safe since we never forward flonums.
 (define-constant byte-alignment
   (max (constant typemod) (* 2 (constant ptr-bytes))))
+(define-constant ptr-alignment
+  (/ (constant byte-alignment) (constant ptr-bytes)))
 
 ;;; fasl codes---see fasl.c for documentation of representation
 

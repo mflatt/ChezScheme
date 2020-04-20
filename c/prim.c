@@ -212,7 +212,7 @@ static void s_instantiate_code_object() {
     new = S_code(tc, CODETYPE(old), CODELEN(old));
     tc_mutex_release()
 
-    Slock_object(new);
+    S_immobilize_object(new);
 
     oldreloc = CODERELOC(old);
     size = RELOCSIZE(oldreloc);

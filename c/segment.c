@@ -230,7 +230,7 @@ static void initialize_seginfo(seginfo *si, ISPC s, IGEN g) {
   si->generation = g;
   si->sorted = 0;
   si->old_space = 0;
-  si->mark_space = 0;
+  si->use_marks = 0;
   si->must_mark = 0;
   si->min_dirty_byte = 0xff;
   for (d = 0; d < cards_per_segment; d += sizeof(ptr)) {
@@ -382,7 +382,7 @@ static seginfo *allocate_segments(nreq) uptr nreq; {
       si->generation = 0;
       si->sorted = 1; /* inserting in reverse order, so emptys are always sorted */
       si->old_space = 0;
-      si->mark_space = 0;
+      si->use_marks = 0;
       si->must_mark = 0;
       si->next = chunk->unused_segs;
       chunk->unused_segs = si;

@@ -76,7 +76,6 @@
 ;;       * within-segment : alloacted within on segment; can be inferred from size
 ;;       * no-sweep : no need to sweep content (perhaps covered by `trace-now`);
 ;;                    inferred for `space-data`
-;;       * dense : mark all bits, not just based on allocation alignment
 ;;  - (trace <field>) : relocate for sweep, copy for copy, recur otherwise
 ;;  - (trace-early <field>) : relocate for sweep or copy, recur otherwise
 ;;  - (trace-now <field>) : direct recur
@@ -336,7 +335,7 @@
       (vfasl-check-parent-rtd rtd)
       (define len : uptr (UNFIX (record-type-size rtd)))
       (size (size_record_inst len))
-      (mark dense) ; dense mark bits may help expose boundary with non-record
+      (mark)
       (trace-record rtd len)
       (vfasl-set-base-rtd)
       (pad (when (or-vfasl
@@ -589,7 +588,7 @@
                    (&& (-> qsi old_space)
                        (&& (== (-> qsi space) (-> si space))
                            (&& (!= (FWDMARKER cdr_p) forward_marker)
-                               (! (-> qsi mark_space))))))))
+                               (! (-> qsi use_marks))))))))
        (check_triggers qsi)
        (size size-pair 2)
        (define new_cdr_p : ptr (cast ptr (+ (cast uptr _copy_) size_pair)))
@@ -993,27 +992,17 @@
     (copy copy-field)]
    [else
     (define xcp : ptr field)
-    (case-mode
-     [sweep
-      (define x_si : seginfo* (SegInfo (ptr_get_segment xcp)))
-      (when (-> x_si old_space)
-        (trace-return-code field xcp x_si))]
-     [else
-      (trace-return-code field xcp no_x_si)])]))
+    (trace-return-code field xcp)]))
 
-(define-trace-macro (trace-return-code field xcp x_si)
+(define-trace-macro (trace-return-code field xcp)
   (define co : iptr (+ (ENTRYOFFSET xcp) (- (cast uptr xcp) (cast uptr (ENTRYOFFSETADDR xcp)))))
-  ;; In the call to copy below, assuming SPACE(c_p) == SPACE(xcp) since
-  ;; c_p and XCP point to/into the same object
   (define c_p : ptr (cast ptr (- (cast uptr xcp) co)))
   (case-mode
    [sweep
-    (cond
-      [(== (FWDMARKER c_p) forward_marker)
-       (set! c_p (FWDADDRESS c_p))]
-      [else
-       (set! c_p (copy c_p x_si))])
-    (set! field (cast ptr (+ (cast uptr c_p) co)))]
+    (define x_si : seginfo* (SegInfo (ptr_get_segment c_p)))
+    (when (-> x_si old_space)
+      (relocate_code c_p x_si)
+      (set! field (cast ptr (+ (cast uptr c_p) co))))]
    [else
     (trace (just c_p))]))
 
@@ -1365,18 +1354,10 @@
        (case (lookup 'mode config)
          [(copy)
           (code-block
-           "if (si->mark_space) {"
+           "if (si->use_marks) {"
            "  return mark_object(p, si);"
            "}"
            "change = 1;"
-           (cond
-             [(lookup 'counts? config #f)
-              (code
-               "if (!si->old_space) {"
-               "  if (measure_all_enabled) push_measure(p);"
-               "  return p;"
-               "}")]
-             [else #f])
            "check_triggers(si);"
            (code-block
             "ptr new_p;"
@@ -1753,7 +1734,7 @@
                (statements (cdr l) config)])]
            [`(mark . ,flags)
             (for-each (lambda (flag)
-                        (unless (memq flag '(one-bit no-sweep dense within-segment))
+                        (unless (memq flag '(one-bit no-sweep within-segment))
                           (error 'mark "bad flag ~s" flag)))
                       flags)
             (case (lookup 'mode config)
@@ -2108,7 +2089,6 @@
            [within-segment? (or (memq 'within-segment flags)
                                 (and sz
                                      (< sz (constant bytes-per-segment))))]
-           [dense? (memq 'dense flags)]
            [no-sweep? (or (memq 'no-sweep flags)
                           (eq? known-space 'space-data))]
            [within-loop-statement
@@ -2141,7 +2121,7 @@
                "  si->marked_count += p_sz;"
                "} else {"
                "  seginfo *mark_si;"
-               "  si->marked_count += ((uptr)build_ptr(seg+1,0)) - (uptr)p;"
+               "  si->marked_count += ((uptr)build_ptr(seg+1,0)) - addr;"
                "  seg++;"
                "  while (seg < end_seg) {"
                "    mark_si = SegInfo(seg);"
@@ -2153,7 +2133,7 @@
                "  mark_si = SegInfo(end_seg);"
                (ensure-segment-mark-mask "mark_si" "  ")
                "  mark_si->marked_mask[0] |= 0x1;"
-               "  mark_si->marked_count += (uptr)p + p_sz - (uptr)build_ptr(end_seg,0);"
+               "  mark_si->marked_count += addr + p_sz - (uptr)build_ptr(end_seg,0);"
                "}")]))]
          [within-segment?
           (code
@@ -2174,9 +2154,7 @@
              [else
               (within-loop-statement #f "si" "byte_alignment" #f)]))]
          [else
-          (let ([step (if dense?
-                          "ptr_bytes"
-                          "byte_alignment")])
+          (let ([step "byte_alignment"])
             (code-block
              (format "uptr addr = (uptr)UNTYPE(p, ~a);" type)
              "if (addr_get_segment(addr) == addr_get_segment(addr + p_sz - 1))"

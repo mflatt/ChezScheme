@@ -131,7 +131,7 @@ typedef struct _seginfo {
   unsigned char space;                      /* space the segment is in */
   unsigned char generation;                 /* generation the segment is in */
   unsigned char old_space : 1;              /* set during GC to indcate space being collected */
-  unsigned char mark_space : 1;             /* set during GC to indicate space to mark in place instead of copy */
+  unsigned char use_marks : 1;              /* set during GC to indicate space to mark in place instead of copy */
   unsigned char sorted : 1;                 /* sorted indicator */
   unsigned char has_triggers : 1;           /* set if trigger_ephemerons or trigger_guardians is set */
   unsigned char must_mark : 2;              /* a form of locking, where 3 counts as "unfinite" */
