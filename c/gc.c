@@ -457,11 +457,12 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
         }
 
   /* reset phantom size in generations to be copied, even if counting is not otherwise enabled */
+    pre_phantom_bytes = 0;
     for (g = 0; g <= mcg; g++) {
-      S_adjustmembytes(0 - S_G.bytesof[g][countof_phantom]);
+      pre_phantom_bytes += S_G.bytesof[g][countof_phantom];
       S_G.bytesof[g][countof_phantom] = 0;
     }
-    pre_phantom_bytes = S_G.bytesof[tg][countof_phantom];
+    pre_phantom_bytes += S_G.bytesof[tg][countof_phantom];
 
   /* set up target generation sweep_loc and orig_next_loc pointers */
     for (s = 0; s <= max_real_space; s++)
