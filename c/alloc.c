@@ -308,10 +308,19 @@ void S_dirty_set(ptr *loc, ptr x) {
   *loc = x;
   if (!Sfixnump(x)) {
     seginfo *si = SegInfo(addr_get_segment(loc));
-    IGEN from_g = si->generation;
-    if (from_g != 0) {
-      si->dirty_bytes[((uptr)loc >> card_offset_bits) & ((1 << segment_card_offset_bits) - 1)] = 0;
-      mark_segment_dirty(si, from_g);
+    if (si->use_marks) {
+      /* GC must be in progress */
+      if (!IMMEDIATE(x)) {
+        seginfo *t_si = SegInfo(ptr_get_segment(x));
+        if (t_si->generation < si->generation)
+          S_error_abort("wrong-way pointer installed during GC");
+      }
+    } else {
+      IGEN from_g = si->generation;
+      if (from_g != 0) {
+        si->dirty_bytes[((uptr)loc >> card_offset_bits) & ((1 << segment_card_offset_bits) - 1)] = 0;
+        mark_segment_dirty(si, from_g);
+      }
     }
   }
 }
@@ -455,11 +464,11 @@ ptr Scons(car, cdr) ptr car, cdr; {
     return p;
 }
 
-ptr S_box2(ref, lockable) ptr ref; IBOOL lockable; {
+ptr S_box2(ref, immobile) ptr ref; IBOOL immobile; {
     ptr tc = get_thread_context();
     ptr p;
 
-    if (lockable) {
+    if (immobile) {
       tc_mutex_acquire()
       find_room(space_immobile_impure, 0, type_typed_object, size_box, p);
       tc_mutex_release()
@@ -569,7 +578,7 @@ ptr S_bytevector(n) iptr n; {
   return S_bytevector2(n, 0);
 }
 
-ptr S_bytevector2(n, lockable) iptr n; IBOOL lockable; {
+ptr S_bytevector2(n, immobile) iptr n; IBOOL immobile; {
     ptr tc;
     ptr p; iptr d;
 
@@ -581,7 +590,7 @@ ptr S_bytevector2(n, lockable) iptr n; IBOOL lockable; {
     tc = get_thread_context();
 
     d = size_bytevector(n);
-    if (lockable) {
+    if (immobile) {
       tc_mutex_acquire()
       find_room(space_immobile_data, 0, type_typed_object, d, p);
       tc_mutex_release()

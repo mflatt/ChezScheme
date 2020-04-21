@@ -48,6 +48,8 @@ void S_gc_init() {
 
   for (g = 0; g <= static_generation; g++) {
     S_G.guardians[g] = Snil;
+    S_G.locked_objects[g] = Snil;
+    S_G.unlocked_objects[g] = Snil;
   }
   S_G.max_nonstatic_generation = 
     S_G.new_max_nonstatic_generation = 
@@ -120,6 +122,8 @@ void S_gc_init() {
     S_G.countof_size[countof_fxvector] = 0;
   INITVECTIT(S_G.countof_names, countof_bytevector) = S_intern((const unsigned char *)"bytevector");
     S_G.countof_size[countof_bytevector] = 0;
+  INITVECTIT(S_G.countof_names, countof_locked) = S_intern((const unsigned char *)"locked");
+    S_G.countof_size[countof_locked] = 0;
   INITVECTIT(S_G.countof_names, countof_guardian) = S_intern((const unsigned char *)"guardian");
     S_G.countof_size[countof_guardian] = size_guardian_entry;
   INITVECTIT(S_G.countof_names, countof_oblist) = S_intern((const unsigned char *)"oblist");
@@ -175,101 +179,154 @@ void S_set_minmarkgen(IGEN g) {
 void S_immobilize_object(x) ptr x; {
   seginfo *si;
 
-  tc_mutex_acquire()
-
   if (IMMEDIATE(x))
     si = NULL;
   else
     si = MaybeSegInfo(ptr_get_segment(x));
  
-  if (si) {
-    if (si->space == space_new)
-      S_error_abort("S_immoblize_object(): object canot be immobilized");
+  if ((si != NULL) && (si->generation != static_generation)) {
+    tc_mutex_acquire()
 
-    if (si->generation != static_generation) {
-      /* Try a little to to support cancellation of segment-level
-       * immobilzation --- but we don't try too hard */
-      if (si->must_mark < 3)
-        si->must_mark++;
-    }
+    /* Try a little to to support cancellation of segment-level
+     * immobilzation --- but we don't try too hard */
+    if (si->must_mark < MUST_MARK_INFINITY)
+      si->must_mark++;
+
+    /* Note: for `space_new`, `must_mark` doesn't really mean all
+       objects must be marked; only those in the locked list must be
+       marked. Non-locked objects on `space_new` cannot be immobilized. */
+
+    tc_mutex_release()
   }
-
-  tc_mutex_release()
 }
 
 void S_mobilize_object(x) ptr x; {
   seginfo *si;
-
-  tc_mutex_acquire()
 
   if (IMMEDIATE(x))
     si = NULL;
   else
     si = MaybeSegInfo(ptr_get_segment(x));
 
-  if (si) {
-    if (si->generation != static_generation) {
-      if (si->must_mark == 0)
-        S_error_abort("S_mobilize_object(): object was definitely not immobilzed");
-      /* See S_immobilize_object() about this vague try at canceling immobilation: */
-      if (si->must_mark < 3)
-        --si->must_mark;
-    }
-  }
+  if ((si != NULL) && (si->generation != static_generation)) {
+    tc_mutex_acquire()
+
+    if (si->must_mark == 0)
+      S_error_abort("S_mobilize_object(): object was definitely not immobilzed");
+
+    /* See S_immobilize_object() about this vague try at canceling immobilation: */
+    if (si->must_mark < MUST_MARK_INFINITY)
+      --si->must_mark;
   
-  tc_mutex_release()
+    tc_mutex_release()
+  }
 }
 
-void Slock_object(x) ptr x; {
-  ptr tc = get_thread_context();
-
-  S_immobilize_object(x);
-
-  LOCKEDOBJECTS(tc) = Scons(x, LOCKEDOBJECTS(tc));
+static IBOOL memqp(x, ls) ptr x, ls; {
+  for (;;) {
+    if (ls == Snil) return 0;
+    if (Scar(ls) == x) return 1;
+    ls = Scdr(ls);
+  }
 }
 
-void Sunlock_object(x) ptr x; {
-  ptr tc = get_thread_context();
-  ptr ls, prev = NULL;
+static IBOOL remove_first_nomorep(x, pls, look) ptr x, *pls; IBOOL look; {
+  ptr ls;
 
-  /* We expect FIFO locking on a small number of objects, but support
-     reordering, just in case: */
-  for (ls = LOCKEDOBJECTS(tc); ls != Snil; ls = Scdr(ls)) {
+  for (;;) {
+    ls = *pls;
+    if (ls == Snil) break;
     if (Scar(ls) == x) {
-      if (!prev)
-        LOCKEDOBJECTS(tc) = Scdr(ls);
-      else
-        Scdr(prev) = Scdr(ls);
+      ls = Scdr(ls);
+      *pls = ls;
+      if (look) return !memqp(x, ls);
       break;
     }
-    prev = ls;
+    pls = &Scdr(ls);
   }
-  if (ls == Snil)
-    S_error_abort("Sunlock_object(): object was not locked");
 
-  S_mobilize_object(x);
+ /* must return 0 if we don't look for more */
+  return 0;
 }
 
-ptr S_lockable_bytevector(ptr bv, iptr start, iptr count, iptr copy) {
-  seginfo *si;
+IBOOL Slocked_objectp(x) ptr x; {
+  seginfo *si; IGEN g; IBOOL ans; ptr ls;
 
-  /* Allocate a new bytevector if `bv` isn't lockable. This can create
-     extra garbage and copying, but that problem will fix itself: a
-     given `bv` won't stay unlockable after a minor GC. */
+  if (IMMEDIATE(x) || (si = MaybeSegInfo(ptr_get_segment(x))) == NULL || (g = si->generation) == static_generation) return 1;
 
   tc_mutex_acquire()
 
-  si = SegInfo(ptr_get_segment(bv));
-  if (si->space == space_new) {
-    ptr new_bv = S_bytevector2(count, 1);
-    if (copy)
-      memcpy(&BVIT(new_bv, 0), &BVIT(bv, start), count);
-    bv = new_bv;
+  ans = 0;
+  for (ls = S_G.locked_objects[g]; ls != Snil; ls = Scdr(ls)) {
+    if (x == Scar(ls)) {
+      ans = 1;
+      break;
+    }
   }
 
   tc_mutex_release()
 
-  return bv;
+  return ans;
+}
+
+ptr S_locked_objects(void) {
+  IGEN g; ptr ans; ptr ls;
+
+  tc_mutex_acquire()
+
+  ans = Snil;
+  for (g = 0; g <= static_generation; INCRGEN(g)) {
+    for (ls = S_G.locked_objects[g]; ls != Snil; ls = Scdr(ls)) {
+      ans = Scons(Scar(ls), ans);
+    }
+  }
+
+  tc_mutex_release()
+
+  return ans;
+}
+
+void Slock_object(x) ptr x; {
+  seginfo *si; IGEN g;
+
+ /* weed out pointers that won't be relocated */
+  if (!IMMEDIATE(x) && (si = MaybeSegInfo(ptr_get_segment(x))) != NULL && (g = si->generation) != static_generation) {
+    tc_mutex_acquire()
+    S_pants_down += 1;
+    /* immobilize */
+    if (si->must_mark < MUST_MARK_INFINITY)
+      si->must_mark++;
+   /* add x to locked list. remove from unlocked list */
+    S_G.locked_objects[g] = S_cons_in((g == 0 ? space_new : space_impure), g, x, S_G.locked_objects[g]);
+    if (S_G.enable_object_counts) {
+      if (g != 0) S_G.countof[g][countof_pair] += 1;
+    }
+    (void)remove_first_nomorep(x, &S_G.unlocked_objects[g], 0);
+    S_pants_down -= 1;
+    tc_mutex_release()
+  }
+}
+
+void Sunlock_object(x) ptr x; {
+  seginfo *si; IGEN g;
+
+  if (!IMMEDIATE(x) && (si = MaybeSegInfo(ptr_get_segment(x))) != NULL && (g = si->generation) != static_generation) {
+    tc_mutex_acquire()
+    S_pants_down += 1;
+    /* mobilize, if we haven't lost track */
+    if (si->must_mark < MUST_MARK_INFINITY)
+      --si->must_mark;
+   /* remove first occurrence of x from locked list. if there are no
+      others, add x to unlocked list */
+    if (remove_first_nomorep(x, &S_G.locked_objects[g], (si->space == space_new) && (si->generation > 0))) {
+      S_G.unlocked_objects[g] = S_cons_in((g == 0 ? space_new : space_impure), g, x, S_G.unlocked_objects[g]);
+      if (S_G.enable_object_counts) {
+        if (g != 0) S_G.countof[g][countof_pair] += 1;
+      }
+    }
+    S_pants_down -= 1;
+    tc_mutex_release()
+  }
 }
 
 ptr s_help_unregister_guardian(ptr *pls, ptr tconc, ptr result) {
@@ -830,6 +887,8 @@ ptr S_do_gc(IGEN mcg, IGEN tg, ptr count_roots) {
       }
     }
     S_G.guardians[new_g] = S_G.guardians[old_g]; S_G.guardians[old_g] = Snil;
+    S_G.locked_objects[new_g] = S_G.locked_objects[old_g]; S_G.locked_objects[old_g] = Snil;
+    S_G.unlocked_objects[new_g] = S_G.unlocked_objects[old_g]; S_G.unlocked_objects[old_g] = Snil;
     S_G.buckets_of_generation[new_g] = S_G.buckets_of_generation[old_g]; S_G.buckets_of_generation[old_g] = NULL;
     if (S_G.enable_object_counts) {
       INT i; ptr ls;

@@ -29,7 +29,7 @@ static void sweep PROTO((ptr tc, ptr p));
 static void sweep_in_old PROTO((ptr tc, ptr p));
 static IBOOL object_directly_refers_to_self PROTO((ptr p));
 static ptr copy_stack PROTO((ptr old, iptr *length, iptr clength));
-static void resweep_weak_pairs PROTO((IGEN g, seginfo *oldspacesegments));
+static void resweep_weak_pairs PROTO((IGEN g, seginfo *oldweakspacesegments));
 static void forward_or_bwp PROTO((ptr *pp, ptr p));
 static void sweep_generation PROTO((ptr tc, IGEN g));
 static void sweep_from_stack PROTO((ptr tc));
@@ -58,6 +58,7 @@ static void check_ephemeron PROTO((ptr pe, int add_to_trigger));
 static void check_pending_ephemerons PROTO(());
 static int check_dirty_ephemeron PROTO((ptr pe, int tg, int youngest));
 static void clear_trigger_ephemerons PROTO(());
+static void init_fully_marked_mask();
 
 #ifdef ENABLE_OBJECT_COUNTS
 static uptr total_size_so_far();
@@ -98,7 +99,7 @@ static uptr count_root_bytes;
 #endif
 
 static ptr *sweep_stack_start, *sweep_stack, *sweep_stack_limit;
-static int going_no = 0;
+static octet *fully_marked_mask;
 
 #define push_sweep(p) { \
   if (sweep_stack == sweep_stack_limit) enlarge_sweep_stack(); \
@@ -163,6 +164,11 @@ uptr list_length(ptr ls) {
 #endif
 
 #define marked(si, p) (si->marked_mask && (si->marked_mask[segment_bitmap_byte(p)] & segment_bitmap_bit(p)))
+
+static void init_fully_marked_mask() {
+  find_room(space_data, 0, typemod, ptr_align(segment_bitmap_bytes), fully_marked_mask);
+  memset(fully_marked_mask, 0xFF, segment_bitmap_bytes);  
+}
 
 #ifdef PRESERVE_FLONUM_EQ
 
@@ -309,6 +315,12 @@ static void sweep_in_old(ptr tc, ptr p) {
   sweep(tc, p);
 }
 
+static void sweep_dirty_object_if_space_new(ptr p, IGEN tg) {
+  seginfo *si = SegInfo(ptr_get_segment(p));
+  if (si->space == space_new)
+    (void)sweep_dirty_object(p, tg, 0);
+}
+
 static ptr copy_stack(old, length, clength) ptr old; iptr *length, clength; {
   iptr n, m; ptr new;
   seginfo *si = SegInfo(ptr_get_segment(old));
@@ -396,7 +408,7 @@ typedef struct count_root_t {
 
 ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
     IGEN g; ISPC s;
-    seginfo *oldspacesegments, *si, *nextsi;
+    seginfo *oldspacesegments, *oldweakspacesegments, *si, *nextsi;
     ptr ls;
     bucket_pointer_list *buckets_to_rebuild;
     uptr pre_finalization_size;
@@ -432,7 +444,7 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
     max_copied_generation = mcg;
 
     sweep_stack_start = sweep_stack = sweep_stack_limit = NULL;
-    going_no++;
+    fully_marked_mask = NULL;
 
   /* set up generations to be copied */
     for (s = 0; s <= max_real_space; s++)
@@ -454,7 +466,7 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
       orig_next_loc[s] = sweep_loc[s] = S_G.next_loc[s][tg];
 
   /* mark segments from which objects are to be copied or marked */
-    oldspacesegments = (seginfo *)NULL;
+    oldspacesegments = oldweakspacesegments = (seginfo *)NULL;
     for (s = 0; s <= max_real_space; s += 1) {
       for (g = 0; g <= mcg; g += 1) {
         IBOOL maybe_mark = ((tg == S_G.min_mark_gen) && (g == tg));
@@ -465,13 +477,22 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
           si->old_space = 1;
           if (si->must_mark
               || (maybe_mark && (!si->marked_mask
-                                 || (si->marked_count > segment_sufficiently_compact_bytes))))
-            si->use_marks = 1;
+                                 || (si->marked_count > segment_sufficiently_compact_bytes)))) {
+            if (s != space_new) /* only lock-based marking is allowed on space_new */
+              si->use_marks = 1;
+            /* update generation now, so that any updated dirty references 
+               will record the correct new generation; also used for a check in S_dirty_set */
+            si->generation = tg;
+          }
           si->marked_mask = NULL; /* clear old mark bits, if any */
           si->marked_count = 0;
           si->min_dirty_byte = 0; /* prevent registering as dirty while GCing */
         }
         S_G.occupied_segments[s][g] = NULL;
+      }
+      if (s == space_weakpair) {
+        /* prefix of oldweakspacesegments is for weak pairs */
+        oldweakspacesegments = oldspacesegments;
       }
     }          
 
@@ -499,6 +520,23 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
 
    SET_BACKREFERENCE(Sfalse) /* #f => root */
 
+    /* Set mark bit for any locked object in `space_new`. Don't sweep until
+       after handling counting roots. Note that the segment won't have
+       `use_marks` set, so non-locked objects will be copied out. */
+     for (g = 0; g <= mcg; g += 1) {
+       for (ls = S_G.locked_objects[g]; ls != Snil; ls = Scdr(ls)) {
+         ptr p = Scar(ls);
+         seginfo *si = SegInfo(ptr_get_segment(p));
+         if (si->space == space_new) {
+           if (!si->marked_mask) {
+             find_room(space_data, 0, typemod, ptr_align(segment_bitmap_bytes), si->marked_mask);
+             memset(si->marked_mask, 0, segment_bitmap_bytes);  
+           }
+           si->marked_mask[segment_bitmap_byte(p)] |= segment_bitmap_bit(p);
+         }
+       }
+     }
+   
 #ifdef ENABLE_OBJECT_COUNTS
   /* set flag on count_roots objects so they get copied to space_count_root */
      if (count_roots_ls != Sfalse) {
@@ -597,6 +635,40 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
        }
      }
 #endif
+
+  /* sweep older locked and unlocked objects that are on `space_new` segments,
+     because we can't find dirty writes there */
+    for (g = mcg + 1; g <= static_generation; INCRGEN(g)) {
+      for (ls = S_G.locked_objects[g]; ls != Snil; ls = Scdr(ls))
+        sweep_dirty_object_if_space_new(Scar(ls), tg);
+      for (ls = S_G.unlocked_objects[g]; ls != Snil; ls = Scdr(ls))
+        sweep_dirty_object_if_space_new(Scar(ls), tg);
+    }
+
+    /* Gather and mark all younger locked objects.
+       Any object on a `space_new` segment is already marked, but still
+       needs to be swept. */
+     {
+       ptr locked_objects = ((tg > mcg) ? S_G.locked_objects[tg] : Snil);
+       for (g = 0; g <= mcg; g += 1) {
+         for (ls = S_G.locked_objects[g]; ls != Snil; ls = Scdr(ls)) {
+           ptr p = Scar(ls);
+           seginfo *si = SegInfo(ptr_get_segment(p));
+           if (si->space == space_new)
+             sweep(tc, p);
+           /* non-`space_new` objects will be swept via new pair */
+           locked_objects = S_cons_in(space_impure, tg, p, locked_objects);
+#ifdef ENABLE_OBJECT_COUNTS
+           S_G.countof[tg][countof_pair] += 1;
+           S_G.countof[tg][countof_locked] += 1;
+           S_G.bytesof[target_generation][countof_locked] += size_object(p);
+#endif /* ENABLE_OBJECT_COUNTS */
+         }
+         S_G.locked_objects[g] = Snil;
+         S_G.unlocked_objects[g] = Snil;
+       }
+       S_G.locked_objects[tg] = locked_objects;
+     }
 
   /* sweep non-oldspace threads, since any thread may have an active stack */
     for (ls = S_threads; ls != Snil; ls = Scdr(ls)) {
@@ -759,7 +831,6 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
 #ifdef ENABLE_OBJECT_COUNTS
                   S_G.countof[tg][countof_pair] += 1;
 #endif /* ENABLE_OBJECT_COUNTS */
-                  
                   SETCAR(old_end,rep);
                   SETCDR(old_end,new_end);
                   SETCDR(tconc,new_end);
@@ -879,7 +950,7 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
 
   /* handle weak pairs */
     resweep_dirty_weak_pairs();
-    resweep_weak_pairs(tg, oldspacesegments);
+    resweep_weak_pairs(tg, oldweakspacesegments);
 
    /* still-pending ephemerons all go to bwp */
     clear_trigger_ephemerons();
@@ -973,13 +1044,15 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
       si->old_space = 0;
       si->use_marks = 0;
       if (si->marked_mask != NULL) {
-        int d;
-        for (d = 0; d < cards_per_segment; d += sizeof(ptr)) {
-          iptr *dp = (iptr *)(si->dirty_bytes + d);
-          /* fill sizeof(iptr) bytes at a time with 0xff */
-          *dp = -1;
-        }
         si->min_dirty_byte = 0xff;
+        if (si->space != space_data) {
+          int d;
+          for (d = 0; d < cards_per_segment; d += sizeof(ptr)) {
+            iptr *dp = (iptr *)(si->dirty_bytes + d);
+            /* fill sizeof(iptr) bytes at a time with 0xff */
+            *dp = -1;
+          }
+        }
         si->generation = tg;
         if (tg == static_generation) S_G.number_of_nonstatic_segments -= 1;
         s = si->space;
@@ -988,6 +1061,9 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
         S_G.bytes_of_space[s][tg] += si->marked_count;
         si->trigger_ephemerons = NULL;
         si->trigger_guardians = NULL;
+#ifdef PRESERVE_FLONUM_EQ
+        si->forwarded_flonums = NULL;
+#endif
       } else {
         chunkinfo *chunk = si->chunk;
         if (si->generation != static_generation) S_G.number_of_nonstatic_segments -= 1;
@@ -1100,7 +1176,7 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
         while (pp != nl);\
     *slp = (ptr)pp;
 
-static void resweep_weak_pairs(g, oldspacesegments) IGEN g; seginfo *oldspacesegments; {
+static void resweep_weak_pairs(g, oldweakspacesegments) IGEN g; seginfo *oldweakspacesegments; {
     ptr *slp, *nlp; ptr *pp, p, *nl;
     seginfo *si;
 
@@ -1110,12 +1186,15 @@ static void resweep_weak_pairs(g, oldspacesegments) IGEN g; seginfo *oldspaceseg
         pp += 2;
     })
 
-   for (si = oldspacesegments; si != NULL; si = si->next) {
-     if (si->marked_mask && (si->space == space_weakpair)) {
+   for (si = oldweakspacesegments; si != NULL; si = si->next) {
+     if (si->space != space_weakpair)
+       break;
+     if (si->marked_mask) {
        uptr i;
        for (i = 0; i < segment_bitmap_bytes; i++) {
          int mask = si->marked_mask[i];
          if (mask != 0) {
+           /* Assuming 4 pairs per 8 words */
            pp = (ptr *)build_ptr(si->number, (i << (log2_ptr_bytes+3)));
            if (mask & 0x1)
              forward_or_bwp(pp, *pp);
@@ -1340,6 +1419,11 @@ static void sweep_dirty(void) {
 
         /* reset min dirty byte so we can detect if byte is set while card is swept */
         dirty_si->min_dirty_byte = 0xff;
+
+        if (dirty_si->space == space_new) {
+          /* Must be a space that has only locked objects, which we sweeep every time */
+          continue;
+        }
 
         min_youngest = 0xff;
         nl = from_g == tg ? (ptr *)orig_next_loc[s] : (ptr *)S_G.next_loc[s][from_g];

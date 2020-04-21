@@ -1449,6 +1449,8 @@
   (load-shared-object [sig [(maybe-pathname) -> (void)]] [flags true])
   (locate-source [sig [(sfd uint) (sfd uint ptr) -> ()] [(sfd uint) (sfd uint ptr) -> (string uint uint)]] [flags])
   (locate-source-object-source [sig [(source-object ptr ptr) -> ()] [(source-object ptr ptr) -> (string uint uint)]] [flags])
+  (lock-object [sig [(ptr) -> (void)]] [flags unrestricted true])
+  (locked-object? [sig [(ptr) -> (boolean)]] [flags unrestricted discard])
   (logand [sig [(sint ...) -> (sint)]] [flags arith-op partial-folder])
   (logbit? [sig [(uint sint) -> (boolean)]] [flags pure mifoldable discard safeongoodargs])
   (logbit0 [sig [(uint sint) -> (sint)]] [flags arith-op mifoldable discard])
@@ -1773,6 +1775,7 @@
   (unget-u8 [sig [(binary-input-port eof/u8) -> (void)]] [flags true])
   (unget-char [sig [(textual-input-port eof/char) -> (void)]] [flags true])
   (uninterned-symbol? [sig [(ptr) -> (boolean)]] [flags pure unrestricted mifoldable discard])
+  (unlock-object [sig [(ptr) -> (void)]] [flags unrestricted true])
   (unread-char [sig [(char) (char textual-input-port) -> (void)]] [flags true])
   (unregister-guardian [sig [(guardian) -> (list)]] [flags true])
   (utf-16-codec [sig [() -> (codec)] [(sub-symbol) -> (codec)]] [flags pure true]) ; has optional eness argument

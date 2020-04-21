@@ -589,7 +589,10 @@
                    (&& (-> qsi old_space)
                        (&& (== (-> qsi space) (-> si space))
                            (&& (!= (FWDMARKER cdr_p) forward_marker)
-                               (! (-> qsi use_marks))))))))
+                               (&& (! (-> qsi use_marks))
+                                   ;; Checking `marked_mask`, too, in
+                                   ;; case the pair is locked
+                                   (! (-> qsi marked_mask)))))))))
        (check_triggers qsi)
        (size size-pair 2)
        (define new_cdr_p : ptr (cast ptr (+ (cast uptr _copy_) size_pair)))
@@ -2136,8 +2139,8 @@
                "  seg++;"
                "  while (seg < end_seg) {"
                "    mark_si = SegInfo(seg);"
-               (ensure-segment-mark-mask "mark_si" "    " '(no-clear))
-               "    /* no need to set a bit: just make sure `maeked_mask` is non-NULL */"
+               "    if (!fully_marked_mask) init_fully_marked_mask();"
+               "    mark_si->marked_mask = fully_marked_mask;"
                "    mark_si->marked_count = segment_bitmap_bytes;"
                "    seg++;"
                "  }"
@@ -2409,6 +2412,11 @@
                              `((mode sweep)
                                (maybe-backreferences? ,count?)
                                (counts? ,count?))))
+       (print-code (generate "sweep_dirty_object"
+                             `((mode sweep)
+                               (maybe-backreferences? ,count?)
+                               (counts? ,count?)
+                               (as-dirty? #t))))
        (letrec ([sweep1
                  (case-lambda
                   [(type) (sweep1 type (format "sweep_~a" type) '())]

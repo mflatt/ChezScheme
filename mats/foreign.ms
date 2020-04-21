@@ -175,15 +175,6 @@
                         (x v ...))
                       (+ v ...)))))))))
 
-(define-syntax with-object-kept-live
-  (lambda (x)
-    (syntax-case x ()
-      [(_ id expr)
-       (identifier? #'id)
-       #'(let ([v expr])
-           (keep-live id)
-           v)])))
-
 (machine-case
   [(i3ob ti3ob a6ob ta6ob a6s2 ta6s2 i3s2 ti3s2 i3qnx ti3qnx)
    (mat load-shared-object
@@ -1770,10 +1761,13 @@
       (define code
         (make-ftype-pointer foo
           (lambda (x y) (inexact (+ x y)))))
-      (define f (ftype-ref foo () code))
-      (with-object-kept-live
-       code
-       (f 3 4)))
+      (let ([code-object (foreign-callable-code-object (ftype-pointer-address code))])
+        (dynamic-wind
+          (lambda () (lock-object code-object))
+          (lambda ()
+            (define f (ftype-ref foo () code))
+            (f 3 4))
+          (lambda () (unlock-object code-object)))))
     7.0)
   (eqv?
     (let ()
@@ -1782,39 +1776,45 @@
         (make-ftype-pointer foo
           (lambda (x y) (inexact (+ x y)))))
       (define f (ftype-ref foo () code))
-      (with-object-kept-live
-       code
-       (f 8 4)))
+      (let ([x (f 8 4)])
+        (unlock-object (foreign-callable-code-object (ftype-pointer-address code)))
+        x))
     12.0)
   (eqv?
     (let ()
       (define-ftype foo (function (void* void*) ptrdiff_t))
       (define code (make-ftype-pointer foo -))
-      (with-object-kept-live
-       code
-       ((ftype-ref foo () code) 17 (* (most-positive-fixnum) 2))))
+      (let ([code-object (foreign-callable-code-object (ftype-pointer-address code))])
+        (dynamic-wind
+          (lambda () (lock-object code-object))
+          (lambda () ((ftype-ref foo () code) 17 (* (most-positive-fixnum) 2)))
+          (lambda () (unlock-object code-object)))))
     (- 17 (* (most-positive-fixnum) 2)))
   (eqv?
     (let ()
       (define-ftype foo (function (void* void*) ptrdiff_t))
       (define code (make-ftype-pointer foo -))
-      (with-object-kept-live
-       code
-       ((ftype-ref foo () code) 19 (* (most-positive-fixnum) 2))))
+      (let ([x ((ftype-ref foo () code) 19 (* (most-positive-fixnum) 2))])
+        (unlock-object (foreign-callable-code-object (ftype-pointer-address code)))
+        x))
     (- 19 (* (most-positive-fixnum) 2)))
   (eqv?
     (let ()
       (define-ftype foo (function (int int) size_t))
       (define code (make-ftype-pointer foo -))
-      (with-object-kept-live
-       code
-       ((ftype-ref foo () code) 17 32)))
+      (let ([code-object (foreign-callable-code-object (ftype-pointer-address code))])
+        (dynamic-wind
+          (lambda () (lock-object code))
+          (lambda () ((ftype-ref foo () code) 17 32))
+          (lambda () (unlock-object code)))))
     (- (expt 2 (* (ftype-sizeof size_t) 8)) 15))
   (eqv?
     (let ()
       (define-ftype foo (function (int int) size_t))
       (define code (make-ftype-pointer foo -))
-      ((ftype-ref foo () code) 17 32))
+      (let ([x ((ftype-ref foo () code) 17 32)])
+        (unlock-object (foreign-callable-code-object (ftype-pointer-address code)))
+        x))
     (- (expt 2 (* (ftype-sizeof size_t) 8)) 15))
 
   (error? ; not a string
@@ -2002,6 +2002,19 @@
  )
 
 (mat foreign-callable
+  (begin
+    ;; We don't have to use `lock-object` on the result of a `foreign-callable`,
+    ;; because it is immobile. We have to keep it live, though.
+    (define-syntax with-object-kept-live
+      (lambda (x)
+        (syntax-case x ()
+          [(_ id expr)
+           (identifier? #'id)
+           #'(let ([v expr])
+               (keep-live id)
+               v)])))
+    #t)
+
   (error? ; spam is not a procedure
     (foreign-callable 'spam () void))
   (error? ; spam is not a procedure
@@ -2285,9 +2298,11 @@
       (define f (lambda (n m) (if (fx= n 0) m (g (fx- n 1) (fx+ m 1)))))
       (define fptr (make-ftype-pointer foo f))
       (define g (ftype-ref foo () fptr))
-      (with-object-kept-live
-       fptr
-       (f $stack-depth $base-value)))
+      (let ([v (f $stack-depth $base-value)])
+        (unlock-object
+          (foreign-callable-code-object
+            (ftype-pointer-address fptr)))
+        v))
     (+ $stack-depth $base-value))
   (begin
     (define $with-exit-proc
@@ -2298,7 +2313,9 @@
         (define-ftype ->ptr (function () ptr))
         (let ([fptr (make-ftype-pointer ->ptr th)])
           (let ([v ((ftype-ref ->ptr () fptr))])
-            (keep-live fptr)
+            (unlock-object
+              (foreign-callable-code-object
+                (ftype-pointer-address fptr)))
             v))))
     #t)
   (eqv? ; make sure we can jump out of a deep nest of C/Scheme calls
@@ -2308,10 +2325,14 @@
       (define f (lambda (n m) (if (fx= n 0) (*k* m) (g (fx- n 1) (fx+ m 1)))))
       (define fptr (make-ftype-pointer foo f))
       (define g (ftype-ref foo () fptr))
-      ($with-exit-proc
-       (lambda (k)
-         (set! *k* k)
-         (f $stack-depth $base-value))))
+      (let ([v ($with-exit-proc
+                 (lambda (k)
+                   (set! *k* k)
+                   (f $stack-depth $base-value)))])
+        (unlock-object
+          (foreign-callable-code-object
+            (ftype-pointer-address fptr)))
+        v))
     (+ $stack-depth $base-value))
   (eqv? ; make sure we can jump out a few frames at a time
     (let ()
@@ -2327,11 +2348,13 @@
                   (g (fx- n 1) (fx+ m 1) k)))))
       (define fptr (make-ftype-pointer foo f))
       (define g (ftype-ref foo () fptr))
-      (with-object-kept-live
-       fptr
-       ($with-exit-proc
-        (lambda (k)
-          (f $stack-depth $base-value k)))))
+      (let ([v ($with-exit-proc
+                 (lambda (k)
+                   (f $stack-depth $base-value k)))])
+        (unlock-object
+          (foreign-callable-code-object
+            (ftype-pointer-address fptr)))
+        v))
     (+ $stack-depth $base-value))
   (or (= (optimize-level) 3)
       ; make sure we can jump out a few frames at a time, returning from
@@ -2363,7 +2386,9 @@
                (call/cc
                 (lambda (k)
                   (fluid-let ([*k* k]) (f $stack-depth $base-value))))))
-            (keep-live fptr)
+            (unlock-object
+              (foreign-callable-code-object
+                (ftype-pointer-address fptr)))
             *m*))
         (+ $stack-depth $base-value)))
   (or (= (optimize-level) 3)
@@ -2391,12 +2416,14 @@
             (define fptr (make-ftype-pointer foo f))
             (define g (ftype-ref foo () fptr))
             (with-exception-handler
-             (lambda (c) (*k* *m*))
-             (lambda ()
-               (call/cc
-                (lambda (k)
-                  (fluid-let ([*k* k]) (f $stack-depth $base-value))))))
-            (keep-live fptr)
+              (lambda (c) (*k* *m*))
+              (lambda ()
+                (call/cc
+                  (lambda (k)
+                    (fluid-let ([*k* k]) (f $stack-depth $base-value))))))
+            (unlock-object
+              (foreign-callable-code-object
+                (ftype-pointer-address fptr)))
             *m*))
         (+ $stack-depth $base-value)))
   (or (= (optimize-level) 3)
@@ -2427,18 +2454,17 @@
           ; by something that appears almost valid
           (get-bytevector-all ip)
           (with-exception-handler
-           (lambda (c) (*k* *m*))
-           (lambda ()
-             ($with-exit-proc
-              (lambda (k)
-                (fluid-let ([*k* k]) (f $stack-depth $base-value))))))
-          (keep-live fptr)
+            (lambda (c) (*k* *m*))
+            (lambda ()
+              ($with-exit-proc
+                (lambda (k)
+                  (fluid-let ([*k* k]) (f $stack-depth $base-value))))))
+          (unlock-object
+            (foreign-callable-code-object
+              (ftype-pointer-address fptr)))
           *m*)
         (+ $stack-depth $base-value)))
-  ;; Make sure that a callable is suitably locked, and that it's
-  ;; unlocked when the C stack is popped by an escape
-  ;; DISABLED FOR NOW: there's no `locked-object?` anymore
-  #;
+  ;; A callable isn't locked, but it's immobile
   (equal?
     (let ()
       (define Sinvoke2
@@ -2448,9 +2474,7 @@
       (define Fcons
         (foreign-callable
           (lambda (k y)
-            ;; Escape with locked, which should be #t
-            ;; because a callable is locked while it's
-            ;; called:
+            (collect) ; might crash if `Fcons` were mobile
             (k (locked-object? Fcons)))
           (scheme-object iptr)
           scheme-object))
@@ -2461,7 +2485,7 @@
        ;; Escape from callable:
        (let ([v ($with-exit-proc (lambda (k) (Sinvoke2 Fcons k 5)))])
          (list v (locked-object? Fcons)))))
-    '((#t #f) (#t #f)))
+    '((#f #f) (#f #f)))
 
   ;; Make sure the code pointer for a call into a
   ;; foreign procedure is correctly saved for locking
@@ -2724,9 +2748,11 @@
                [(_ ([id rhs])
                    body)
                 (let ([id rhs])
-                  (with-object-kept-live
-                   id
-                   body))]))
+                  (let ([v body])
+                    (unlock-object
+                     (foreign-callable-code-object
+                      (ftype-pointer-address id)))
+                    v))]))
            (and (let ([v (make-ftype-pointer T (malloc_at_boundary (ftype-sizeof T)))])
                   (get v)
                   (and (= (T-ref v) vi)
@@ -2951,7 +2977,9 @@
       (let loop ([i 1000000])
         (cond
          [(zero? i)
-          (keep-live cb)
+          (unlock-object
+           (foreign-callable-code-object
+            (ftype-pointer-address cb)))
           #t]
          [else
           (let ([v (cb_send cb)])
@@ -2978,9 +3006,11 @@
     (define-ftype thread-callback-T (function __collect_safe (double) double))
     (define (call-with-thread-callback cb-proc proc)
       (let ([callback (make-ftype-pointer thread-callback-T cb-proc)])
-        (with-object-kept-live
-         callback
-         (proc callback))))
+        (let ([r (proc callback)])
+          (unlock-object
+           (foreign-callable-code-object
+            (ftype-pointer-address callback)))
+          r)))
     (define (call-in-unknown-thread-1 proc arg n-times)
       ;; Baseline implementation that uses the current thread
       (let loop ([i 0] [arg arg])

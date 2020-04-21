@@ -237,13 +237,6 @@ ftype operators:
                  #f
                  #f)])
       (lambda (x) #`'#,rtd)))
-  (define-syntax rtd/function-fptr ; extra slot to optionally retain callable
-    (let ([rtd ($make-record-type #!base-rtd rtd/fptr
-                 '#{ftype-function-pointer cyt1563wx93cku1r7etdp5016-8}
-                 '((immutable ptr retain))
-                 #f
-                 #f)])
-      (lambda (x) #`'#,rtd)))
   (define $fptr? (record-predicate rtd/fptr))
   (define $ftype-pointer-address (record-accessor rtd/fptr 0))
   (define-syntax rtd/ftd
@@ -543,7 +536,7 @@ ftype operators:
                             (or ($fp-filter-type (expand-fp-ftype 'function-ftype what r x def-alist) result?)
                                 (syntax-error x (format "invalid function-ftype ~s type specifier" what))))))
                       (unless funok? (syntax-error ftype "unexpected function ftype outside pointer field"))
-                      (make-ftd-function rtd/function-fptr
+                      (make-ftd-function rtd/fptr
                         (and defid (symbol->string (syntax->datum defid)))
                         stype #f #f
                         ($filter-conv 'function-ftype #'(conv ...))
@@ -727,42 +720,36 @@ ftype operators:
         (syntax-case x ()
           [(_ ftype ?addr)
            (identifier? #'ftype)
-           (let ([ftd (expand-ftype-name r #'ftype)]
-                 [make-get-addr
-                  (lambda (addr-expr)
-                    (if (or (fx= (optimize-level) 3)
-                            (syntax-case addr-expr (ftype-pointer-address)
-                              [(ftype-pointer-address x) #t]
-                              [else #f]))
-                        addr-expr
-                        #`(let ([addr #,addr-expr])
-                            ($verify-ftype-address 'make-ftype addr)
-                            addr)))])
-             (cond
-               [(ftd-function? ftd)
-                #`(let ([x ?addr])
-                    (let-values ([(addr retain)
-                                  (cond
-                                    ;; we need to make a code object, lock it, set addr to
-                                    ;; (foreign-callable-entry-point code-object)
-                                    [(procedure? x)
-                                     (let ([co #,($make-foreign-callable 'make-ftype-pointer
-                                                                         (ftd-function-conv* ftd)
-                                                                         #'x
-                                                                         (map indirect-ftd-pointer (ftd-function-arg-type* ftd))
-                                                                         (indirect-ftd-pointer (ftd-function-result-type ftd)))])
-                                       (values (foreign-callable-entry-point co) co))]
-                                    ;; otherwise, it is a string, so lookup the foreign-entry
-                                    [(string? x) (values (foreign-entry x) #f)]
-                                    ;; otherwise, assume it is an address, let normal check
-                                    ;; complain otherwise
-                                    [else (values x #f)])])
-                      ($make-fptr '#,ftd
-                                  #,(make-get-addr #'addr)
-                                  retain)))]
-               [else
-                #`($make-fptr '#,ftd
-                              #,(make-get-addr #'?addr))]))]))))
+           (let ([ftd (expand-ftype-name r #'ftype)])
+             (with-syntax ([addr-expr
+                            (if (ftd-function? ftd)
+                                #`(let ([x ?addr])
+                                    (cond
+                                      ;; we need to make a code object, lock it, set addr to
+                                      ;; (foreign-callable-entry-point code-object)
+                                      [(procedure? x)
+                                       (let ([co #,($make-foreign-callable 'make-ftype-pointer
+                                                     (ftd-function-conv* ftd)
+                                                     #'x
+                                                     (map indirect-ftd-pointer (ftd-function-arg-type* ftd))
+                                                     (indirect-ftd-pointer (ftd-function-result-type ftd)))])
+                                         (lock-object co)
+                                         (foreign-callable-entry-point co))]
+                                      ;; otherwise, it is a string, so lookup the foreign-entry
+                                      [(string? x) (foreign-entry x)]
+                                      ;; otherwise, assume it is an address, let normal check
+                                      ;; complain otherwise
+                                      [else x]))
+                                #'?addr)])
+               #`($make-fptr '#,ftd
+                   #,(if (or (fx= (optimize-level) 3)
+                             (syntax-case #'addr-expr (ftype-pointer-address)
+                               [(ftype-pointer-address x) #t]
+                               [else #f]))
+                         #'addr-expr
+                         #'(let ([addr addr-expr])
+                             ($verify-ftype-address 'make-ftype addr)
+                             addr)))))]))))
   (set! $trans-ftype-pointer?
     (lambda (x)
       (lambda (r)
@@ -1350,9 +1337,8 @@ ftype operators:
  ; procedural entry point for inspector to simplify bootstrapping
   (set! $ftype-pointer? (lambda (x) ($fptr? x)))
   (set! $make-fptr
-    (case-lambda
-     [(ftd addr) (#2%$make-fptr ftd addr)]
-     [(ftd addr retain) (#2%$make-fptr ftd addr retain)]))
+    (lambda (ftd addr)
+      (#2%$make-fptr ftd addr)))
   (set! $fptr-offset-addr
     (lambda (fptr offset)
       (#3%$fptr-offset-addr fptr offset)))

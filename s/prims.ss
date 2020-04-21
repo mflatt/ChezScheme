@@ -1567,6 +1567,13 @@
        ($oops '$current-attachments "malformed attachments ~s" w))
      ($current-attachments w)]))
 
+(define lock-object
+  (foreign-procedure "(cs)lock_object" (scheme-object) void))
+(define unlock-object
+  (foreign-procedure "(cs)unlock_object" (scheme-object) void))
+(define locked-object?
+  (foreign-procedure "(cs)locked_objectp" (scheme-object) boolean))
+
 (define-who $install-guardian
   (lambda (obj rep tconc)
     ; tconc is assumed to be valid at all call sites

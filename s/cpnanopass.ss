@@ -7582,16 +7582,7 @@
                     (set! ,(%mref ,t ,(constant record-type-disp)) ,e-ftype)
                     (set! ,(%mref ,t ,(constant record-data-disp))
                       ,(ptr->integer e-addr (constant ptr-bits)))
-                    ,t)))])]
-          [(e-ftype e-addr e-retain)
-            (bind #f (e-ftype e-addr e-retain)
-              (bind #t ([t (%constant-alloc type-typed-object (fx* 3 (constant ptr-bytes)))])
-                (%seq
-                  (set! ,(%mref ,t ,(constant record-type-disp)) ,e-ftype)
-                  (set! ,(%mref ,t ,(constant record-data-disp))
-                    ,(ptr->integer e-addr (constant ptr-bits)))
-                  (set! ,(%mref ,t ,(fx+ (constant record-data-disp) (constant ptr-bytes))) ,e-retain)
-                  ,t)))])
+                    ,t)))])])
         (define-inline 3 ftype-pointer-address
           [(e-fptr)
            (build-object-ref #f

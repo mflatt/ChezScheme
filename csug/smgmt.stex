@@ -947,15 +947,83 @@ pointers registered with guardians created by
 (Section~\ref{SECTTHREADFTYPEGUARDIANS}).
 
 
-\section{Immobile Objects\label{SECTSMGMTLOCKING}}
+\section{Locking Objects\label{SECTSMGMTLOCKING}}
 
 All pointers from C variables or data structures to Scheme objects
-should generally be discarded before entry (or reentry) into Scheme,
-since they may be moved by the storage-management system, but an
-\emph{immobile} object will not be moved as long as it remains
-reachable. Foreign-callable code objects are immobile, as are objects
-allocated by functions that specifically create immobile objects,
-while all other objects are mobile.
+should generally be discarded before entry (or reentry) into Scheme.
+When this guideline cannot be followed, the object may be
+\emph{locked} via \scheme{lock-object} or via the equivalent
+C library procedure \index{\scheme{Slock_object}}\scheme{Slock_object}
+(Section~\ref{SECTFOREIGNCLIB}).
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{lock-object}{\categoryprocedure}{(lock-object \var{obj})}
+\returns unspecified
+\listlibraries
+\endentryheader
+
+\noindent
+Locking an object prevents the storage manager from reclaiming or
+relocating the object.
+Locking should be used sparingly, as it introduces memory fragmentation
+and increases storage management overhead.
+
+Locking can also lead to accidental retention of storage if objects
+are not unlocked.
+Objects may be unlocked via \scheme{unlock-object} or the equivalent
+C library procedure
+\index{\scheme{Sunlock_object}}\scheme{Sunlock_object}.
+
+Locking immediate values, such as fixnums, booleans, and characters,
+or objects that have been made static is unnecessary but harmless.
+
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{unlock-object}{\categoryprocedure}{(unlock-object \var{obj})}
+\returns unspecified
+\listlibraries
+\endentryheader
+
+\noindent
+An object may be locked more than once by successive calls to
+\scheme{lock-object}, \scheme{Slock_object}, or both, in which case it must
+be unlocked by an equal number of calls to
+\scheme{unlock-object} or \scheme{Sunlock_object} before it is
+truly unlocked.
+
+An object contained within a locked object, such as an object in the
+car of a locked pair, need not also be locked unless a separate C
+pointer to the object exists.
+That is, if the inner object is accessed only via an indirection of the
+outer object, it should be left unlocked so that the collector is free
+to relocate it during collection.
+
+Unlocking immediate values, such as fixnums, booleans, and characters,
+or objects that have been made static is unnecessary and ineffective but harmless.
+
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{locked-object?}{\categoryprocedure}{(locked-object? \var{obj})}
+\returns \scheme{#t} if \var{obj} is locked, immediate, or static
+\listlibraries
+\endentryheader
+
+\noindent
+This predicate returns true if \var{obj} cannot be relocated or reclaimed
+by the collector, including immediate values, such as fixnums,
+booleans, and characters, and objects that have been made static.
+
+
+\section{Immobile Objects\label{SECTSMGMTIMMOBILE}}
+
+Like a locked object, an \emph{immobile} object will not be relocated by
+the storage manager. Unlike a locked object, and immobile object will
+be reclaimed by the storage manager if it is unreachable.
+Foreign-callable code objects are immobile, as are objects allocated
+by functions that specifically create immobile objects.
 
 %----------------------------------------------------------------------------
 \entryheader
@@ -965,8 +1033,8 @@ while all other objects are mobile.
 \endentryheader
 
 \noindent
-Like \scheme{box}, but creates a box that will not be moved in memory
-by the storage management system until it is retained.
+Like \scheme{box}, but creates a box that will not be relocated in memory
+by the storage management system until it is reclaimed.
 
 
 %----------------------------------------------------------------------------
@@ -978,8 +1046,8 @@ by the storage management system until it is retained.
 \endentryheader
 
 \noindent
-Like \scheme{make-vector}, but creates a vector that will not be moved
-in memory by the storage management system until it is retained.
+Like \scheme{make-vector}, but creates a vector that will not be relocated
+in memory by the storage management system until it is reclaimed.
 
 
 %----------------------------------------------------------------------------
@@ -991,8 +1059,8 @@ in memory by the storage management system until it is retained.
 \endentryheader
 
 \noindent
-Like \scheme{make-bytevector}, but creates a bytevector that will not be moved
-in memory by the storage management system until it is retained.
+Like \scheme{make-bytevector}, but creates a bytevector that will not be relocated
+in memory by the storage management system until it is reclaimed.
 
 
 

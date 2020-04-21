@@ -691,12 +691,13 @@
 (define-constant countof-string 19)
 (define-constant countof-fxvector 20)
 (define-constant countof-bytevector 21)
-(define-constant countof-guardian 22)
-(define-constant countof-oblist 23)
-(define-constant countof-ephemeron 24)
-(define-constant countof-stencil-vector 25)
-(define-constant countof-record 26)
-(define-constant countof-types 27)
+(define-constant countof-locked 22)
+(define-constant countof-guardian 23)
+(define-constant countof-oblist 24)
+(define-constant countof-ephemeron 25)
+(define-constant countof-stencil-vector 26)
+(define-constant countof-record 27)
+(define-constant countof-types 28)
 
 ;;; type-fixnum is assumed to be all zeros by at least by vector, fxvector,
 ;;; and bytevector index checks
