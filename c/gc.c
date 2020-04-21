@@ -731,7 +731,7 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
                      won't discover any new tconcs at that point. */
                   ptr obj = GUARDIANOBJ(ls);
                   seginfo *o_si = SegInfo(ptr_get_segment(obj));
-                  if (FORWARDEDP(obj, o_si)) {
+                  if (FORWARDEDP(obj, o_si) || marked(o_si, obj)) {
                     /* Object is reachable, so we might as well move
                        this one to the hold list --- via pend_hold_ls, which
                        leads to a copy to move to hold_ls */
@@ -754,7 +754,8 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
                   WITH_TOP_BACKREFERENCE(tconc, relocate(&rep));
 
                   old_end = Scdr(tconc);
-                  new_end = S_cons_in(space_impure, 0, FIX(0), FIX(0));
+                  /* allocate new_end in tg, in case `tconc` is on a marked segment */
+                  new_end = S_cons_in(space_impure, tg, FIX(0), FIX(0));
 #ifdef ENABLE_OBJECT_COUNTS
                   S_G.countof[tg][countof_pair] += 1;
 #endif /* ENABLE_OBJECT_COUNTS */
@@ -817,7 +818,7 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
                 ptr obj = GUARDIANOBJ(ls);
                 seginfo *o_si = SegInfo(ptr_get_segment(obj));
                 next = GUARDIANNEXT(ls);
-                if (FORWARDEDP(obj, o_si)) {
+                if (FORWARDEDP(obj, o_si) || marked(o_si, obj)) {
                   /* Will defintely move to hold_ls, but the entry
                      must be copied to move from pend_hold_ls to
                      hold_ls: */
@@ -847,8 +848,8 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
             }
             
           /* move each entry in pend_final_ls into one of:
-           *   final_ls         if tconc forwarded
-           *   pend_final_ls    if tconc not forwarded
+           *   final_ls         if tconc forwarded or marked
+           *   pend_final_ls    if tconc not forwarded or marked
            * where the output pend_final_ls coresponds to pending in a segment */
             ls = pend_final_ls; pend_final_ls = Snil;
             for ( ; ls != Snil; ls = next) {
@@ -859,8 +860,14 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
                     INITGUARDIANNEXT(ls) = final_ls;
                     final_ls = ls;
                 } else {
+                  seginfo *t_si = SegInfo(ptr_get_segment(tconc));
+                  if (marked(t_si, tconc)) {
+                    INITGUARDIANNEXT(ls) = final_ls;
+                    final_ls = ls;
+                  } else {
                     INITGUARDIANPENDING(ls) = FIX(GUARDIAN_PENDING_FINAL);
                     add_pending_guardian(ls, tconc);
+                  }
                 }
             }
         }
