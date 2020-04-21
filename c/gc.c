@@ -411,7 +411,7 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
     seginfo *oldspacesegments, *oldweakspacesegments, *si, *nextsi;
     ptr ls;
     bucket_pointer_list *buckets_to_rebuild;
-    uptr pre_finalization_size;
+    uptr pre_finalization_size, pre_phantom_bytes;
 #ifdef ENABLE_OBJECT_COUNTS
     ptr count_roots_counts = Snil;
     iptr count_roots_len;
@@ -456,10 +456,12 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
             S_G.bytes_of_space[s][g] = 0;
         }
 
-  /* reset phantom size in generations to be copied */
+  /* reset phantom size in generations to be copied, even if counting is not otherwise enabled */
     for (g = 0; g <= mcg; g++) {
-      S_G.phantom_sizes[g] = 0;
+      S_adjustmembytes(0 - S_G.bytesof[g][countof_phantom]);
+      S_G.bytesof[g][countof_phantom] = 0;
     }
+    pre_phantom_bytes = S_G.bytesof[tg][countof_phantom];
 
   /* set up target generation sweep_loc and orig_next_loc pointers */
     for (s = 0; s <= max_real_space; s++)
@@ -947,6 +949,7 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
     }
 
     S_G.bytes_finalized = target_generation_space_so_far() - pre_finalization_size;
+    S_adjustmembytes(S_G.bytesof[tg][countof_phantom] - pre_phantom_bytes);
 
   /* handle weak pairs */
     resweep_dirty_weak_pairs();
@@ -1938,7 +1941,6 @@ static uptr total_size_so_far() {
       if (bytes == 0) bytes = S_G.countof[g][i] * S_G.countof_size[i];
       total += bytes;
     }
-    total += S_G.phantom_sizes[g];
   }
 
   return total - count_root_bytes;
@@ -1948,7 +1950,7 @@ static uptr total_size_so_far() {
 static uptr target_generation_space_so_far() {
   IGEN g = target_generation;
   ISPC s;
-  uptr sz = S_G.phantom_sizes[g];
+  uptr sz = S_G.bytesof[g][countof_phantom];
 
   for (s = 0; s <= max_real_space; s++) {
     sz += S_G.bytes_of_space[s][g];

@@ -697,7 +697,8 @@
 (define-constant countof-ephemeron 25)
 (define-constant countof-stencil-vector 26)
 (define-constant countof-record 27)
-(define-constant countof-types 28)
+(define-constant countof-phantom 28)
+(define-constant countof-types 29)
 
 ;;; type-fixnum is assumed to be all zeros by at least by vector, fxvector,
 ;;; and bytevector index checks

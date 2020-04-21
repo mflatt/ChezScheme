@@ -138,7 +138,6 @@ EXTERN struct S_G_struct {
     ptr static_id;
     ptr countof_names;
     ptr gcbackreference[static_generation+1];
-    uptr phantom_sizes[static_generation+1];
     IGEN prcgeneration;
     uptr bytes_finalized;
 

@@ -438,6 +438,10 @@ void S_resetmaxmembytes(void) {
   maxmembytes = membytes;
 }
 
+void S_adjustmembytes(iptr amt) {
+  if ((membytes += amt) < maxmembytes) maxmembytes = membytes;
+}
+
 static void expand_segment_table(uptr base, uptr end, seginfo *si) {
 #ifdef segment_t2_bits
 #ifdef segment_t3_bits

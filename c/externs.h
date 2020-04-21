@@ -377,6 +377,7 @@ extern void S_free_chunks PROTO((void));
 extern uptr S_curmembytes PROTO((void));
 extern uptr S_maxmembytes PROTO((void));
 extern void S_resetmaxmembytes PROTO((void));
+extern void S_adjustmembytes PROTO((iptr amt));
 extern void S_move_to_chunk_list PROTO((chunkinfo *chunk, chunkinfo **pchunk_list));
 
 /* stats.c */

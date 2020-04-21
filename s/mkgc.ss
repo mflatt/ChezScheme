@@ -555,7 +555,10 @@
       (case-mode
        [(copy mark)
         (as-mark-end
-         (set! (array-ref S_G.phantom_sizes _tg_)
+         (count countof-phantom)
+         ;; Separate from `count`, because we want to track sizes even
+         ;; if counting is not enabled:
+         (set! (array-ref (array-ref S_G.bytesof _tg_) countof-phantom)
                +=
                (phantom-length _)))]
        [measure (set! measure_total += (phantom-length _))]

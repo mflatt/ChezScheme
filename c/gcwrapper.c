@@ -134,6 +134,8 @@ void S_gc_init() {
     S_G.countof_size[countof_stencil_vector] = 0;
   INITVECTIT(S_G.countof_names, countof_record) = S_intern((const unsigned char *)"record");
     S_G.countof_size[countof_record] = 0;
+  INITVECTIT(S_G.countof_names, countof_phantom) = S_intern((const unsigned char *)"phantom");
+    S_G.countof_size[countof_phantom] = 0;
   for (i = 0; i < countof_types; i += 1) {
     if (Svector_ref(S_G.countof_names, i) == FIX(0)) {
       fprintf(stderr, "uninitialized countof_name at index %d\n", i);

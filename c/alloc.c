@@ -147,7 +147,7 @@ ptr S_compute_bytes_allocated(xg, xs) ptr xg; ptr xs; {
 
   g = gmin;
   while (g <= gmax) {
-    n += S_G.phantom_sizes[g];
+    n += S_G.bytesof[g][countof_phantom];
     for (s = smin; s <= smax; s++) {
      /* add in bytes previously recorded */
       n += S_G.bytes_of_space[s][g];
@@ -176,7 +176,7 @@ static void maybe_fire_collector() {
   ISPC s;
   uptr bytes, fudge;
 
-  bytes = S_G.phantom_sizes[0];
+  bytes = S_G.bytesof[0][countof_phantom];
 
   for (s = 0; s <= max_real_space; s += 1) {
    /* bytes already accounted for */
@@ -948,7 +948,8 @@ void S_phantom_bytevector_adjust(ph, new_sz) ptr ph; uptr new_sz; {
   si = SegInfo(ptr_get_segment(ph));
   g = si->generation;
 
-  S_G.phantom_sizes[g] += (new_sz - old_sz);
+  S_G.bytesof[g][countof_phantom] += (new_sz - old_sz);
+  S_adjustmembytes(new_sz - old_sz);
   PHANTOMLEN(ph) = new_sz;
 
   tc_mutex_release()
