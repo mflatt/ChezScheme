@@ -212,11 +212,18 @@ static ptr s_make_immobile_bytevector(uptr len) {
 }
 
 static ptr s_make_immobile_vector(uptr len, ptr fill) {
-  ptr v = S_vector_in(space_immobile_impure, 0, len);
+  ptr v;
   uptr i;
+
+  tc_mutex_acquire()
+  v = S_vector_in(space_immobile_impure, 0, len);
+  tc_mutex_release()
+
+  S_immobilize_object(v);
+  
   for (i = 0; i < len; i++)
     INITVECTIT(v, i) = fill;
-  S_immobilize_object(v);
+
   return v;
 }
 

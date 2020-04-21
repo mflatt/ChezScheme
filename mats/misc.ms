@@ -5219,6 +5219,60 @@
                   (collect (collect-maximum-generation))
                   (check-objects objs)))))))))
 
+  (or
+   (not (threaded?))
+   (let ([m (make-mutex)]
+         [c (make-condition)]
+         [running 4])
+     (let thread-loop ([t running])
+       (unless (= t 0)
+         (fork-thread
+          (lambda ()
+            (let loop ([i 1000] [objs '()] [addrs '()])
+              (cond
+                [(= i 0)
+                 (mutex-acquire m)
+                 (set! running (sub1 running))
+                 (condition-signal c)
+                 (mutex-release m)]
+                [else
+                 (let ([v (case (modulo i 3)
+                            [(0) (box-immobile objs)]
+                            [(1) (make-immobile-vector i objs)]
+                            [(2) (make-immobile-bytevector i)])])
+                   (let ([objs (cons v objs)]
+                         [addrs (cons (#%$fxaddress v) addrs)])
+                     (collect-rendezvous)
+                     (let check ([objs objs] [addrs addrs])
+                       (unless (null? objs)
+                         (let ([v (car objs)])
+                           (unless (= (#%$fxaddress v) (car addrs))
+                             (error 'immobile "address changed: ~s" v))
+                           (cond
+                             [(box? v)
+                              (unless (eq? (unbox v) (cdr objs))
+                                (error 'immobile "bad box content"))]
+                             [(vector? v)
+                              (let loop ([j 0])
+                                (unless (= j (vector-length v))
+                                  (unless (eq? (cdr objs) (vector-ref v j))
+                                    (error 'immobile "bad vector content"))
+                                  (loop (add1 j))))]
+                             [(bytevector? v)
+                              (void)]
+                             [else
+                              (error 'immobile "bad object: ~s" v)]))
+                         (check (cdr objs) (cdr addrs))))
+                     (loop (sub1 i) objs addrs)))]))))
+         (thread-loop (sub1 t))))
+     (mutex-acquire m)
+     (let loop ()
+       (unless (= running 0)
+         (condition-wait c m)
+         (loop)))
+     (mutex-release m)
+     #t))
+
   )
 
 (mat compacting
