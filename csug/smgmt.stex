@@ -1096,7 +1096,7 @@ allocation.
 The value \var{n} must reflect actual allocation in the sense of
 consuming a portion of the process's address space. Claiming
 significantly more bytes than are actually allocated introduces the
-possibility of overflow within the store management system's
+possibility of overflow within the storage management system's
 calculations.
 
 %----------------------------------------------------------------------------
