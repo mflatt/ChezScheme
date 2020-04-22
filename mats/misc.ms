@@ -5094,10 +5094,10 @@
      (bytes-allocated)
      (* 2.25 $pre-allocated))
 
-  ;; No big change to `(current-memory-bytes)`
-  (< (* 0.75 $pre-memory)
+  ;; Big change to `(current-memory-bytes)`
+  (< (* 1.75 $pre-memory)
      (current-memory-bytes)
-     (* 1.25 $pre-memory))
+     (* 2.25 $pre-memory))
 
   ;; Same change after GC
   (begin

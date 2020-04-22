@@ -460,6 +460,10 @@ ptr S_object_backreferences(void) {
   return ls;
 }
 
+seginfo *S_ptr_seginfo(ptr p) {
+  return MaybeSegInfo(ptr_get_segment(p)); 
+}
+
 /* Scompact_heap().  Compact into as few O/S chunks as possible and
  * move objects into static generation
  */
@@ -972,7 +976,6 @@ ptr S_do_gc(IGEN mcg, IGEN tg, ptr count_roots) {
 
   return result;
 }
-
 
 ptr S_gc(ptr tc, IGEN mcg, IGEN tg, ptr count_roots) {
   if (tg == static_generation

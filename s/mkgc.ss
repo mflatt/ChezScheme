@@ -2015,7 +2015,8 @@
     (cond
       [(or (eq? mode 'sweep)
            (eq? mode 'vfasl-sweep)
-           (and early? (eq? mode 'copy)))
+           (and early? (or (eq? mode 'copy)
+                           (eq? mode 'mark))))
        (relocate-statement (field-expression field config "p" #t) config)]
       [(or (eq? mode 'copy)
            (eq? mode 'vfasl-copy))
