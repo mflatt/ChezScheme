@@ -22,6 +22,105 @@
 #include "popcount.h"
 #include <assert.h>
 
+/* 
+   GC Implementation
+   -----------------
+
+   The copying, sweeping, and marking operations that depend on
+   object's shape are mostly implemented in "mkgc.ss". That script
+   generates "gc-ocd.inc" (for modes where object counting and
+   backpointers are disabled) and "gc-oce.inc". The rest of the
+   implementation here can still depend on representatoin details,
+   though, especially for pairs, weak pairs, and ephemerons.
+
+   GC Copying versus Marking
+   -------------------------
+
+   Generations range from 0 to `S_G.max_nonstatic_generation` plus a
+   static generation. After an object moves to the static generation,
+   it doesn't move anymore. (In the case of code objects, relocations
+   may be discarded when the code object moves into a static
+   generation.)
+
+   For the most part, collecting generations 0 through mgc (= max
+   copied generation) to tg (= target generation) means copying
+   objects from old segments into fresh segments at generation tg.
+   Note that tg is either the same as or one larger than mgc.
+
+   But objects might be marked [and swept] instead of copied [and
+   swept] as triggered by two possibilities: one or more objects on
+   the source segment are immobile (subsumes locked) or mgc == tg and
+   the object is on a segment that hasn't been disovered as sparse by
+   a precious marking (non-copying) pass. Segments with marked objects
+   are promoted to generation tg.
+
+   As a special case, locking on `space_new` does not mark all objects
+   on that segment, because dirty-write handling cannot deal with
+   `space_new`; only locked objects stay on the old segment in that
+   case, and they have to be marked by looking at a list of locked
+   objects.
+
+   During a collection, the `old_space` flag is set on a segment if
+   objects aree being copied out of it or marked on it; that is,
+   `old_space` is set if the segment starts out in one of the
+   generations 0 through mgc. If a segment is being marked instead of
+   copied, the `use_marks` bit is also set; note that the bit will not
+   be set for a `space_new` segment, and locked objects in that space
+   will be specially marked.
+
+   Marking an object means setting a bit in `marked_mask`, which is
+   allocated as needed. Any segments that ends up with a non-NULL
+   `marked_mask` is promoted to tg at the end of collection. If a
+   marked object spans multiple segments, then `masked_mask` is
+   created across all of the segments. It's possible for a segment to
+   end up with `marked_mask` even though `use_marks` was not set: an
+   marked object spanned into the segment, or it's `space_new` segment
+   with locked objects; in that case, other objects will be copied out
+   of the segment, because `use_marks` is how relocation decides
+   whether to copy or mark.
+
+   If an object is copied, then its first word is set to
+   `forward_marker` and its second word is set to the new address.
+   Obviously, that doesn't happen if an object is marked. So, to test
+   whether an object has been reached:
+
+   * the object must be in an `old_space` segment, otherwise it counts
+     as reached because it's in a generation older than mcg;
+
+   * the object either starts with `forward_marker` or its mark bit is
+     set (and those arer mutually exclusive).
+
+   Besides the one bit at the start of an object, extra bits for the
+   object content may be set as well. Those extra bits tell the
+   dirty-object sweeper which words in a previously marked page should
+   be swept and which should be skipped, so the extra bits are only
+   needed for impure objects in certain kinds of spaces. Only every
+   alternate word needs to be marked that way, so half of the mark
+   bits are usually irrelevant; the exception is that flonums can be
+   between normal object-start positions, so those mark bits can
+   matter, at least if we're preserving `eq?` on flonums (but the bits
+   are not relevant to dirty-object sweeping, since flonums don't have
+   pointer fields).
+
+   It's mostly ok to sweep an object multiple times. An exception is
+   ephemerons, because an ephemeron is added to the pending set when
+   it is swept.
+
+   Pending Ephemerons and Guardians
+   --------------------------------
+
+   Ephemerons and guardians act as a kind of "and": an object stays
+   reachable only if some other object (besdies the the
+   ephemeron/guardian itself) is reachable or not. Instead of
+   rechecking all guardians and ephemerons constantly, the collector
+   queues pending guardians and ephemerons on the ssegment where the
+   relevant object lives. If any object on that segment is discovered
+   to be reachable (i.e., copied or marked), the guardian/ephemeron is
+   put into a list of things to check again.
+
+*/
+
+
 /* locally defined functions */
 static ptr copy PROTO((ptr pp, seginfo *si));
 static ptr mark_object PROTO((ptr pp, seginfo *si));
@@ -657,8 +756,14 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
          for (ls = S_G.locked_objects[g]; ls != Snil; ls = Scdr(ls)) {
            ptr p = Scar(ls);
            seginfo *si = SegInfo(ptr_get_segment(p));
-           if (si->space == space_new)
-             sweep(tc, p);
+           if (si->space == space_new) {
+             /* Retract the mark bit and mark properly, so anything that needs
+                to happen with marking will happen. */
+             if (!marked(si, p))
+               S_error_abort("space_new locked object should have a mark bit set");
+             si->marked_mask[segment_bitmap_byte(p)] -= segment_bitmap_bit(p);
+             mark_object(p, si);
+           }
            /* non-`space_new` objects will be swept via new pair */
            locked_objects = S_cons_in(space_impure, tg, p, locked_objects);
 #ifdef ENABLE_OBJECT_COUNTS
