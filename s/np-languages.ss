@@ -200,7 +200,9 @@
   (define make-tmp
     (case-lambda
       [(name) (make-tmp name 'ptr)]
-      [(name type) ($make-uvar name #f type '() (uvar-flags-mask referenced))]))
+      [(name type) ($make-uvar name #f type '() (if (eq? type 'dbl)
+                                                    (uvar-flags-mask referenced spilled poison)
+                                                    (uvar-flags-mask referenced)))]))
   (define make-assigned-tmp
     (case-lambda
       [(name) (make-assigned-tmp name 'ptr)]
@@ -614,6 +616,12 @@
   (declare-primitive zext8 value #t)
   (declare-primitive zext16 value #t)
   (declare-primitive zext32 value #t) ; 64-bit only
+
+  (declare-primitive dbl+ value #t)
+  (declare-primitive dbl- value #t)
+  (declare-primitive dbl* value #t)
+  (declare-primitive dbl/ value #t)
+  (declare-primitive fl->dbl value #t)
 
   (define immediate?
     (let ([low (- (bitwise-arithmetic-shift-left 1 (fx- (constant ptr-bits) 1)))]

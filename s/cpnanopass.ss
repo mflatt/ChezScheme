@@ -1004,6 +1004,25 @@
       (sealed #t)
       (fields))
 
+    (define-record-type info-double (nongenerative)
+      (parent info)
+      (fields)
+      (protocol
+        (lambda (pargs->new)
+          (case-lambda
+           [() ((pargs->new))]))))
+
+    (define double-info (make-info-double))
+
+    (define-record-type info-double-immediate (nongenerative)
+      (parent info-double)
+      (sealed #t)
+      (fields value)
+      (protocol
+        (lambda (pargs->new)
+          (case-lambda
+           [(v) ((pargs->new) v)]))))
+
     (module ()
       (record-writer (record-type-descriptor info-load)
         (lambda (x p wr)
@@ -7139,6 +7158,23 @@
                   ,(build-not (%inline fl= ,e2 ,e2))))])
 
         (let ()
+          (define dblht (make-eq-hashtable))
+          (define (try-double e)
+            (nanopass-case (L7 Expr) e
+              [(quote ,d) (flonum? d) (%inline fl->dbl ,e)]
+              [,x (%inline fl->dbl ,e)]
+              [(call ,info ,mdcl ,pr ,e* ...)
+               (let ([proc (eq-hashtable-ref dblht (primref-name pr) #f)])
+                 (cond
+                   [proc
+                    (let ([dbls (map try-double e*)])
+                      (cond
+                        [(andmap values dbls)
+                         (apply proc dbls)]
+                        [else #f]))]
+                   [else #f]))]
+              [else #f]))
+          
           (define build-flop-1
             ; NB: e must be bound
             (lambda (op e)
@@ -7210,16 +7246,41 @@
                               ,(%mref ,e ,disp-low))))])
                     ,t)))))
 
-          ;; TODO: Rather then reducing here, (which will allocate a new flonum for each interim result)
-          ;; we could allocate a single flonum and reuse it until the final result is calculated.
-          ;; Better yet, we could do this across nested fl operations, so that only one flonum is
-          ;; allocated across nested fl+, fl*, fl-, fl/ etc. operation
-          (define-inline 3 fl+
-            [() `(quote 0.0)]
-            [(e) (ensure-single-valued e)]
-            [(e1 e2) (bind #f (e1 e2) (build-flop-2 %fl+ e1 e2))]
-            [(e1 . e*) (reduce src sexpr moi e1 e*)])
-
+          (define-syntax define-inline+double
+            (lambda (stx)
+              (syntax-case stx ()
+                [(k level id (inline-clause ...) (double-clause ...))
+                 (with-implicit (k define-inline)
+                   #'(let ([mk-dbl (case-lambda
+                                    double-clause ...
+                                    [args #f])])
+                       (eq-hashtable-set! dblht 'id mk-dbl)
+                       (define-inline level id
+                         [args
+                          (let ([dbls (map try-double args)]
+                                [inl (case-lambda
+                                      inline-clause ...
+                                      [args #f])])
+                            (cond
+                              [(andmap values dbls)
+                               (let ([dbl (apply mk-dbl dbls)])
+                                 (cond
+                                   [dbl 
+                                    (bind #t ([t (%constant-alloc type-flonum (constant size-flonum))])
+                                      `(seq
+                                         (set! ,(%mref ,t ,(constant flonum-data-disp)) ,dbl)
+                                         ,t))]
+                                   [else (apply inl args)]))]
+                              [else (apply inl args)]))])))])))
+          
+          (define-inline+double 3 fl+
+            ([() `(quote 0.0)]
+             [(e) (ensure-single-valued e)]
+             [(e1 e2) (bind #f (e1 e2) (build-flop-2 %fl+ e1 e2))]
+             [(e1 . e*) (reduce src sexpr moi e1 e*)])
+            ([(fl) fl]
+             [(fl1 fl2) `(inline ,double-info ,%dbl+ ,fl1 ,fl2)]))
+             
           (define-inline 3 fl*
             [() `(quote 1.0)]
             [(e) (ensure-single-valued e)]
@@ -10376,16 +10437,16 @@
       (definitions
         (define local*)
         (define make-tmp
-          (lambda (x)
+          (lambda (x type)
             (import (only np-languages make-tmp))
-            (let ([x (make-tmp x)])
+            (let ([x (make-tmp x type)])
               (set! local* (cons x local*))
               x)))
         (define Ref
           (lambda (ir setup*)
             (if (var? ir)
                 (values ir setup*)
-                (let ([tmp (make-tmp 't)])
+                (let ([tmp (make-tmp 't 'ptr)])
                   (values tmp (cons (Rhs ir tmp) setup*))))))
         (define Lvalue?
           (lambda (x)
@@ -10393,24 +10454,26 @@
               [,lvalue #t]
               [else #f])))
         (define Triv*
-          (lambda (e* k)
+          (case-lambda
+           [(e* k) (Triv* e* #f k)]
+           [(e* dbl? k)
             (let f ([e* e*] [lvalue-setup* '()] [rt* '()] [setup* '()])
               (if (null? e*)
                   (build-seq* setup*
                     (build-seq* lvalue-setup*
                       (k (reverse rt*))))
-                  (let-values ([(t t-setup*) (Triv (car e*) (null? lvalue-setup*))])
+                  (let-values ([(t t-setup*) (Triv (car e*) (null? lvalue-setup*) dbl?)])
                     (if (and (null? lvalue-setup*)
                              (not (null? t-setup*))
                              (Lvalue? t)
                              ; uvar's are singly assigned
                              (or (not (uvar? t)) (uvar-assigned? t)))
                         (f (cdr e*) t-setup* (cons t rt*) setup*)
-                        (f (cdr e*) lvalue-setup* (cons t rt*) (append t-setup* setup*))))))))
+                        (f (cdr e*) lvalue-setup* (cons t rt*) (append t-setup* setup*))))))]))
         (define Triv?
           (lambda (maybe-e k)
             (if maybe-e
-                (let-values ([(t setup*) (Triv maybe-e #t)])
+                (let-values ([(t setup*) (Triv maybe-e #f #t)])
                   (build-seq* setup* (k t)))
                 (k #f))))
         (define build-seq* (lambda (x* y) (fold-right build-seq y x*)))
@@ -10443,7 +10506,7 @@
              (safe-assert (nodups x* local*))
              `(clause (,x* ...) (,local* ...) ,mcp ,interface
                 ,body)))])
-      (Triv : Expr (ir lvalue-okay?) -> Triv (setup*)
+      (Triv : Expr (ir lvalue-okay? dbl?) -> Triv (setup*)
         [,x
          (guard (or lvalue-okay? (and (uvar? x) (not (uvar-assigned? x))) (eq? x %zero)))
          (values x '())]
@@ -10465,15 +10528,15 @@
          (values t (cons e0 setup*))]
         [(pariah) (values (%constant svoid) (list (with-output-language (L10 Expr) `(pariah))))]
         [else
-         (let ([tmp (make-tmp 't)])
+         (let ([tmp (make-tmp 't (if dbl? 'dbl 'ptr))])
            (values tmp (list (Rhs ir tmp))))])
       (Expr : Expr (ir k) -> Expr ()
         [(inline ,info ,prim ,e1* ...)
-         (Triv* e1*
+         (Triv* e1* (info-double? info)
            (lambda (t1*)
              (k `(inline ,info ,prim ,t1* ...))))]
         [(alloc ,info ,e)
-         (let-values ([(t setup*) (Triv e #t)])
+         (let-values ([(t setup*) (Triv e #t #f)])
            (build-seq* setup* (k `(alloc ,info ,t))))]
         [(call ,info ,mdcl ,e0? ,e1* ...)
          (if e0?
@@ -10507,7 +10570,7 @@
         [(if ,[Expr : e0 values -> e0] ,[e1] ,[e2]) `(if ,e0 ,e1 ,e2)]
         [(seq ,[Expr : e0 values -> e0] ,[e1]) `(seq ,e0 ,e1)]
         [(set! ,lvalue ,e)
-         (let-values ([(lvalue setup*) (Triv lvalue #t)])
+         (let-values ([(lvalue setup*) (Triv lvalue #t #f)])
            ; must put lvalue setup* first to avoid potentially interleaved argument
            ; evaluation in, e.g.:
            ;
@@ -10560,7 +10623,7 @@
          (safe-assert (nodups local*))
          `(mvlet ,e ((,x** ...) ,interface* ,body*) ...)]
         [(mvcall ,info ,[Expr : e1 values -> e1] ,e2)
-         (let-values ([(t2 setup*) (Triv e2 #t)])
+         (let-values ([(t2 setup*) (Triv e2 #t #f)])
            (build-seq* setup* (k `(mvcall ,info ,e1 ,t2))))]
         [(goto ,l) `(goto ,l)]
         [(label ,l ,[body]) `(label ,l ,body)]
@@ -10569,7 +10632,7 @@
         [(pariah) `(pariah)]
         [(profile ,src) `(profile ,src)]
         [else
-         (let-values ([(t setup*) (Triv ir #t)])
+         (let-values ([(t setup*) (Triv ir #t #f)])
            (build-seq* setup* (k t)))]))
 
     (define-pass np-push-mrvs : L10 (ir) -> L10.5 ()

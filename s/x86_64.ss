@@ -166,7 +166,8 @@
                  (and (memq 'zero aty*) (imm0? a))
                  (and (memq 'real-imm32 aty*) (real-imm32? a))
                  (and (memq 'negatable-real-imm32 aty*) (negatable-real-imm32? a))
-                 (and (memq 'mem aty*) (mem? a)))))]))
+                 (and (memq 'mem aty*) (mem? a))
+                 (and (memq 'dbl aty*) (mem? a)))))]))
 
   (define-syntax coerce-opnd ; passes k something compatible with aty*
     (syntax-rules ()
@@ -174,6 +175,7 @@
        (let ([a ?a] [aty* ?aty*] [k ?k])
          (cond
            [(and (memq 'mem aty*) (mem? a)) (mem->mem a k)]
+           [(and (memq 'dbl aty*) (mem? a)) (mem->mem a k)]
            [(and (memq 'imm32 aty*) (imm32? a)) (k (imm->imm a))]
            [(and (memq 'imm aty*) (imm? a)) (k (imm->imm a))]
            [(and (memq 'zero aty*) (imm0? a)) (k (imm->imm a))]
@@ -279,7 +281,7 @@
 
       (define make-value-clause
         (lambda (fmt)
-          (syntax-case fmt (mem ur xp)
+          (syntax-case fmt (mem ur dbl xp)
             [(op (c mem) (a ?c) (b bty* ...))
              (bound-identifier=? #'?c #'c)
              (acsame-mem #'c #'a #'b #'(bty* ...) #'(lambda (c b) (rhs c c b)))]
@@ -398,7 +400,27 @@
                      (mem->mem c
                        (lambda (c)
                          (rhs c)))
-                     (next c)))])))
+                     (next c)))]
+            [(op (c dbl) (a aty ...))
+             #`(lambda (c a)
+                 (if (and (lmem? c) (coercible? a '(aty ...)))
+                     (mem->mem c
+                       (lambda (c)
+                         (coerce-opnd a '(aty ...)
+                           (lambda (a)
+                             (rhs c a)))))
+                     (next c a)))]
+            [(op (c dbl) (a dbl) (b dbl))
+             #`(lambda (c a b)
+                 (if (and (lmem? c) (coercible? a '(dbl)) (coercible? b '(dbl)))
+                     (mem->mem c
+                       (lambda (c)
+                         (coerce-opnd a '(dbl)
+                           (lambda (a)
+                             (coerce-opnd b '(dbl)
+                               (lambda (b)
+                                 (rhs c a b)))))))
+                     (next c a b)))])))
 
       (define-who make-pred-clause
         (lambda (fmt)
@@ -819,6 +841,14 @@
   (define-instruction effect (fl+ fl- fl/ fl*)
     [(op (x ur) (y ur) (z ur)) `(asm ,info ,(asm-flop-2 op) ,x ,y ,z)])
 
+  (define-instruction value (dbl+ dbl- dbl/ dbl*)
+    [(op (x dbl) (y dbl) (z dbl))
+     `(set! ,(make-live-info) ,x (asm ,info ,(asm-dblop-2 op) ,y ,z))])
+
+  (define-instruction value (fl->dbl)
+    [(op (x dbl) (y ur))
+     `(set! ,(make-live-info) ,x (asm ,info ,asm-fl->dbl ,y))])
+
   (define-instruction effect (flsqrt)
     [(op (x ur) (y ur)) `(asm ,info ,asm-flsqrt ,x ,y)])
 
@@ -1024,7 +1054,7 @@
                      asm-lea1 asm-lea2 asm-indirect-call asm-condition-code
                      asm-fl-cvt asm-fl-store asm-fl-load asm-flt asm-trunc asm-div asm-popcount
                      asm-exchange asm-pause asm-locked-incr asm-locked-decr asm-locked-cmpxchg
-                     asm-flop-2 asm-flsqrt asm-c-simple-call
+                     asm-flop-2 asm-flsqrt asm-dblop-2 asm-fl->dbl asm-c-simple-call
                      asm-save-flrv asm-restore-flrv asm-return asm-c-return asm-size
                      asm-enter asm-foreign-call asm-foreign-callable
                      asm-inc-profile-counter
@@ -1964,6 +1994,25 @@
                            [(fl*) (emit sse.mulsd src2 (cons 'reg %flreg1) code*)]
                            [(fl/) (emit sse.divsd src2 (cons 'reg %flreg1) code*)])])
               (emit sse.movsd src1 (cons 'reg %flreg1) code*)))))))
+
+  ;; Can do better here by specializing on source and destination kinds
+  (define asm-dblop-2
+    (lambda (op)
+      (lambda (code* dest src1 src2)
+        (Trivit (dest src1 src2)
+          (let ([code* (emit sse.movsd (cons 'reg %flreg1) dest code*)])
+            (let ([code* (case op
+                           [(dbl+) (emit sse.addsd src2 (cons 'reg %flreg1) code*)]
+                           [(dbl-) (emit sse.subsd src2 (cons 'reg %flreg1) code*)]
+                           [(dbl*) (emit sse.mulsd src2 (cons 'reg %flreg1) code*)]
+                           [(dbl/) (emit sse.divsd src2 (cons 'reg %flreg1) code*)])])
+              (emit sse.movsd src1 (cons 'reg %flreg1) code*)))))))
+
+  (define asm-fl->dbl
+    (lambda (code* dest src-reg)
+      (Trivit (dest)
+        (emit sse.movsd `(disp ,(constant flonum-data-disp) ,src-reg) (cons 'reg %flreg1)
+              (emit sse.movsd (cons 'reg %flreg1) dest code*)))))
 
   (define asm-flsqrt
     (lambda (code* src dest)
