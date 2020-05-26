@@ -3040,8 +3040,15 @@
           [(set! ,[lvalue #f -> lvalue unboxed-fp?] ,e) (values `(set! ,lvalue ,(Expr1 e)) #f)]
           [(values ,info ,[e* #f -> e* unboxed-fp?*] ...) (values `(values ,info ,e* ...) #f)]
           [(alloc ,info ,e) (values `(alloc ,info ,(Expr1 e)) #f)]
-          [(if ,[e0 #f -> e0 unboxed-fp?0] ,[e1 #f -> e1 unboxed-fp?1] ,[e2 #f -> e2 unboxed-fp?2])
-           (values `(if ,e0 ,e1 ,e2) #f)]
+          [(if ,[e0 #f -> e0 unboxed-fp?0] ,[e1 can-unbox-fp? -> e1 unboxed-fp?1] ,[e2 can-unbox-fp? -> e2 unboxed-fp?2])
+           (let* ([unboxed-fp? (or unboxed-fp?1 unboxed-fp?2)]
+                  [e1 (if (and unboxed-fp? (not unboxed-fp?1))
+                          (%mref ,e1 ,(constant flonum-data-disp))
+                          e1)]
+                  [e2 (if (and unboxed-fp? (not unboxed-fp?2))
+                          (%mref ,e2 ,(constant flonum-data-disp))
+                          e2)])
+             (values `(if ,e0 ,e1 ,e2) unboxed-fp?))]
           [(seq ,[e0 #f -> e0 unboxed-fp?0] ,[e1 can-unbox-fp? -> e1 unboxed-fp?])
            (values `(seq ,e0 ,e1) unboxed-fp?)]
           [(let ([,x* ,[e* #f -> e* unboxed-fp?*]] ...) ,[body can-unbox-fp? -> body unboxed-fp?])
