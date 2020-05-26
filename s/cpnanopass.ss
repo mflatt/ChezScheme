@@ -3307,6 +3307,12 @@
         (define build-fl=
           (lambda (e1 e2)
             `(inline ,(make-info-double '(#t #t)) ,%dbl= ,e1 ,e2)))
+        (define (known-flonum-result? e)
+          (nanopass-case (L7 Expr) e
+            [(quote ,d) (flonum? d)]
+            [(call ,info ,mdcl ,pr ,e* ...)
+             (eq? 'flonum ($sgetprop (primref-name pr) '*result-type* #f))]
+            [else #f]))
         (define build-chars?
           (lambda (e1 e2)
             (define char-constant?
@@ -3419,7 +3425,7 @@
                                  ,(f (cdr args) (fx+ offset (constant ptr-bytes)))))))))))))
         (define build-$real->flonum
           (lambda (src sexpr x who)
-            (if (constant? flonum? x)
+            (if (known-flonum-result? x)
                 x
                 (bind #t (x)
                   (bind #f (who)
@@ -3758,8 +3764,10 @@
           (case-lambda
             [(swapped? type base offset-expr)
              (let-values ([(index offset) (offset-expr->index+offset offset-expr)])
-               (build-object-ref swapped? type base index offset))]
+               (build-object-ref swapped? type base index offset #f))]
             [(swapped? type base index offset)
+             (build-object-ref swapped? type base index offset #f)]
+            [(swapped? type base index offset can-unbox-fp?)
              (case type
                [(scheme-object) `(inline ,(make-info-load ptr-type swapped?) ,%load ,base ,index (immediate ,offset))]
                [(double-float)
@@ -3785,13 +3793,17 @@
                                   (immediate ,offset)))
                               ,t)))])
                     (bind #f (base index)
-                      (bind #t ([t (%constant-alloc type-flonum (constant size-flonum))])
-                        (%seq
-                          (inline ,(make-info-loadfl %flreg1) ,%load-double
-                            ,base ,index (immediate ,offset))
-                          (inline ,(make-info-loadfl %flreg1) ,%store-double
-                            ,t ,%zero ,(%constant flonum-data-disp))
-                          ,t))))]
+                      (cond
+                        [can-unbox-fp?
+                         `(unboxed-fp ,(%mref ,base ,index ,offset))]
+                        [else
+                         (bind #t ([t (%constant-alloc type-flonum (constant size-flonum))])
+                           (%seq
+                             (inline ,(make-info-loadfl %flreg1) ,%load-double
+                               ,base ,index (immediate ,offset))
+                             (inline ,(make-info-loadfl %flreg1) ,%store-double
+                               ,t ,%zero ,(%constant flonum-data-disp))
+                             ,t))])))]
                [(single-float)
                 (if swapped?
                     (bind #f (base index)
@@ -3888,6 +3900,8 @@
              (case type
                [(scheme-object) (build-dirty-store base index offset value)]
                [(double-float)
+                `(set! ,(%mref ,base ,index ,offset) (inline ,(make-info-double '(#t)) ,%dblidentity ,value))
+                #;
                 (bind #f (base index)
                   (%seq
                     (inline ,(make-info-loadfl %flreg1) ,%load-double
@@ -7491,12 +7505,6 @@
                 [(e1 e2 . e*) (reduce-equality src sexpr moi e1 e2 e*)])))
 
           (let ()
-            (define (known-flonum-result? e)
-              (nanopass-case (L7 Expr) e
-                [(quote ,d) (flonum? d)]
-                [(call ,info ,mdcl ,pr ,e* ...)
-                 (eq? 'flonum ($sgetprop (primref-name pr) '*result-type* #f))]
-                [else #f]))
             (define build-checked-dblop
               (case-lambda
                 [(e k)
@@ -7593,7 +7601,7 @@
             [(e-x) (bind #f (e-x) (build-fixnum->flonum e-x))])
           (define-inline 2 real->flonum
             [(e-x)
-             (if (constant? flonum? e-x)
+             (if (known-flonum-result? e-x)
                  e-x
                  (bind #t (e-x)
                    `(if ,(%type-check mask-fixnum type-fixnum ,e-x)
@@ -9052,7 +9060,7 @@
                    #'(define-inline 3 name
                        [(e-bv e-offset)
                         (let-values ([(e-index imm-offset) (bv-index-offset e-offset)])
-                          (build-object-ref #f 'type e-bv e-index imm-offset))])])))
+                          (build-object-ref #f 'type e-bv e-index imm-offset can-unbox-fp?))])])))
 
             (define-bv-native-ref-inline bytevector-s8-ref integer-8)
             (define-bv-native-ref-inline bytevector-u8-ref unsigned-8)
@@ -9161,7 +9169,7 @@
                                  (bv-offset-okay? e-offset mask))
                              (constant? (lambda (x) (eq? x (constant native-endianness))) e-eness)
                              (let-values ([(e-index imm-offset) (bv-index-offset e-offset)])
-                               (build-object-ref #f 'type e-bv e-index imm-offset)))])])))
+                               (build-object-ref #f 'type e-bv e-index imm-offset can-unbox-fp?)))])])))
 
             (define-bv-ieee-ref-inline bytevector-ieee-single-ref single-float 3)
             (define-bv-ieee-ref-inline bytevector-ieee-double-ref double-float 7))

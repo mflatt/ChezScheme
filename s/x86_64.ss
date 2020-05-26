@@ -827,6 +827,9 @@
   (define-instruction effect (flt)
     [(op (x mem ur) (y ur)) `(asm ,info ,asm-flt ,x ,y)])
 
+  (define-instruction value (dblidentity)
+    [(op (x mem) (y mem)) `(asm ,info ,asm-dblidentity ,x ,y)])
+
   (define-instruction value (dbl+ dbl- dbl/ dbl*)
     [(op (x mem) (y mem) (z mem))
      `(set! ,(make-live-info) ,x (asm ,info ,(asm-dblop-2 op) ,y ,z))])
@@ -1036,7 +1039,7 @@
                      asm-lea1 asm-lea2 asm-indirect-call asm-condition-code
                      asm-fl-cvt asm-fl-store asm-fl-load asm-flt asm-trunc asm-div asm-popcount
                      asm-exchange asm-pause asm-locked-incr asm-locked-decr asm-locked-cmpxchg
-                     asm-dblsqrt asm-dblop-2 asm-c-simple-call
+                     asm-dblsqrt asm-dblop-2 asm-dblidentity asm-c-simple-call
                      asm-save-flrv asm-restore-flrv asm-return asm-c-return asm-size
                      asm-enter asm-foreign-call asm-foreign-callable
                      asm-inc-profile-counter
@@ -1980,6 +1983,12 @@
     (lambda (code* dest src)
       (Trivit (dest src)
         (emit sse.sqrtsd src (cons 'reg %flreg1)
+          (emit sse.movsd (cons 'reg %flreg1) dest code*)))))
+
+  (define asm-dblidentity
+    (lambda (code* dest src)
+      (Trivit (dest src)
+        (emit sse.movsd src (cons 'reg %flreg1)
           (emit sse.movsd (cons 'reg %flreg1) dest code*)))))
 
   (define asm-trunc

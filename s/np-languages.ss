@@ -618,6 +618,7 @@
   (declare-primitive dbl- value #t)
   (declare-primitive dbl* value #t)
   (declare-primitive dbl/ value #t)
+  (declare-primitive dblidentity value #t)
   (declare-primitive dblsqrt value #t) ; not implemented for some ppc32 (so we don't use it)
 
   (define immediate?
