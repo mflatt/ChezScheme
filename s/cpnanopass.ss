@@ -2896,6 +2896,12 @@
                #'reg
                (with-implicit (k %mref) #`(%mref ,%tc ,(tc-disp reg))))])))
 
+    ;; After the `np-expand-primitives` pass, some expression produce
+    ;; double (i.e., floating-point) values instead of pointer values.
+    ;; Those expression results always flow to an `inline` primitive
+    ;; that expects double values. The main consequence is that a later
+    ;; pass must only put such returns in a temporary with type 'dbl.
+    
     ; TODO: recognize a direct call when it is at the end of a sequence, closures, or let form
     ; TODO: push call into if? (would need to pull arguments into temporaries to ensure order of evaluation
     ; TODO: how does this interact with mvcall?
@@ -2999,7 +3005,7 @@
                       (values
                        (cond
                          [(info-call-shift-attachment? info)
-                          (let ([t (make-tmp 't)])
+                          (let ([t (make-tmp 't (if unboxed-fp? 'dbl 'ptr))])
                             `(let ([,t ,e])
                                (seq
                                 (attachment-set pop #f)
@@ -3057,7 +3063,7 @@
            (values `(loop ,x (,x* ...) ,body) unboxed-fp?)]
           [(attachment-set ,aop ,e) (values `(attachment-set ,aop ,(and e (Expr1 e))) #f)]
           [(attachment-get ,reified ,e) (values `(attachment-get ,reified ,(and e (Expr1 e))) #f)]
-          [(attachment-consume ,reified ,e) (values `(attachment-set ,reified ,(and e (Expr1 e))) #f)]
+          [(attachment-consume ,reified ,e) (values `(attachment-consume ,reified ,(and e (Expr1 e))) #f)]
           [(continuation-set ,cop ,e1 ,e2) (values `(continuation-set ,cop ,(Expr1 e1) ,(Expr1 e2)) #f)]
           [(label ,l ,[body can-unbox-fp? -> body unboxed-fp?]) (values `(label ,l ,body) unboxed-fp?)]
           [(foreign-call ,info ,e ,e* ...) (values `(foreign-call ,info ,(Expr1 e) ,(Expr* e*) ...) #f)]
@@ -3298,6 +3304,9 @@
                         (if (null? e*)
                             check
                             (build-and check (f e*))))))))))
+        (define build-fl=
+          (lambda (e1 e2)
+            `(inline ,(make-info-double '(#t #t)) ,%dbl= ,e1 ,e2)))
         (define build-chars?
           (lambda (e1 e2)
             (define char-constant?
@@ -6405,7 +6414,7 @@
                                     (if ($nan? d)
                                         ;; NaN: invert `fl=` on self
                                         (bind #t (e2)
-                                          (build-not (%inline fl= ,e2 ,e2)))
+                                          (build-not (build-fl= e2 e2)))
                                         ;; Non-NaN: compare bits
                                         (constant-case ptr-bits
                                           [(32)
@@ -7151,7 +7160,7 @@
                           ,(build-libcall #t src sexpr logtest e1 e2)))])
         (define-inline 3 $flhash
           [(e) (bind #t (e)
-                 `(if ,(%inline fl= ,e ,e)
+                 `(if ,(build-fl= e e)
                      ,(%inline logand
                        ,(%inline srl
                          ,(constant-case ptr-bits
@@ -7193,7 +7202,7 @@
         (define-inline 3 $fleqv?
           [(e1 e2)
            (bind #t (e1 e2)
-             `(if ,(%inline fl= ,e1 ,e1) ; check e1 not +nan.0
+             `(if ,(build-fl= e1 e1) ; check e1 not +nan.0
                   ,(constant-case ptr-bits
                     [(32) (build-and
                             (%inline eq?
@@ -7209,7 +7218,7 @@
                                  "$fleqv doesn't handle ptr-bits = ~s"
                                  (constant ptr-bits))])
                   ;; If e1 is +nan.0, see if e2 is +nan.0:
-                  ,(build-not (%inline fl= ,e2 ,e2))))])
+                  ,(build-not (build-fl= e2 e2))))])
 
         (let ()
           (define build-fp-boxed
@@ -7398,9 +7407,9 @@
                            ,t)))])
 
           (let ()
-            (define (build-fl< e1 e2) (%inline fl< ,e1 ,e2))
-            (define (build-fl= e1 e2) (%inline fl= ,e1 ,e2))
-            (define (build-fl<= e1 e2) (%inline fl<= ,e1 ,e2))
+            (define (build-fl< e1 e2) `(inline ,(make-info-double '(#t #t)) ,%dbl< ,e1 ,e2))
+            (define (build-fl= e1 e2) `(inline ,(make-info-double '(#t #t)) ,%dbl= ,e1 ,e2))
+            (define (build-fl<= e1 e2) `(inline ,(make-info-double '(#t #t)) ,%dbl<= ,e1 ,e2))
 
             (let ()
               (define-syntax define-fl-cmp-inline

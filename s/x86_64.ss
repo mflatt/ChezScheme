@@ -890,8 +890,8 @@
   (define-instruction value pop
     [(op (z ur)) `(set! ,(make-live-info) ,z (asm ,info ,asm-pop))])
 
-  (define-instruction pred (fl= fl< fl<=)
-    [(op (x ur) (y ur))
+  (define-instruction pred (dbl= dbl< dbl<=)
+    [(op (x mem) (y mem))
      (let ([info (make-info-condition-code op #t #f)]) ; NB: reversed? flag is assumed to be #t
        (values '() `(asm ,info ,(asm-fl-relop info) ,x ,y)))])
 
@@ -2319,9 +2319,8 @@
     (lambda (info)
       (lambda (l1 l2 offset x y)
         (values
-          (let ([x `(disp ,(constant flonum-data-disp) ,x)]
-                [y `(disp ,(constant flonum-data-disp) ,y)])
-            (emit sse.movsd y (cons 'reg %flreg1)
+          (Trivit (x y)
+             (emit sse.movsd y (cons 'reg %flreg1)
               (emit sse.ucomisd x (cons 'reg %flreg1) '())))
           (asm-conditional-jump info l1 l2 offset)))))
 
@@ -2537,11 +2536,11 @@
               [(carry) (i? bcc bcs)]
               ; unordered: zf,pf,cf <- 111; gt: 000; lt: 001; eq: 100
               ; reversed & inverted: !(fl< y x) = !(fl> x y) iff zf = 1 & cf = 1
-              [(fl<) bls]
+              [(dbl<) bls]
               ; reversed & inverted: !(fl<= y x) = !(fl>= x y) iff cf = 1
-              [(fl<=) bcs]
+              [(dbl<=) bcs]
               ; inverted: !(fl= x y) iff zf = 0 or cf (or pf) = 1
-              [(fl=) (or bne bcs)]))))))
+              [(dbl=) (or bne bcs)]))))))
 
   (define asm-data-label
     (lambda (code* l offset func code-size)
