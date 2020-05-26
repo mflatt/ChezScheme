@@ -443,7 +443,9 @@
 
   (define mref-type?
     (lambda (type)
+      ;; Currently, only 'dbl vs. other matters
       (or (eq? type 'uptr)
+          (eq? type 'ptr)
           (eq? type 'dbl))))
 
  ; move labels to top level and expands closures forms to more primitive operations
@@ -479,7 +481,9 @@
          (set! lvalue e)
          ; these two forms are added here so expand-inline handlers can expand into them
          (values info e* ...)
-         (goto l))))
+         (goto l)
+         ; for floating-point unboxing during expand-line:
+         (unboxed-fp e))))
 
   (define-record-type primitive
     (fields name type pure? (mutable handler))
@@ -533,13 +537,8 @@
   (declare-primitive c-simple-call effect #f)
   (declare-primitive c-simple-return effect #f)
   (declare-primitive deactivate-thread effect #f) ; threaded version only
-  (declare-primitive fl* effect #f)
-  (declare-primitive fl+ effect #f)
-  (declare-primitive fl- effect #f)
-  (declare-primitive fl/ effect #f)
   (declare-primitive fldl effect #f) ; x86
   (declare-primitive flds effect #f) ; x86
-  (declare-primitive flsqrt effect #f) ; not implemented for some ppc32 (so we don't use it)
   (declare-primitive flt effect #f)
   (declare-primitive inc-cc-counter effect #f)
   (declare-primitive inc-profile-counter effect #f)
@@ -627,7 +626,7 @@
   (declare-primitive dbl- value #t)
   (declare-primitive dbl* value #t)
   (declare-primitive dbl/ value #t)
-  (declare-primitive fl->dbl value #t)
+  (declare-primitive dblsqrt value #t) ; not implemented for some ppc32 (so we don't use it)
 
   (define immediate?
     (let ([low (- (bitwise-arithmetic-shift-left 1 (fx- (constant ptr-bits) 1)))]
@@ -666,7 +665,8 @@
       (+ (hand-coded sym)))
     (Expr (e body)
       (- (quote d)
-         pr)))
+         pr
+         (unboxed-fp e))))
 
  ; determine where we should be placing interrupt and overflow
   (define-language L9.5 (extends L9)

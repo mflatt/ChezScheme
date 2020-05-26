@@ -168,6 +168,11 @@
              (k (with-output-language (L15d Lvalue) `(mref ,u ,%zero 0 uptr)))))]
         [else (mref->mref a k)])))
 
+  (define literal->literal
+    (lambda (a)
+      (nanopass-case (L15c Triv) a
+        [(literal ,info) (with-output-language (L15d Triv) `(literal ,info))])))
+
   (define-syntax coercible?
     (syntax-rules ()
       [(_ ?a ?aty*)
@@ -196,14 +201,14 @@
             (cond
               [(dbl-mem? a) (mem->mem a k)]
               [(mem? a) (lvalue->ur a (lambda (a)
-                                        (with-output-language (L15d Triv)
+                                        (with-output-language (L15c Triv)
                                           (mem->mem `(mref ,a ,%zero ,(constant flonum-data-disp) dbl) k))))]
               [(literal-flonum? a) (let ([u (make-tmp 'u)])
                                      (seq
-                                      (build-set! ,u ,a)
-                                      (with-output-language (L15d Lvalue)
+                                      (build-set! ,u ,(literal->literal a))
+                                      (with-output-language (L15c Lvalue)
                                         (mem->mem `(mref ,u ,%zero ,(constant flonum-data-disp) dbl) k))))]
-              [(ur? a) (with-output-language (L15d Triv)
+              [(ur? a) (with-output-language (L15c Triv)
                          (mem->mem `(mref ,a ,%zero ,(constant flonum-data-disp) dbl) k))]
               [else #f])]
            [(memq 'ur aty*)
@@ -863,19 +868,12 @@
   (define-instruction effect (flt)
     [(op (x mem ur) (y ur)) `(asm ,info ,asm-flt ,x ,y)])
 
-  (define-instruction effect (fl+ fl- fl/ fl*)
-    [(op (x ur) (y ur) (z ur)) `(asm ,info ,(asm-flop-2 op) ,x ,y ,z)])
-
   (define-instruction value (dbl+ dbl- dbl/ dbl*)
     [(op (x dbl) (y dbl) (z dbl))
      `(set! ,(make-live-info) ,x (asm ,info ,(asm-dblop-2 op) ,y ,z))])
 
-  (define-instruction value (fl->dbl)
-    [(op (x dbl) (y ur))
-     `(set! ,(make-live-info) ,x (asm ,info ,asm-fl->dbl ,y))])
-
-  (define-instruction effect (flsqrt)
-    [(op (x ur) (y ur)) `(asm ,info ,asm-flsqrt ,x ,y)])
+  (define-instruction value (dblsqrt)
+    [(op (x dbl) (y dbl)) `(asm ,info ,asm-dblsqrt ,x ,y)])
 
   (define-instruction effect inc-cc-counter
     [(op (x ur) (y imm32 ur) (z imm32 ur)) `(asm ,info ,asm-inc-cc-counter ,x ,y ,z)])
@@ -1079,7 +1077,7 @@
                      asm-lea1 asm-lea2 asm-indirect-call asm-condition-code
                      asm-fl-cvt asm-fl-store asm-fl-load asm-flt asm-trunc asm-div asm-popcount
                      asm-exchange asm-pause asm-locked-incr asm-locked-decr asm-locked-cmpxchg
-                     asm-flop-2 asm-flsqrt asm-dblop-2 asm-fl->dbl asm-c-simple-call
+                     asm-dblsqrt asm-dblop-2 asm-c-simple-call
                      asm-save-flrv asm-restore-flrv asm-return asm-c-return asm-size
                      asm-enter asm-foreign-call asm-foreign-callable
                      asm-inc-profile-counter
@@ -2006,20 +2004,6 @@
           (emit sse.cvtsi2sd src flreg
             (emit sse.movsd flreg dest code*))))))
 
-  (define asm-flop-2
-    (lambda (op)
-      (lambda (code* src1 src2 dest)
-        (let ([src1 `(disp ,(constant flonum-data-disp) ,src1)]
-              [src2 `(disp ,(constant flonum-data-disp) ,src2)]
-              [dest `(disp ,(constant flonum-data-disp) ,dest)])
-          (let ([code* (emit sse.movsd (cons 'reg %flreg1) dest code*)])
-            (let ([code* (case op
-                           [(fl+) (emit sse.addsd src2 (cons 'reg %flreg1) code*)]
-                           [(fl-) (emit sse.subsd src2 (cons 'reg %flreg1) code*)]
-                           [(fl*) (emit sse.mulsd src2 (cons 'reg %flreg1) code*)]
-                           [(fl/) (emit sse.divsd src2 (cons 'reg %flreg1) code*)])])
-              (emit sse.movsd src1 (cons 'reg %flreg1) code*)))))))
-
   ;; Can do better here by specializing on source and destination kinds
   (define asm-dblop-2
     (lambda (op)
@@ -2033,16 +2017,9 @@
                            [(dbl/) (emit sse.divsd src2 (cons 'reg %flreg1) code*)])])
               (emit sse.movsd src1 (cons 'reg %flreg1) code*)))))))
 
-  (define asm-fl->dbl
-    (lambda (code* dest src-reg)
-      (Trivit (dest)
-        (emit sse.movsd `(disp ,(constant flonum-data-disp) ,src-reg) (cons 'reg %flreg1)
-              (emit sse.movsd (cons 'reg %flreg1) dest code*)))))
-
-  (define asm-flsqrt
-    (lambda (code* src dest)
-      (let ([src `(disp ,(constant flonum-data-disp) ,src)]
-            [dest `(disp ,(constant flonum-data-disp) ,dest)])
+  (define asm-dblsqrt
+    (lambda (code* dest src)
+      (Trivit (dest src)
         (emit sse.sqrtsd src (cons 'reg %flreg1)
           (emit sse.movsd (cons 'reg %flreg1) dest code*)))))
 
