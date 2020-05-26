@@ -441,13 +441,6 @@
       (- (clause (x* ...) interface body))
       (+ (clause (x* ...) mcp interface body))))
 
-  (define mref-type?
-    (lambda (type)
-      ;; Currently, only 'dbl vs. other matters
-      (or (eq? type 'uptr)
-          (eq? type 'ptr)
-          (eq? type 'dbl))))
-
  ; move labels to top level and expands closures forms to more primitive operations
   (define-language L7 (extends L6)
     (terminals
@@ -455,8 +448,7 @@
          (fixnum (interface)))
       (+ (var (x))
          (primitive (prim)) ; moved up one language to support closure instrumentation
-         (fixnum (interface offset))
-         (mref-type (type))))
+         (fixnum (interface offset))))
     (entry Program)
     (Program (prog)
       (+ (labels ([l* le*] ...) l)                     => (labels ([l* le*] ...) (l))))
@@ -464,7 +456,7 @@
       (+ (fcallable info l)                            => (fcallable info l)))
     (Lvalue (lvalue)
       (+ x
-         (mref e1 e2 imm type)))
+         (mref e1 e2 imm)))
     (Expr (e body)
       (- x
          (fcallable info)
@@ -697,8 +689,8 @@
       (- (clause (x* ...) mcp interface body))
       (+ (clause (x* ...) (local* ...) mcp interface body)))
     (Lvalue (lvalue)
-      (- (mref e1 e2 imm type))
-      (+ (mref x1 x2 imm type)))
+      (- (mref e1 e2 imm))
+      (+ (mref x1 x2 imm)))
     (Triv (t)
       (+ lvalue
          (literal info)                          => info
@@ -858,7 +850,6 @@
       (reg (reg))
       (var (x nfv cnfv var))
       (uvar (local))
-      (mref-type (type))
       (effect-primitive (effect-prim))
       (pred-primitive (pred-prim))
       (value-primitive (value-prim))
@@ -877,7 +868,7 @@
       (hand-coded sym))
     (Lvalue (lvalue)
       x
-      (mref x1 x2 imm type))
+      (mref x1 x2 imm))
     (Triv (t)
       lvalue
       (literal info)                              => info
@@ -989,7 +980,6 @@
       (var (x cnfv var))
       (reg (reg))
       (uvar (local))
-      (mref-type (type))
       (effect-primitive (effect-prim))
       (pred-primitive (pred-prim))
       (value-primitive (value-prim))
@@ -1009,7 +999,7 @@
     (Dummy (dumdum) (dummy))
     (Lvalue (lvalue)
       x
-      (mref x1 x2 imm type))
+      (mref x1 x2 imm))
     (Triv (t)
       lvalue
       (literal info)                            => info
@@ -1071,8 +1061,8 @@
       (+ (ur (x))))
     ; NB: base and index are really either regs or (mref %sfp %zero imm)
     (Lvalue (lvalue)
-      (- (mref x1 x2 imm type))
-      (+ (mref lvalue1 lvalue2 imm type)))
+      (- (mref x1 x2 imm))
+      (+ (mref lvalue1 lvalue2 imm)))
     (Effect (e)
       (- (fp-offset live-info imm))))
 
@@ -1084,8 +1074,8 @@
       (+ (procedure (proc)) => $procedure-name))
     (entry Program)
     (Lvalue (lvalue)
-      (- (mref lvalue1 lvalue2 imm type))
-      (+ (mref x1 x2 imm type)))
+      (- (mref lvalue1 lvalue2 imm))
+      (+ (mref x1 x2 imm)))
     (Rhs (rhs)
       (- (inline info value-prim t* ...))
       (+ (asm info proc t* ...) => (asm proc t* ...)))
