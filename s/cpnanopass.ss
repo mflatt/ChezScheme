@@ -628,7 +628,9 @@
     (module (frame-vars get-fv)
       (define-threaded frame-vars)
       (define get-fv
-        (lambda (x)
+        (case-lambda
+         [(x) (get-fv x 'uptr)]
+         [(x type)
           (let ([n (vector-length frame-vars)])
             (when (fx>= x n)
               (let ([new-vec (make-vector (fxmax (fx+ x 1) (fx* n 2)) #f)])
@@ -639,9 +641,9 @@
                       (loop n))))
                 (set! frame-vars new-vec))))
           (or (vector-ref frame-vars x)
-              (let ([fv ($make-fv x)])
+              (let ([fv ($make-fv x type)])
                 (vector-set! frame-vars x fv)
-                fv)))))
+                fv))])))
 
     (define-syntax reg-cons*
       (lambda (x)
@@ -1006,13 +1008,11 @@
 
     (define-record-type info-double (nongenerative)
       (parent info)
-      (fields)
+      (fields unboxed-arg?*)
       (protocol
         (lambda (pargs->new)
           (case-lambda
-           [() ((pargs->new))]))))
-
-    (define double-info (make-info-double))
+           [(unboxed-arg?*) ((pargs->new) unboxed-arg?*)]))))
 
     (define-record-type info-double-immediate (nongenerative)
       (parent info-double)
@@ -1146,12 +1146,15 @@
     (define-syntax %mref
       (lambda (x)
         (syntax-case x ()
+          [(k e0 e1 imm type)
+           (with-implicit (k quasiquote)
+             #'`(mref e0 e1 imm type))]
           [(k e0 e1 imm)
            (with-implicit (k quasiquote)
-             #'`(mref e0 e1 imm))]
+             #'`(mref e0 e1 imm uptr))]
           [(k e0 imm)
            (with-implicit (k quasiquote)
-             #'`(mref e0 ,%zero imm))])))
+             #'`(mref e0 ,%zero imm uptr))])))
 
     (define-syntax %inline
       (lambda (x)
@@ -2709,8 +2712,8 @@
                     [(immediate ,imm) (values body 0 0)]
                     [(quote ,d) (values body 0 0)]
                     [(goto ,l) (values body 1 1)]
-                    [(mref ,[loop : e1 -> e1-promise e1-size e1-new-size] ,[loop : e2 -> e2-promise e2-size e2-new-size] ,imm)
-                     (values (delay `(mref ,(force e1-promise) ,(force e2-promise) ,imm))
+                    [(mref ,[loop : e1 -> e1-promise e1-size e1-new-size] ,[loop : e2 -> e2-promise e2-size e2-new-size] ,imm ,type)
+                     (values (delay `(mref ,(force e1-promise) ,(force e2-promise) ,imm ,type))
                        (fx+ e1-size e2-size 1)
                        (fx+ e1-new-size e2-new-size 1))]
                     [,lvalue (values body 1 1)]
@@ -2832,7 +2835,7 @@
                  body)])))
         (Lvalue : Lvalue (ir rename-ht) -> Lvalue ()
           [,x (eq-hashtable-ref rename-ht x x)]
-          [(mref ,[e1] ,[e2] ,imm) `(mref ,e1 ,e2 ,imm)])
+          [(mref ,[e1] ,[e2] ,imm ,type) `(mref ,e1 ,e2 ,imm ,type)])
         (Expr : Expr (ir rename-ht) -> Expr ()
           [(loop ,x (,[Lvalue : x* rename-ht -> x*] ...) ,body)
            ;; NB: with-fresh is so well designed that it can't handle this case
@@ -2938,7 +2941,7 @@
                  [(immediate ,imm) #t]
                  [(literal ,info) #t]
                  [(label-ref ,l ,offset) #t]
-                 [(mref ,e1 ,e2 ,imm) #t]
+                 [(mref ,e1 ,e2 ,imm ,type) #t]
                  [(quote ,d) #t]
                  [,pr #t]
                  [(call ,info ,mdcl ,pr ,e* ...)
@@ -7161,8 +7164,8 @@
           (define dblht (make-eq-hashtable))
           (define (try-double e)
             (nanopass-case (L7 Expr) e
-              [(quote ,d) (flonum? d) (%inline fl->dbl ,e)]
-              [,x (%inline fl->dbl ,e)]
+              [(quote ,d) (flonum? d) e]
+              [,x e]
               [(call ,info ,mdcl ,pr ,e* ...)
                (let ([proc (eq-hashtable-ref dblht (primref-name pr) #f)])
                  (cond
@@ -7268,7 +7271,7 @@
                                    [dbl 
                                     (bind #t ([t (%constant-alloc type-flonum (constant size-flonum))])
                                       `(seq
-                                         (set! ,(%mref ,t ,(constant flonum-data-disp)) ,dbl)
+                                         (set! ,(%mref ,t ,%zero ,(constant flonum-data-disp) dbl) ,dbl)
                                          ,t))]
                                    [else (apply inl args)]))]
                               [else (apply inl args)]))])))])))
@@ -7279,7 +7282,7 @@
              [(e1 e2) (bind #f (e1 e2) (build-flop-2 %fl+ e1 e2))]
              [(e1 . e*) (reduce src sexpr moi e1 e*)])
             ([(fl) fl]
-             [(fl1 fl2) `(inline ,double-info ,%dbl+ ,fl1 ,fl2)]))
+             [(fl1 fl2) `(inline ,(make-info-double '(#t #t)) ,%dbl+ ,fl1 ,fl2)]))
              
           (define-inline 3 fl*
             [() `(quote 1.0)]
@@ -8102,7 +8105,7 @@
                               (label ,L2
                                 (seq
                                   ,(%inline pause)
-                                  (if ,(%inline eq? (mref ,e-base ,e-index ,imm-offset) (immediate 0))
+                                  (if ,(%inline eq? (mref ,e-base ,e-index ,imm-offset uptr) (immediate 0))
                                       (goto ,L1)
                                       (goto ,L2)))))))))))]))
         (let ()
@@ -10138,7 +10141,7 @@
                 (and (or (goto-oc? goto) (not (local-label-overflow-check (goto-label goto))))
                      (or (goto-tc? goto) (not (local-label-trap-check (goto-label goto))))))))
           (Lvalue : Lvalue (ir oc? tc?) -> Lvalue ()
-            [(mref ,[e0] ,[e1] ,imm) `(mref ,e0 ,e1 ,imm)])
+            [(mref ,[e0] ,[e1] ,imm ,type) `(mref ,e0 ,e1 ,imm ,type)])
           (Expr : Expr (ir oc? tc?) -> Expr ()
             [(overflow-check ,[e #t tc? -> e]) (if oc? e `(overflow-check ,e))]
             [(trap-check ,ioc ,[e oc? #t -> e]) (if tc? e `(trap-check ,(if oc? #f ioc) ,e))]
@@ -10178,8 +10181,8 @@
                   `(trap-check ,overflow? ,e)
                   e)))))
       (Lvalue : Lvalue (ir) -> Lvalue ('no 'no)
-        [(mref ,[e0 #f -> e0 oc0 tc0] ,[e1 #f -> e1 oc1 tc1] ,imm)
-         (values `(mref ,e0 ,e1 ,imm) (combine-seq oc0 oc1) (combine-seq tc0 tc1))])
+        [(mref ,[e0 #f -> e0 oc0 tc0] ,[e1 #f -> e1 oc1 tc1] ,imm ,type)
+         (values `(mref ,e0 ,e1 ,imm ,type) (combine-seq oc0 oc1) (combine-seq tc0 tc1))])
       (Expr : Expr (ir tail?) -> Expr ('no 'no)
         [(goto ,l)
          (if (local-label? l)
@@ -10456,20 +10459,20 @@
         (define Triv*
           (case-lambda
            [(e* k) (Triv* e* #f k)]
-           [(e* dbl? k)
-            (let f ([e* e*] [lvalue-setup* '()] [rt* '()] [setup* '()])
+           [(e* dbl?* k)
+            (let f ([e* e*] [dbl?* dbl?*] [lvalue-setup* '()] [rt* '()] [setup* '()])
               (if (null? e*)
                   (build-seq* setup*
                     (build-seq* lvalue-setup*
                       (k (reverse rt*))))
-                  (let-values ([(t t-setup*) (Triv (car e*) (null? lvalue-setup*) dbl?)])
+                  (let-values ([(t t-setup*) (Triv (car e*) (null? lvalue-setup*) (and dbl?* (car dbl?*)))])
                     (if (and (null? lvalue-setup*)
                              (not (null? t-setup*))
                              (Lvalue? t)
                              ; uvar's are singly assigned
                              (or (not (uvar? t)) (uvar-assigned? t)))
-                        (f (cdr e*) t-setup* (cons t rt*) setup*)
-                        (f (cdr e*) lvalue-setup* (cons t rt*) (append t-setup* setup*))))))]))
+                        (f (cdr e*) (and dbl?* (cdr dbl?*)) t-setup* (cons t rt*) setup*)
+                        (f (cdr e*) (and dbl?* (cdr dbl?*)) lvalue-setup* (cons t rt*) (append t-setup* setup*))))))]))
         (define Triv?
           (lambda (maybe-e k)
             (if maybe-e
@@ -10510,10 +10513,10 @@
         [,x
          (guard (or lvalue-okay? (and (uvar? x) (not (uvar-assigned? x))) (eq? x %zero)))
          (values x '())]
-        [(mref ,e1 ,e2 ,imm)
+        [(mref ,e1 ,e2 ,imm ,type)
          (guard lvalue-okay?)
          (let*-values ([(x1 setup*) (Ref e1 '())] [(x2 setup*) (Ref e2 setup*)])
-           (values (%mref ,x1 ,x2 ,imm) setup*))]
+           (values (%mref ,x1 ,x2 ,imm ,type) setup*))]
         [(literal ,info) (values `(literal ,info) '())]
         [(immediate ,imm) (values `(immediate ,imm) '())]
         [(label-ref ,l ,offset) (values `(label-ref ,l ,offset) '())]
@@ -10532,7 +10535,8 @@
            (values tmp (list (Rhs ir tmp))))])
       (Expr : Expr (ir k) -> Expr ()
         [(inline ,info ,prim ,e1* ...)
-         (Triv* e1* (info-double? info)
+         (Triv* e1* (and (info-double? info)
+                         (info-double-unboxed-arg?* info))
            (lambda (t1*)
              (k `(inline ,info ,prim ,t1* ...))))]
         [(alloc ,info ,e)
@@ -10843,7 +10847,7 @@
                     (set! ,t ?rhs)
                     ,(predicafy-triv ,t)))])))
         [,x (predicafy-triv ,x)]
-        [(mref ,x1 ,x2 ,imm) (predicafy-triv ,(%mref ,x1 ,x2 ,imm))]
+        [(mref ,x1 ,x2 ,imm ,type) (predicafy-triv ,(%mref ,x1 ,x2 ,imm ,type))]
         [(literal ,info)
          (if (info-literal-indirect? info)
              (predicafy-triv (literal ,info))
@@ -10898,7 +10902,7 @@
             (true))])
       (Effect : Expr (ir) -> Effect ()
         [,x `(nop)]
-        [(mref ,x1 ,x2 ,imm) `(nop)]
+        [(mref ,x1 ,x2 ,imm ,type) `(nop)]
         [(literal ,info) `(nop)]
         [(immediate ,imm) `(nop)]
         [(label-ref ,l ,offset) `(nop)]
@@ -11234,7 +11238,7 @@
                                    (cons (and consumer? %ac0)
                                          (nanopass-case (L13 Triv) t
                                            [,x (cons x live-reg*)]
-                                           [(mref ,x1 ,x2 ,imm) (cons x1 (cons x2 live-reg*))]
+                                           [(mref ,x1 ,x2 ,imm ,type) (cons x1 (cons x2 live-reg*))]
                                            [else live-reg*]))
                                    (%seq
                                     (set! ,%td (inline ,(intrinsic-info-asmlib reify-1cc #f) ,%asmlibcall))
@@ -12510,10 +12514,10 @@
            [else `(hand-coded ,sym)])])
       (Lvalue : Lvalue (ir) -> Lvalue ()
         [,x (Ref x)]
-        [(mref ,x1 ,x2 ,imm) (%mref ,(Ref x1) ,(Ref x2) ,imm)])
+        [(mref ,x1 ,x2 ,imm ,type) (%mref ,(Ref x1) ,(Ref x2) ,imm ,type)])
       (Triv : Triv (ir) -> Triv ()
         [,x (Ref x)] ; TODO: cannot call ref in cata, as we don't allow top-level cata
-        [(mref ,x1 ,x2 ,imm) (%mref ,(Ref x1) ,(Ref x2) ,imm)])
+        [(mref ,x1 ,x2 ,imm ,type) (%mref ,(Ref x1) ,(Ref x2) ,imm ,type)])
       (Rhs : Rhs (ir) -> Rhs ()
         [(mvcall ,info ,mdcl ,t0? ,t1* ... (,t* ...))
          ($oops who "Effect is responsible for handling mvcalls")]
@@ -13842,7 +13846,7 @@
                (set! ,refeap ,(%inline - ,refeap ,(%constant ptr-bytes)))
                ; write through to tc so dirty-list bounds are always known in case of an
                ; invalid memory reference or illegal instruction
-               (set! (mref ,%tc ,%zero ,(tc-disp %eap)) ,refeap)
+               (set! (mref ,%tc ,%zero ,(tc-disp %eap) uptr) ,refeap)
                (set! ,(%mref ,refeap 0) ,t))
              (%seq
                (set! ,%td ,refeap)
@@ -14010,7 +14014,7 @@
                   (values block (cons block block*))))))
           (Lvalue : Lvalue (ir target) -> * (ir)
             [,x x]
-            [(mref ,x1 ,x2 ,imm) (with-output-language (L15a Lvalue) `(mref ,x1 ,x2 ,imm))])
+            [(mref ,x1 ,x2 ,imm ,type) (with-output-language (L15a Lvalue) `(mref ,x1 ,x2 ,imm ,type))])
           (Triv : Triv (ir target) -> * (ir)
             [(literal ,info) (with-output-language (L15a Triv) `(literal ,info))]
             [(immediate ,imm) (with-output-language (L15a Triv) `(immediate ,imm))]
@@ -15021,7 +15025,7 @@
                       (lambda (lvalue)
                         (nanopass-case (L15a Lvalue) lvalue
                           [,x (process-var x)]
-                          [(mref ,x1 ,x2 ,imm) (process-var x1) (process-var x2)])))
+                          [(mref ,x1 ,x2 ,imm ,type) (process-var x1) (process-var x2)])))
                     (define Triv
                       (lambda (t)
                         (nanopass-case (L15a Triv) t
@@ -15459,7 +15463,7 @@
       (define-pass Triv->rand : (L16 Triv) (ir) -> * (operand)
         (Triv : Triv (ir) -> * (operand)
           [,x (cons 'reg x)]
-          [(mref ,x1 ,x2 ,imm)
+          [(mref ,x1 ,x2 ,imm ,type)
            (if (eq? x2 %zero)
                `(disp ,imm ,x1)
                `(index ,imm ,x2 ,x1))]
@@ -15632,7 +15636,7 @@
               (define Triv
                 (lambda (out t)
                   (nanopass-case (L15a Triv) t
-                    [(mref ,x1 ,x2 ,imm) (add-var (add-var out x2) x1)]
+                    [(mref ,x1 ,x2 ,imm ,type) (add-var (add-var out x2) x1)]
                     [,x (add-var out x)]
                     [else out])))
               (define Rhs
@@ -15691,7 +15695,7 @@
                              (begin
                                (live-info-live-set! live-info out)
                                (Rhs out rhs)))]
-                        [(set! ,live-info (mref ,x1 ,x2 ,imm) ,rhs)
+                        [(set! ,live-info (mref ,x1 ,x2 ,imm ,type) ,rhs)
                          (live-info-live-set! live-info out)
                          (Rhs (add-var (add-var out x1) x2) rhs)]
                         [(inline ,live-info ,info ,effect-prim ,t* ...)
@@ -16109,13 +16113,14 @@
                   (lambda (home) (return home max-fv first-open))
                   (lambda ()
                     (let f ([first-open first-open])
-                      (let* ([fv (get-fv first-open)] [cset (var-spillable-conflict* fv)])
+                      (let* ([fv (get-fv first-open (uvar-type spill))] [cset (var-spillable-conflict* fv)])
                         (if (and cset (cset-full? cset))
                             (f (fx+ first-open 1))
                             (let ([spill-offset (var-index spill)])
                               (let f ([fv-offset first-open] [fv fv] [cset cset])
-                                (if (and cset (conflict-bit-set? cset spill-offset))
-                                    (let* ([fv-offset (fx+ fv-offset 1)] [fv (get-fv fv-offset)] [cset (var-spillable-conflict* fv)])
+                                (if (or (and cset (conflict-bit-set? cset spill-offset))
+                                        (not (eq? (uvar-type spill) (fv-type fv))))
+                                    (let* ([fv-offset (fx+ fv-offset 1)] [fv (get-fv fv-offset (uvar-type spill))] [cset (var-spillable-conflict* fv)])
                                       (f fv-offset fv cset))
                                     (return fv (fxmax fv-offset max-fv) first-open)))))))))))
             (define find-homes!
@@ -16153,7 +16158,7 @@
                   (lambda (nfv* offset)
                     (if (null? nfv*)
                         (set! max-fv (fxmax offset max-fv))
-                        (let ([nfv (car nfv*)] [home (get-fv offset)])
+                        (let* ([nfv (car nfv*)] [home (get-fv offset (uvar-type nfv))])
                           (uvar-location-set! nfv home)
                           (update-conflict! home nfv)
                           (set-offsets! (cdr nfv*) (fx+ offset 1))))))
@@ -16279,7 +16284,7 @@
                  (safe-assert (not (fx= frame-words 0)))
                  (let ([shift-offset (fx* frame-words (constant ptr-bytes))])
                    (safe-assert (fx> shift-offset 0))
-                   (cons `(set! ,live-info (mref ,reg ,%zero ,imm) (mref ,reg ,%zero ,shift-offset)) new-effect*))))]
+                   (cons `(set! ,live-info (mref ,reg ,%zero ,imm uptr) (mref ,reg ,%zero ,shift-offset uptr)) new-effect*))))]
             [(check-live ,live-info ,reg* ...)
              (let ([live (fold-left (lambda (live reg)
                                       (let ([t (remove-var live reg)])
@@ -16377,11 +16382,11 @@
             (lambda (x cur-off)
               (if (fv? x)
                   (with-output-language (L15c Lvalue)
-                    `(mref ,%sfp ,%zero ,(fx- (fx* (fv-offset x) (constant ptr-bytes)) cur-off)))
+                    `(mref ,%sfp ,%zero ,(fx- (fx* (fv-offset x) (constant ptr-bytes)) cur-off) ,(fv-type x)))
                   x))))
         (Lvalue : Lvalue (ir cur-off) -> Lvalue ()
-          [(mref ,x0 ,x1 ,imm)
-           `(mref ,(fv->mref (var->loc x0) cur-off) ,(fv->mref (var->loc x1) cur-off) ,imm)]
+          [(mref ,x0 ,x1 ,imm ,type)
+           `(mref ,(fv->mref (var->loc x0) cur-off) ,(fv->mref (var->loc x1) cur-off) ,imm ,type)]
           [,x (fv->mref (var->loc x) cur-off)])
         ; NB: defining Triv & Rhs with cur-off argument so we actually get to our version of Lvalue
         (Triv : Triv (ir cur-off) -> Triv ())
@@ -16489,24 +16494,25 @@
         (define mref?
           (lambda (x)
             (nanopass-case (L15c Triv) x
-              [(mref ,lvalue1 ,lvalue2 ,imm) #t]
+              [(mref ,lvalue1 ,lvalue2 ,imm ,type) #t]
               [else #f])))
         (define same?
           (lambda (a b)
             (or (eq? a b)
                 (nanopass-case (L15c Triv) a
-                  [(mref ,lvalue11 ,lvalue12 ,imm1)
+                  [(mref ,lvalue11 ,lvalue12 ,imm1 ,type1)
                    (nanopass-case (L15c Triv) b
-                     [(mref ,lvalue21 ,lvalue22 ,imm2)
+                     [(mref ,lvalue21 ,lvalue22 ,imm2 ,type2)
                       (and (or (and (eq? lvalue11 lvalue21) (eq? lvalue12 lvalue22))
                                (and (eq? lvalue11 lvalue22) (eq? lvalue12 lvalue21)))
-                           (eqv? imm1 imm2))]
+                           (eqv? imm1 imm2)
+                           (eq? type1 type2))]
                      [else #f])]
                   [else #f]))))
 
         (define-pass imm->imm : (L15c Triv) (ir) -> (L15d Triv) ()
           (Lvalue : Lvalue (ir) -> Lvalue ()
-            [(mref ,lvalue1 ,lvalue2 ,imm) (sorry! who "unexpected mref ~s" ir)])
+            [(mref ,lvalue1 ,lvalue2 ,imm ,type) (sorry! who "unexpected mref ~s" ir)])
           (Triv : Triv (ir) -> Triv ()))
 
         (define-pass literal@->literal : (L15c Triv) (ir) -> (L15d Triv) ()
@@ -16524,7 +16530,7 @@
               (define Triv
                 (lambda (out t)
                   (nanopass-case (L15d Triv) t
-                    [(mref ,x1 ,x2 ,imm) (add-var (add-var out x2) x1)]
+                    [(mref ,x1 ,x2 ,imm ,type) (add-var (add-var out x2) x1)]
                     [,x (add-var out x)]
                     [else out])))
               (define Rhs
@@ -16594,7 +16600,7 @@
                                                       (meta-cond
                                                         [(real-register? '%esp) %esp]
                                                         [else (with-output-language (L15c Triv)
-                                                                `(mref ,%tc ,%zero ,(tc-disp %esp)))]))
+                                                                `(mref ,%tc ,%zero ,(tc-disp %esp) uptr))]))
                                                     live)])
                   (append xnew-effect*
                     (cons (with-output-language (L15d Effect)
@@ -16763,7 +16769,7 @@
           (define Triv
             (lambda (unspillable* t)
               (nanopass-case (L15d Triv) t
-                [(mref ,x1 ,x2 ,imm) (add-unspillable (add-unspillable unspillable* x2) x1)]
+                [(mref ,x1 ,x2 ,imm ,type) (add-unspillable (add-unspillable unspillable* x2) x1)]
                 [,x (add-unspillable unspillable* x)]
                 [else unspillable*])))
           (define Rhs
@@ -17056,7 +17062,7 @@
                   (or (uvar-location x) (sorry! who "no location assigned to uvar ~s" x))
                   x))))
         (Lvalue : Lvalue (ir) -> Lvalue ()
-          [(mref ,x0 ,x1 ,imm) `(mref ,(var->loc x0) ,(var->loc x1) ,imm)]
+          [(mref ,x0 ,x1 ,imm ,type) `(mref ,(var->loc x0) ,(var->loc x1) ,imm ,type)]
           [,x (var->loc x)])
         (Pred : Pred (ir) -> Pred ())
         (Tail : Tail (ir) -> Tail ())

@@ -100,6 +100,18 @@
     (lambda (x)
       (or (lmem? x) (literal@? x))))
 
+  (define dbl-mem?
+    (lambda (x)
+      (nanopass-case (L15c Triv) x
+        [(mref ,lvalue0 ,lvalue1 ,imm ,type) (eq? type 'dbl)]
+        [else #f])))
+
+  (define literal-flonum?
+    (lambda (x)
+      (nanopass-case (L15c Triv) x
+        [(literal ,info) (flonum? (info-literal-addr info))]
+        [else #f])))
+
   (define real-imm32?
     (lambda (x)
       (nanopass-case (L15c Triv) x
@@ -128,9 +140,9 @@
     (lambda (a k)
       (define return
         (lambda (x0 x1 imm)
-          (k (with-output-language (L15d Triv) `(mref ,x0 ,x1 ,imm)))))
+          (k (with-output-language (L15d Triv) `(mref ,x0 ,x1 ,imm uptr)))))
       (nanopass-case (L15c Triv) a
-        [(mref ,lvalue0 ,lvalue1 ,imm)
+        [(mref ,lvalue0 ,lvalue1 ,imm ,type)
          (lvalue->ur lvalue0
            (lambda (x0)
              (lvalue->ur lvalue1
@@ -153,7 +165,7 @@
          (let ([u (make-tmp 'u)])
            (seq
              (build-set! ,u ,(literal@->literal a))
-             (k (with-output-language (L15d Lvalue) `(mref ,u ,%zero 0)))))]
+             (k (with-output-language (L15d Lvalue) `(mref ,u ,%zero 0 uptr)))))]
         [else (mref->mref a k)])))
 
   (define-syntax coercible?
@@ -167,7 +179,7 @@
                  (and (memq 'real-imm32 aty*) (real-imm32? a))
                  (and (memq 'negatable-real-imm32 aty*) (negatable-real-imm32? a))
                  (and (memq 'mem aty*) (mem? a))
-                 (and (memq 'dbl aty*) (mem? a)))))]))
+                 (and (memq 'dbl aty*) (or (mem? a) (ur? a) (literal-flonum? a))))))]))
 
   (define-syntax coerce-opnd ; passes k something compatible with aty*
     (syntax-rules ()
@@ -175,12 +187,25 @@
        (let ([a ?a] [aty* ?aty*] [k ?k])
          (cond
            [(and (memq 'mem aty*) (mem? a)) (mem->mem a k)]
-           [(and (memq 'dbl aty*) (mem? a)) (mem->mem a k)]
            [(and (memq 'imm32 aty*) (imm32? a)) (k (imm->imm a))]
            [(and (memq 'imm aty*) (imm? a)) (k (imm->imm a))]
            [(and (memq 'zero aty*) (imm0? a)) (k (imm->imm a))]
            [(and (memq 'real-imm32 aty*) (real-imm32? a)) (k (imm->imm a))]
            [(and (memq 'negatable-real-imm32 aty*) (negatable-real-imm32? a)) (k (imm->imm a))]
+           [(memq 'dbl aty*)
+            (cond
+              [(dbl-mem? a) (mem->mem a k)]
+              [(mem? a) (lvalue->ur a (lambda (a)
+                                        (with-output-language (L15d Triv)
+                                          (mem->mem `(mref ,a ,%zero ,(constant flonum-data-disp) dbl) k))))]
+              [(literal-flonum? a) (let ([u (make-tmp 'u)])
+                                     (seq
+                                      (build-set! ,u ,a)
+                                      (with-output-language (L15d Lvalue)
+                                        (mem->mem `(mref ,u ,%zero ,(constant flonum-data-disp) dbl) k))))]
+              [(ur? a) (with-output-language (L15d Triv)
+                         (mem->mem `(mref ,a ,%zero ,(constant flonum-data-disp) dbl) k))]
+              [else #f])]
            [(memq 'ur aty*)
             (cond
               [(ur? a) (k a)]
@@ -256,7 +281,7 @@
                         [(ur? c) (#,k c b)]
                         [(mref? c)
                          (nanopass-case (L15c Triv) c
-                           [(mref ,lvalue0 ,lvalue1 ,imm)
+                           [(mref ,lvalue0 ,lvalue1 ,imm ,type)
                            ; TODO: does this use too many registers? (no longer special casing fv x0, x1 case)
                             (lvalue->ur lvalue0
                               (lambda (x0)
@@ -265,16 +290,16 @@
                                     (let ([u1 (make-tmp 'u)])
                                       (if (signed-32? imm)
                                           (seq
-                                            (build-set! ,u1 (mref ,x0 ,x1 ,imm))
+                                            (build-set! ,u1 (mref ,x0 ,x1 ,imm ,type))
                                             (#,k u1 b)
-                                            (build-set! (mref ,x0 ,x1 ,imm) ,u1))
+                                            (build-set! (mref ,x0 ,x1 ,imm ,type) ,u1))
                                           (let ([u2 (make-tmp 'u)])
                                             (seq
                                               (build-set! ,u2 ,imm)
                                               (build-set! ,x1 (asm ,null-info ,asm-add ,x1 ,u2))
-                                              (build-set! ,u1 (mref ,x0 ,x1 0))
+                                              (build-set! ,u1 (mref ,x0 ,x1 0 ,type))
                                               (#,k u1 b)
-                                              (build-set! (mref ,x0 ,x1 0) ,u1)))))))))])]
+                                              (build-set! (mref ,x0 ,x1 0 ,type) ,u1)))))))))])]
                         ; can't be literal@ since literals can't be lvalues
                         [else (sorry! '#,(datum->syntax #'* who) "unexpected operand ~s" c)])))
                   (next c a b)))))
@@ -403,7 +428,7 @@
                      (next c)))]
             [(op (c dbl) (a aty ...))
              #`(lambda (c a)
-                 (if (and (lmem? c) (coercible? a '(aty ...)))
+                 (if (and (dbl-mem? c) (coercible? a '(aty ...)))
                      (mem->mem c
                        (lambda (c)
                          (coerce-opnd a '(aty ...)
@@ -412,7 +437,7 @@
                      (next c a)))]
             [(op (c dbl) (a dbl) (b dbl))
              #`(lambda (c a b)
-                 (if (and (lmem? c) (coercible? a '(dbl)) (coercible? b '(dbl)))
+                 (if (and (dbl-mem? c) (coercible? a '(dbl)) (coercible? b '(dbl)))
                      (mem->mem c
                        (lambda (c)
                          (coerce-opnd a '(dbl)
@@ -972,7 +997,7 @@
                   `(set! ,(make-live-info) ,uts (immediate 1))
                   `(set! ,(make-live-info) ,uts
                      (asm ,info ,asm-exchange ,uts
-                       (mref ,x ,y ,imm)))))])
+                       (mref ,x ,y ,imm uptr)))))])
            `(asm ,info-cc-eq ,asm-eq ,uts (immediate 0))))]))
 
   (define-instruction effect (locked-incr!)
