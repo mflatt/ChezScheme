@@ -2857,29 +2857,45 @@
       (set! $loop-unroll-limit loop-unroll-limit))
 
     (define (known-flonum-result? e)
-      (nanopass-case (L7 Expr) e
-        [,x (and (uvar? x) (eq? (uvar-type x) 'fp))]
-        [(quote ,d) (flonum? d)]
-        [(call ,info ,mdcl ,pr ,e* ...)
-         (eq? 'flonum ($sgetprop (primref-name pr) '*result-type* #f))]
-        [else #f]))
+      (let flonum-result? ([e e] [fuel 10])
+        (and
+         (fx> fuel 0)
+         (nanopass-case (L7 Expr) e
+           [,x (and (uvar? x) (eq? (uvar-type x) 'fp))]
+           [(quote ,d) (flonum? d)]
+           [(call ,info ,mdcl ,pr ,e* ...)
+            (eq? 'flonum ($sgetprop (primref-name pr) '*result-type* #f))]
+           [(seq ,e0 ,e1) (flonum-result? e1 (fx- fuel 1))]
+           [(let ([,x* ,e*] ...) ,body) (flonum-result? body (fx- fuel 1))]
+           [else #f]))))
         
     (define-pass np-unbox-fp-vars! : L7 (ir) -> L7 ()
       (definitions
         (define ensure-not-unboxed!
           (lambda (x)
             (when (and (uvar? x) (eq? (uvar-type x) 'fp))
-              (uvar-type-set! x 'ptr)))))
+              (uvar-type-set! x 'ptr)
+              (let ([l (uvar-location x)])
+                (when l
+                  (uvar-location-set! x #f)
+                  (for-each ensure-not-unboxed! l)))))))
       (Expr : Expr (ir) -> Expr ()
         [(let ([,x* ,e*] ...) ,body)
          (for-each (lambda (x e)
-                     (Expr e)
+                     (nanopass-case (L7 Expr) e
+                       [,x1
+                        (guard (and (uvar? x1) (eq? (uvar-type x1) 'fp)))
+                        ;; propagate fp-ness
+                        (uvar-location-set! x (cons x1 (or (uvar-location x) '())))]
+                       [else
+                        (Expr e)])
                      (when (known-flonum-result? e)
                        (uvar-type-set! x 'fp)))
                    x* e*)
          (Expr body)
          (for-each (lambda (x)
                      (when (eq? (uvar-type x) 'fp)
+                       (uvar-location-set! x #f)
                        (uvar-spilled! x #t)
                        (uvar-poison! x #t)))
                    x*)
@@ -2892,6 +2908,30 @@
                        [,x (void)] ; allow x to keep 'fp type
                        [else (Expr e)]))
                    e*)
+         ir]
+        [(loop ,x (,x* ...) ,body)
+         (safe-assert (uvar-loop? x))
+         (uvar-location-set! x x*)
+         (Expr body)
+         (uvar-location-set! x #f)
+         ir]
+        [(call ,info ,mdcl ,x ,e* ...)
+         (guard (uvar-loop? x))
+         (let ([x* (uvar-location x)])
+           (for-each (lambda (x e)
+                       (cond
+                         [(eq? (uvar-type x) 'fp)
+                          (nanopass-case (L7 Expr) e
+                            [,x1
+                             (guard (and (uvar? x1) (eq? (uvar-type x1) 'fp)))
+                             (uvar-location-set! x (cons x1 (or (uvar-location x) '())))
+                             (uvar-location-set! x1 (cons x (or (uvar-location x1) '())))]
+                            [else
+                             (Expr e)
+                             (unless (known-flonum-result? e)
+                               (ensure-not-unboxed! x))])]
+                         [else (Expr e)]))
+                     x* e*))
          ir])
       (Lvalue : Lvalue (ir) -> Lvalue ()
         [,x
@@ -3065,6 +3105,17 @@
                                 info)])
                   (values `(call ,info ,mdcl ,(Symref (primref-name pr)) ,e* ...)
                           #f)))])]
+          [(call ,info ,mdcl ,x ,e* ...)
+           (guard (uvar-loop? x))
+           (let ([e* (map (lambda (x1 e)
+                            (let ([unbox? (eq? (uvar-type x1) 'fp)])
+                              (let-values ([(e unboxed-fp?) (Expr e unbox?)])
+                                (cond
+                                  [(and unbox? (not unboxed-fp?))
+                                   (%mref ,e ,(constant flonum-data-disp))]
+                                  [else e]))))
+                          (uvar-location x) e*)])
+             (values `(call ,info ,mdcl ,x ,e* ...) #f))]
           [(call ,info ,mdcl ,e ,e*  ...)
            (let ([e (and e (Expr1 e))]
                  [e* (Expr* e*)])
@@ -3110,8 +3161,11 @@
                           x* e*)])
              (let-values ([(body unboxed-fp?) (Expr body can-unbox-fp?)])
                (values `(let ([,x* ,e*] ...) ,body) unboxed-fp?)))]
-          [(loop ,x (,x* ...) ,[body can-unbox-fp? -> body unboxed-fp?])
-           (values `(loop ,x (,x* ...) ,body) unboxed-fp?)]
+          [(loop ,x (,x* ...) ,body)
+           (uvar-location-set! x x*)
+           (let-values ([(body unboxed-fp?) (Expr body can-unbox-fp?)])
+             (uvar-location-set! x #f)
+             (values `(loop ,x (,x* ...) ,body) unboxed-fp?))]
           [(attachment-set ,aop ,e) (values `(attachment-set ,aop ,(and e (Expr1 e))) #f)]
           [(attachment-get ,reified ,e) (values `(attachment-get ,reified ,(and e (Expr1 e))) #f)]
           [(attachment-consume ,reified ,e) (values `(attachment-consume ,reified ,(and e (Expr1 e))) #f)]
@@ -16340,8 +16394,9 @@
                                          [(and (uvar? x) (uvar-iii x)) =>
                                           (lambda (index)
                                             (safe-assert
-                                              (let ([name.offset (vector-ref (ctci-live ctci) index)])
-                                                (logbit? (fx- (cdr name.offset) 1) lpm)))
+                                             (or (eq? (uvar-type x) 'fp)
+                                                 (let ([name.offset (vector-ref (ctci-live ctci) index)])
+                                                   (logbit? (fx- (cdr name.offset) 1) lpm))))
                                             (cons index i*))]
                                          [else i*]))
                                      '() call-live*))])
