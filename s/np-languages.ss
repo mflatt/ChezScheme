@@ -200,7 +200,7 @@
   (define make-tmp
     (case-lambda
       [(name) (make-tmp name 'ptr)]
-      [(name type) ($make-uvar name #f type '() (if (eq? type 'dbl)
+      [(name type) ($make-uvar name #f type '() (if (eq? type 'fp)
                                                     (uvar-flags-mask referenced spilled poison)
                                                     (uvar-flags-mask referenced)))]))
   (define make-assigned-tmp
@@ -565,9 +565,9 @@
   (declare-primitive >= pred #t)
   (declare-primitive condition-code pred #t)
   (declare-primitive eq? pred #t)
-  (declare-primitive dbl< pred #t)
-  (declare-primitive dbl<= pred #t)
-  (declare-primitive dbl= pred #t)
+  (declare-primitive fp< pred #t)
+  (declare-primitive fp<= pred #t)
+  (declare-primitive fp= pred #t)
   (declare-primitive lock! pred #f)
   (declare-primitive logtest pred #t)
   (declare-primitive log!test pred #t)
@@ -613,13 +613,13 @@
   (declare-primitive zext16 value #t)
   (declare-primitive zext32 value #t) ; 64-bit only
 
-  (declare-primitive dbl+ value #t)
-  (declare-primitive dbl- value #t)
-  (declare-primitive dbl* value #t)
-  (declare-primitive dbl/ value #t)
-  (declare-primitive dblt value #t)
-  (declare-primitive dblidentity value #t)
-  (declare-primitive dblsqrt value #t) ; not implemented for some ppc32 (so we don't use it)
+  (declare-primitive fp+ value #t)
+  (declare-primitive fp- value #t)
+  (declare-primitive fp* value #t)
+  (declare-primitive fp/ value #t)
+  (declare-primitive fpt value #t)
+  (declare-primitive fpidentity value #t)
+  (declare-primitive fpsqrt value #t) ; not implemented for some ppc32 (so we don't use it)
 
   (define immediate?
     (let ([low (- (bitwise-arithmetic-shift-left 1 (fx- (constant ptr-bits) 1)))]

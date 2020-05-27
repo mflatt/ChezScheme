@@ -824,18 +824,18 @@
      `(set! ,(make-live-info) ,z
         (asm ,info ,(asm-get-double (info-loadfl-flreg info))))])
 
-  (define-instruction value (dblt)
-    [(op (x mem) (y ur)) `(asm ,info ,asm-dblt ,x ,y)])
+  (define-instruction value (fpt)
+    [(op (x mem) (y ur)) `(asm ,info ,asm-fpt ,x ,y)])
 
-  (define-instruction value (dblidentity)
-    [(op (x mem) (y mem)) `(asm ,info ,asm-dblidentity ,x ,y)])
+  (define-instruction value (fpidentity)
+    [(op (x mem) (y mem)) `(asm ,info ,asm-fpidentity ,x ,y)])
 
-  (define-instruction value (dbl+ dbl- dbl/ dbl*)
+  (define-instruction value (fp+ fp- fp/ fp*)
     [(op (x mem) (y mem) (z mem))
-     `(set! ,(make-live-info) ,x (asm ,info ,(asm-dblop-2 op) ,y ,z))])
+     `(set! ,(make-live-info) ,x (asm ,info ,(asm-fpop-2 op) ,y ,z))])
 
-  (define-instruction value (dblsqrt)
-    [(op (x mem) (y mem)) `(asm ,info ,asm-dblsqrt ,x ,y)])
+  (define-instruction value (fpsqrt)
+    [(op (x mem) (y mem)) `(asm ,info ,asm-fpsqrt ,x ,y)])
 
   (define-instruction effect inc-cc-counter
     [(op (x ur) (y imm32 ur) (z imm32 ur)) `(asm ,info ,asm-inc-cc-counter ,x ,y ,z)])
@@ -893,7 +893,7 @@
   (define-instruction value pop
     [(op (z ur)) `(set! ,(make-live-info) ,z (asm ,info ,asm-pop))])
 
-  (define-instruction pred (dbl= dbl< dbl<=)
+  (define-instruction pred (fp= fp< fp<=)
     [(op (x mem) (y mem))
      (let ([info (make-info-condition-code op #t #f)]) ; NB: reversed? flag is assumed to be #t
        (values '() `(asm ,info ,(asm-fl-relop info) ,x ,y)))])
@@ -1037,9 +1037,9 @@
                      asm-direct-jump asm-return-address asm-jump asm-conditional-jump asm-data-label
                      asm-rp-header asm-rp-compact-header
                      asm-lea1 asm-lea2 asm-indirect-call asm-condition-code
-                     asm-fl-cvt asm-fl-store asm-fl-load asm-dblt asm-trunc asm-div asm-popcount
+                     asm-fl-cvt asm-fl-store asm-fl-load asm-fpt asm-trunc asm-div asm-popcount
                      asm-exchange asm-pause asm-locked-incr asm-locked-decr asm-locked-cmpxchg
-                     asm-dblsqrt asm-dblop-2 asm-dblidentity asm-c-simple-call
+                     asm-fpsqrt asm-fpop-2 asm-fpidentity asm-c-simple-call
                      asm-save-flrv asm-restore-flrv asm-return asm-c-return asm-size
                      asm-enter asm-foreign-call asm-foreign-callable
                      asm-inc-profile-counter
@@ -1958,7 +1958,7 @@
       (lambda (code* dst)
         (emit sse.movd (cons 'reg flreg) (cons 'reg dst) code*))))
 
-  (define asm-dblt
+  (define asm-fpt
     (lambda (code* dest src)
       (Trivit (dest src)
         (let ([flreg (cons 'reg %flreg1)])
@@ -1966,25 +1966,25 @@
             (emit sse.movsd flreg dest code*))))))
 
   ;; Can do better here by specializing on source and destination kinds
-  (define asm-dblop-2
+  (define asm-fpop-2
     (lambda (op)
       (lambda (code* dest src1 src2)
         (Trivit (dest src1 src2)
           (let ([code* (emit sse.movsd (cons 'reg %flreg1) dest code*)])
             (let ([code* (case op
-                           [(dbl+) (emit sse.addsd src2 (cons 'reg %flreg1) code*)]
-                           [(dbl-) (emit sse.subsd src2 (cons 'reg %flreg1) code*)]
-                           [(dbl*) (emit sse.mulsd src2 (cons 'reg %flreg1) code*)]
-                           [(dbl/) (emit sse.divsd src2 (cons 'reg %flreg1) code*)])])
+                           [(fp+) (emit sse.addsd src2 (cons 'reg %flreg1) code*)]
+                           [(fp-) (emit sse.subsd src2 (cons 'reg %flreg1) code*)]
+                           [(fp*) (emit sse.mulsd src2 (cons 'reg %flreg1) code*)]
+                           [(fp/) (emit sse.divsd src2 (cons 'reg %flreg1) code*)])])
               (emit sse.movsd src1 (cons 'reg %flreg1) code*)))))))
 
-  (define asm-dblsqrt
+  (define asm-fpsqrt
     (lambda (code* dest src)
       (Trivit (dest src)
         (emit sse.sqrtsd src (cons 'reg %flreg1)
           (emit sse.movsd (cons 'reg %flreg1) dest code*)))))
 
-  (define asm-dblidentity
+  (define asm-fpidentity
     (lambda (code* dest src)
       (Trivit (dest src)
         (emit sse.movsd src (cons 'reg %flreg1)
@@ -2544,11 +2544,11 @@
               [(carry) (i? bcc bcs)]
               ; unordered: zf,pf,cf <- 111; gt: 000; lt: 001; eq: 100
               ; reversed & inverted: !(fl< y x) = !(fl> x y) iff zf = 1 & cf = 1
-              [(dbl<) bls]
+              [(fp<) bls]
               ; reversed & inverted: !(fl<= y x) = !(fl>= x y) iff cf = 1
-              [(dbl<=) bcs]
+              [(fp<=) bcs]
               ; inverted: !(fl= x y) iff zf = 0 or cf (or pf) = 1
-              [(dbl=) (or bne bcs)]))))))
+              [(fp=) (or bne bcs)]))))))
 
   (define asm-data-label
     (lambda (code* l offset func code-size)

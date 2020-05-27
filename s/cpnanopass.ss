@@ -2900,7 +2900,7 @@
     ;; double (i.e., floating-point) values instead of pointer values.
     ;; Those expression results always flow to an `inline` primitive
     ;; that expects double values. The main consequence is that a later
-    ;; pass must only put such returns in a temporary with type 'dbl.
+    ;; pass must only put such returns in a temporary with type 'fp.
     
     ; TODO: recognize a direct call when it is at the end of a sequence, closures, or let form
     ; TODO: push call into if? (would need to pull arguments into temporaries to ensure order of evaluation
@@ -3005,7 +3005,7 @@
                       (values
                        (cond
                          [(info-call-shift-attachment? info)
-                          (let ([t (make-tmp 't (if unboxed-fp? 'dbl 'ptr))])
+                          (let ([t (make-tmp 't (if unboxed-fp? 'fp 'ptr))])
                             `(let ([,t ,e])
                                (seq
                                 (attachment-set pop #f)
@@ -3306,7 +3306,7 @@
                             (build-and check (f e*))))))))))
         (define build-fl=
           (lambda (e1 e2)
-            `(inline ,(make-info-double '(#t #t)) ,%dbl= ,e1 ,e2)))
+            `(inline ,(make-info-double '(#t #t)) ,%fp= ,e1 ,e2)))
         (define (known-flonum-result? e)
           (nanopass-case (L7 Expr) e
             [(quote ,d) (flonum? d)]
@@ -3900,7 +3900,7 @@
              (case type
                [(scheme-object) (build-dirty-store base index offset value)]
                [(double-float)
-                `(set! ,(%mref ,base ,index ,offset) (inline ,(make-info-double '(#t)) ,%dblidentity ,value))
+                `(set! ,(%mref ,base ,index ,offset) (inline ,(make-info-double '(#t)) ,%fpidentity ,value))
                 #;
                 (bind #f (base index)
                   (%seq
@@ -7252,10 +7252,10 @@
                     `(seq
                       (set! ,(%mref ,t ,%zero ,(constant flonum-data-disp)) ,e)
                       ,t)))))
-          (define build-dblop-1
+          (define build-fp-op-1
             (lambda (can-unbox-fp? op e)
               (build-fp-boxed can-unbox-fp? `(inline ,(make-info-double '(#t)) ,op ,e))))
-          (define build-dblop-2
+          (define build-fp-op-2
             (lambda (can-unbox-fp? op e1 e2)
               (build-fp-boxed can-unbox-fp? `(inline ,(make-info-double '(#t #t)) ,op ,e1 ,e2))))
           (define build-flabs
@@ -7322,29 +7322,29 @@
           (define-inline 3 fl+
             [() `(quote 0.0)]
             [(e) (ensure-single-valued e)]
-            [(e1 e2) (build-dblop-2 can-unbox-fp? %dbl+ e1 e2)]
+            [(e1 e2) (build-fp-op-2 can-unbox-fp? %fp+ e1 e2)]
             [(e1 . e*) (reduce-fp src sexpr 3 'fl+ e1 e*)])
              
           (define-inline 3 fl*
             [() `(quote 1.0)]
             [(e) (ensure-single-valued e)]
-            [(e1 e2) (build-dblop-2 can-unbox-fp? %dbl* e1 e2)]
+            [(e1 e2) (build-fp-op-2 can-unbox-fp? %fp* e1 e2)]
             [(e1 . e*) (reduce-fp src sexpr 3 'fl* e1 e*)])
 
           (define-inline 3 fl-
             [(e) (build-flneg e)] ; doesn't unbox, but properly negates 0.0
-            [(e1 e2) (build-dblop-2 can-unbox-fp? %dbl- e1 e2)]
+            [(e1 e2) (build-fp-op-2 can-unbox-fp? %fp- e1 e2)]
             [(e1 . e*) (reduce-fp src sexpr 3 'fl- e1 e*)])
 
           (define-inline 3 fl/
-            [(e) (build-dblop-2 can-unbox-fp? %dbl/ `(quote 1.0) e)]
-            [(e1 e2) (build-dblop-2 can-unbox-fp? %dbl/ e1 e2)]
+            [(e) (build-fp-op-2 can-unbox-fp? %fp/ `(quote 1.0) e)]
+            [(e1 e2) (build-fp-op-2 can-unbox-fp? %fp/ e1 e2)]
             [(e1 . e*) (reduce-fp src sexpr 3 'fl/ e1 e*)])
 
           (define-inline 3 flsqrt
             [(e)
              (constant-case architecture
-               [(x86 x86_64 arm32) (build-dblop-1 can-unbox-fp? %dblsqrt e)]
+               [(x86 x86_64 arm32) (build-fp-op-1 can-unbox-fp? %fpsqrt e)]
                [(ppc32) #f])])
 
           (define-inline 3 flround
@@ -7430,9 +7430,9 @@
                            ,t)))])
 
           (let ()
-            (define (build-fl< e1 e2) `(inline ,(make-info-double '(#t #t)) ,%dbl< ,e1 ,e2))
-            (define (build-fl= e1 e2) `(inline ,(make-info-double '(#t #t)) ,%dbl= ,e1 ,e2))
-            (define (build-fl<= e1 e2) `(inline ,(make-info-double '(#t #t)) ,%dbl<= ,e1 ,e2))
+            (define (build-fl< e1 e2) `(inline ,(make-info-double '(#t #t)) ,%fp< ,e1 ,e2))
+            (define (build-fl= e1 e2) `(inline ,(make-info-double '(#t #t)) ,%fp= ,e1 ,e2))
+            (define (build-fl<= e1 e2) `(inline ,(make-info-double '(#t #t)) ,%fp<= ,e1 ,e2))
 
             (let ()
               (define-syntax define-fl-cmp-inline
@@ -7526,7 +7526,7 @@
                 [(e1 e2 . e*) (reduce-equality src sexpr moi e1 e2 e*)])))
 
           (let ()
-            (define build-checked-dblop
+            (define build-checked-fp-op
               (case-lambda
                 [(e k)
                  (if (known-flonum-result? e)
@@ -7538,13 +7538,13 @@
                 [(e1 e2 op can-unbox-fp? k)
                  ;; uses `e1` or `e2` twice for error if other is always a flonum
                  (let ([build (lambda (e1 e2 k)
-                                (let ([e (build-dblop-2 can-unbox-fp? op e1 e2)])
+                                (let ([e (build-fp-op-2 can-unbox-fp? op e1 e2)])
                                   (nanopass-case (L7 Expr) e
                                     [(unboxed-fp ,e) `(unboxed-fp ,(k e))]
                                     [else (k e)])))])
                    (if (known-flonum-result? e1)
                        (if (known-flonum-result? e2)
-                           (build-dblop-2 can-unbox-fp? op e1 e2)
+                           (build-fp-op-2 can-unbox-fp? op e1 e2)
                            (bind #t (e2)
                              (build e1 e2
                                     (lambda (e)
@@ -7567,20 +7567,20 @@
 
             (define-inline 2 fl+
               [() `(quote 0.0)]
-              [(e) (build-checked-dblop e
+              [(e) (build-checked-fp-op e
                      (lambda (e)
                        (build-libcall #t src sexpr fl+ e `(quote 0.0))))]
-              [(e1 e2) (build-checked-dblop e1 e2 %dbl+ can-unbox-fp?
+              [(e1 e2) (build-checked-fp-op e1 e2 %fp+ can-unbox-fp?
                          (lambda (e1 e2)
                            (build-libcall #t src sexpr fl+ e1 e2)))]
               [(e1 . e*) (reduce-fp src sexpr 2 'fl+ e1 e*)])
 
             (define-inline 2 fl*
               [() `(quote 1.0)]
-              [(e) (build-checked-dblop e
+              [(e) (build-checked-fp-op e
                      (lambda (e)
                        (build-libcall #t src sexpr fl* e `(quote 1.0))))]
-              [(e1 e2) (build-checked-dblop e1 e2 %dbl* can-unbox-fp?
+              [(e1 e2) (build-checked-fp-op e1 e2 %fp* can-unbox-fp?
                          (lambda (e1 e2)
                            (build-libcall #t src sexpr fl* e1 e2)))]
               [(e1 . e*) (reduce-fp src sexpr 2 'fl* e1 e*)])
@@ -7591,16 +7591,16 @@
                  `(if ,(build-flonums? (list e))
                       ,(build-flneg e)
                       ,(build-libcall #t src sexpr flnegate e)))]
-              [(e1 e2) (build-checked-dblop e1 e2 %dbl- can-unbox-fp?
+              [(e1 e2) (build-checked-fp-op e1 e2 %fp- can-unbox-fp?
                          (lambda (e1 e2)
                            (build-libcall #t src sexpr fl- e1 e2)))]
               [(e1 . e*) (reduce-fp src sexpr 2 'fl- e1 e*)])
 
             (define-inline 2 fl/
-              [(e) (build-checked-dblop `(quote 1.0) e %dbl/ can-unbox-fp?
+              [(e) (build-checked-fp-op `(quote 1.0) e %fp/ can-unbox-fp?
                      (lambda (e1 e2)
                        (build-libcall #t src sexpr fl/ e1 e2)))]
-              [(e1 e2) (build-checked-dblop e1 e2 %dbl/ can-unbox-fp?
+              [(e1 e2) (build-checked-fp-op e1 e2 %fp/ can-unbox-fp?
                          (lambda (e1 e2)
                            (build-libcall #t src sexpr fl/ e1 e2)))]
               [(e1 . e*) (reduce-fp src sexpr 2 'fl/ e1 e*)])))
@@ -7614,7 +7614,7 @@
           (define build-fixnum->flonum
            ; NB: x must already be bound in order to ensure it is done before the flonum is allocated
             (lambda (e-x can-unbox-fp? k)
-              (let ([e (%inline dblt ,(build-unfix e-x))])
+              (let ([e (%inline fpt ,(build-unfix e-x))])
                 (if can-unbox-fp?
                     `(unboxed-fp ,(k e))
                     (k (bind #t ([t (%constant-alloc type-flonum (constant size-flonum))])
@@ -10542,20 +10542,20 @@
         (define Triv*
           (case-lambda
            [(e* k) (Triv* e* #f k)]
-           [(e* dbl?* k)
-            (let f ([e* e*] [dbl?* dbl?*] [lvalue-setup* '()] [rt* '()] [setup* '()])
+           [(e* fp?* k)
+            (let f ([e* e*] [fp?* fp?*] [lvalue-setup* '()] [rt* '()] [setup* '()])
               (if (null? e*)
                   (build-seq* setup*
                     (build-seq* lvalue-setup*
                       (k (reverse rt*))))
-                  (let-values ([(t t-setup*) (Triv (car e*) (null? lvalue-setup*) (and dbl?* (car dbl?*)))])
+                  (let-values ([(t t-setup*) (Triv (car e*) (null? lvalue-setup*) (and fp?* (car fp?*)))])
                     (if (and (null? lvalue-setup*)
                              (not (null? t-setup*))
                              (Lvalue? t)
                              ; uvar's are singly assigned
                              (or (not (uvar? t)) (uvar-assigned? t)))
-                        (f (cdr e*) (and dbl?* (cdr dbl?*)) t-setup* (cons t rt*) setup*)
-                        (f (cdr e*) (and dbl?* (cdr dbl?*)) lvalue-setup* (cons t rt*) (append t-setup* setup*))))))]))
+                        (f (cdr e*) (and fp?* (cdr fp?*)) t-setup* (cons t rt*) setup*)
+                        (f (cdr e*) (and fp?* (cdr fp?*)) lvalue-setup* (cons t rt*) (append t-setup* setup*))))))]))
         (define Triv?
           (lambda (maybe-e k)
             (if maybe-e
@@ -10592,7 +10592,7 @@
              (safe-assert (nodups x* local*))
              `(clause (,x* ...) (,local* ...) ,mcp ,interface
                 ,body)))])
-      (Triv : Expr (ir lvalue-okay? dbl?) -> Triv (setup*)
+      (Triv : Expr (ir lvalue-okay? fp?) -> Triv (setup*)
         [,x
          (guard (or lvalue-okay? (and (uvar? x) (not (uvar-assigned? x))) (eq? x %zero)))
          (values x '())]
@@ -10614,7 +10614,7 @@
          (values t (cons e0 setup*))]
         [(pariah) (values (%constant svoid) (list (with-output-language (L10 Expr) `(pariah))))]
         [else
-         (let ([tmp (make-tmp 't (if dbl? 'dbl 'ptr))])
+         (let ([tmp (make-tmp 't (if fp? 'fp 'ptr))])
            (values tmp (list (Rhs ir tmp))))])
       (Expr : Expr (ir k) -> Expr ()
         [(inline ,info ,prim ,e1* ...)
