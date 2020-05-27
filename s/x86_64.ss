@@ -830,6 +830,14 @@
   (define-instruction value (fpidentity)
     [(op (x mem) (y mem)) `(asm ,info ,asm-fpidentity ,x ,y)])
 
+  (define-instruction value (fpcastto)
+    [(op (x mem) (y mem)) `(asm ,info ,asm-fpidentity ,x ,y)]
+    [(op (x ur) (y mem)) `(asm ,info ,asm-move ,x ,y)])
+
+  (define-instruction value (fpcastfrom)
+    [(op (x mem) (y mem)) `(asm ,info ,asm-fpidentity ,x ,y)]
+    [(op (x mem) (y ur)) `(asm ,info ,asm-move ,x ,y)])
+
   (define-instruction value (fp+ fp- fp/ fp*)
     [(op (x mem) (y mem) (z mem))
      `(set! ,(make-live-info) ,x (asm ,info ,(asm-fpop-2 op) ,y ,z))])
@@ -1039,7 +1047,8 @@
                      asm-lea1 asm-lea2 asm-indirect-call asm-condition-code
                      asm-fl-cvt asm-fl-store asm-fl-load asm-fpt asm-trunc asm-div asm-popcount
                      asm-exchange asm-pause asm-locked-incr asm-locked-decr asm-locked-cmpxchg
-                     asm-fpsqrt asm-fpop-2 asm-fpidentity asm-c-simple-call
+                     asm-fpsqrt asm-fpop-2 asm-fpidentity
+                     asm-c-simple-call
                      asm-save-flrv asm-restore-flrv asm-return asm-c-return asm-size
                      asm-enter asm-foreign-call asm-foreign-callable
                      asm-inc-profile-counter
@@ -1215,7 +1224,7 @@
   (define-op sse.cvttsd2si sse-op1 #xF2 #x2C 1)
   (define-op sse.cvtsi2sd  sse-op1 #xF2 #x2A 1)
   (define-op sse.divsd     sse-op1 #xF2 #x5E 0)
-  (define-op sse.movd      sse-op2 #x66 #x6E #x7E 1)
+  (define-op sse.movd      sse-op2 #x66 #x6E #x7E)
   (define-op sse.movsd     sse-op2 #xF2 #x10 #x11 0)
   (define-op sse.movss     sse-op2 #xF3 #x10 #x11 0)
   (define-op sse.mulsd     sse-op1 #xF2 #x59 0)
@@ -1956,7 +1965,7 @@
   (define asm-get-double
     (lambda (flreg)
       (lambda (code* dst)
-        (emit sse.movd (cons 'reg flreg) (cons 'reg dst) code*))))
+        (emit sse.movd 0 (cons 'reg flreg) (cons 'reg dst) code*))))
 
   (define asm-fpt
     (lambda (code* dest src)

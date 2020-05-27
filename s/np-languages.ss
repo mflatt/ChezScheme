@@ -17,7 +17,7 @@
 (module np-languages ()
   (export sorry! var? var-index var-index-set! prelex->uvar make-tmp make-assigned-tmp
     make-unspillable make-cpvar make-restricted-unspillable
-    uvar? uvar-name uvar-type uvar-source
+    uvar? uvar-name uvar-type uvar-type-set! uvar-source
     uvar-referenced? uvar-referenced! uvar-assigned? uvar-assigned!
     uvar-was-closure-ref? uvar-was-closure-ref!
     uvar-unspillable? uvar-spilled? uvar-spilled! uvar-local-save? uvar-local-save!
@@ -169,7 +169,7 @@
     (fields 
       name
       source
-      type
+      (mutable type)
       conflict*
       (mutable flags)
       (mutable info-lambda)
@@ -222,7 +222,9 @@
   (module ()
     (record-writer (record-type-descriptor uvar)
       (lambda (x p wr)
-        (write (lookup-unique-uvar x) p))))
+        (write (lookup-unique-uvar x) p)
+        (when (eq? (uvar-type x) 'fp)
+          (write 'fp p)))))
 
   (define lookup-unique-uvar
     (let ([ht (make-eq-hashtable)])
@@ -620,6 +622,11 @@
   (declare-primitive fpt value #t)
   (declare-primitive fpidentity value #t)
   (declare-primitive fpsqrt value #t) ; not implemented for some ppc32 (so we don't use it)
+
+  (declare-primitive fpcastto value #t) ; 64-bit only
+  (declare-primitive fpcastto/hi value #t) ; 32-bit only
+  (declare-primitive fpcastto/lo value #t) ; 32-bit only
+  (declare-primitive fpcastfrom value #t) ; 64-bit: 1 argument; 32-bit: 2 arguments
 
   (define immediate?
     (let ([low (- (bitwise-arithmetic-shift-left 1 (fx- (constant ptr-bits) 1)))]

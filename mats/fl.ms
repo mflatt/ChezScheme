@@ -1070,6 +1070,12 @@
   (check-loop-allocation (lambda (v) (fl+ v v v)))
   (check-loop-allocation (lambda (v) (fl+ v (fl* v v) (fl/ v 2.0))))
 
+  (check-loop-allocation (lambda (v) (flabs v)))
+  (check-loop-allocation (lambda (v) (fl- v)))
+
+  (check-loop-allocation (lambda (v) (flabs (fl+ v v))))
+  (check-loop-allocation (lambda (v) (fl- (fl+ v v))))
+
   (let ([i 0])
     (check-loop-allocation (lambda (v) (begin
                                          (set! i (add1 i))

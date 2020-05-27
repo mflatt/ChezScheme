@@ -2856,6 +2856,48 @@
                      ir)))]))
       (set! $loop-unroll-limit loop-unroll-limit))
 
+    (define (known-flonum-result? e)
+      (nanopass-case (L7 Expr) e
+        [,x (and (uvar? x) (eq? (uvar-type x) 'fp))]
+        [(quote ,d) (flonum? d)]
+        [(call ,info ,mdcl ,pr ,e* ...)
+         (eq? 'flonum ($sgetprop (primref-name pr) '*result-type* #f))]
+        [else #f]))
+        
+    (define-pass np-unbox-fp-vars! : L7 (ir) -> L7 ()
+      (definitions
+        (define ensure-not-unboxed!
+          (lambda (x)
+            (when (and (uvar? x) (eq? (uvar-type x) 'fp))
+              (uvar-type-set! x 'ptr)))))
+      (Expr : Expr (ir) -> Expr ()
+        [(let ([,x* ,e*] ...) ,body)
+         (for-each (lambda (x e)
+                     (Expr e)
+                     (when (known-flonum-result? e)
+                       (uvar-type-set! x 'fp)))
+                   x* e*)
+         (Expr body)
+         (for-each (lambda (x)
+                     (when (eq? (uvar-type x) 'fp)
+                       (uvar-spilled! x #t)
+                       (uvar-poison! x #t)))
+                   x*)
+         ir]
+        [(call ,info ,mdcl ,pr ,e* ...)
+         (guard (and (all-set? (prim-mask unboxed-arguments) (primref-flags pr))
+                     (fx<= (length e*) (constant inline-args-limit))))
+         (for-each (lambda (e)
+                     (nanopass-case (L7 Expr) e
+                       [,x (void)] ; allow x to keep 'fp type
+                       [else (Expr e)]))
+                   e*)
+         ir])
+      (Lvalue : Lvalue (ir) -> Lvalue ()
+        [,x
+         (ensure-not-unboxed! x)
+         ir]))
+
     (define target-fixnum?
       (if (and (= (constant most-negative-fixnum) (most-negative-fixnum))
                (= (constant most-positive-fixnum) (most-positive-fixnum)))
@@ -3057,8 +3099,17 @@
              (values `(if ,e0 ,e1 ,e2) unboxed-fp?))]
           [(seq ,[e0 #f -> e0 unboxed-fp?0] ,[e1 can-unbox-fp? -> e1 unboxed-fp?])
            (values `(seq ,e0 ,e1) unboxed-fp?)]
-          [(let ([,x* ,[e* #f -> e* unboxed-fp?*]] ...) ,[body can-unbox-fp? -> body unboxed-fp?])
-           (values `(let ([,x* ,e*] ...) ,body) unboxed-fp?)]
+          [(let ([,x* ,e*] ...) ,body)
+           (let ([e* (map (lambda (x e)
+                            (if (eq? (uvar-type x) 'fp)
+                                (let-values ([(e unboxed?) (Expr e #t)])
+                                  (if (not unboxed?)
+                                      (%mref ,e ,(constant flonum-data-disp))
+                                      e))
+                                (Expr1 e)))
+                          x* e*)])
+             (let-values ([(body unboxed-fp?) (Expr body can-unbox-fp?)])
+               (values `(let ([,x* ,e*] ...) ,body) unboxed-fp?)))]
           [(loop ,x (,x* ...) ,[body can-unbox-fp? -> body unboxed-fp?])
            (values `(loop ,x (,x* ...) ,body) unboxed-fp?)]
           [(attachment-set ,aop ,e) (values `(attachment-set ,aop ,(and e (Expr1 e))) #f)]
@@ -3072,7 +3123,9 @@
            (values `(mvlet ,(Expr1 e) ((,x** ...) ,interface* ,(map Expr1 body*)) ...) #f)])
         (Lvalue : Lvalue (ir [unboxed-fp? #f]) -> Lvalue (#f)
            [(mref ,e1 ,e2 ,imm) (values `(mref ,(Expr1 e1) ,(Expr1 e2) ,imm) #f)]
-           [,x (values x #f)]))
+           [,x
+            (safe-assert (or unboxed-fp? (not (and (uvar? x) (eq? (uvar-type x) 'fp)))))
+            (values x (and (uvar? x) (eq? (uvar-type x) 'fp)))]))
       (define-who unhandled-arity
         (lambda (name args)
           (sorry! who "unhandled argument count ~s for ~s" (length args) 'name)))
@@ -3307,12 +3360,6 @@
         (define build-fl=
           (lambda (e1 e2)
             `(inline ,(make-info-double '(#t #t)) ,%fp= ,e1 ,e2)))
-        (define (known-flonum-result? e)
-          (nanopass-case (L7 Expr) e
-            [(quote ,d) (flonum? d)]
-            [(call ,info ,mdcl ,pr ,e* ...)
-             (eq? 'flonum ($sgetprop (primref-name pr) '*result-type* #f))]
-            [else #f]))
         (define build-chars?
           (lambda (e1 e2)
             (define char-constant?
@@ -4080,7 +4127,7 @@
                        ,(%inline logor
                                  ,(%mref ,e-v ,(constant type-disp))
                                  (immediate ,(constant immutable-flag))))))]))
-        (define inline-args-limit 10)
+        (define inline-args-limit (constant inline-args-limit))
         (define reduce-equality
           (lambda (src sexpr moi e1 e2 e*)
             (and (fx<= (length e*) (fx- inline-args-limit 2))
@@ -7254,70 +7301,32 @@
                       ,t)))))
           (define build-fp-op-1
             (lambda (can-unbox-fp? op e)
-              (build-fp-boxed can-unbox-fp? `(inline ,(make-info-double '(#t)) ,op ,e))))
+              (build-fp-boxed can-unbox-fp? (if (procedure? op) (op e) `(inline ,(make-info-double '(#t)) ,op ,e)))))
           (define build-fp-op-2
             (lambda (can-unbox-fp? op e1 e2)
               (build-fp-boxed can-unbox-fp? `(inline ,(make-info-double '(#t #t)) ,op ,e1 ,e2))))
+          (define build-fl-adjust-sign
+            (lambda (e can-unbox-fp? combine base)
+              (build-fp-boxed
+               can-unbox-fp?
+               (constant-case ptr-bits
+                 [(64)
+                  (let ([t (make-tmp 'flsgn)])
+                    `(let ([,t (inline ,(make-info-double '(#t)) ,%fpcastto ,e)])
+                       (inline ,null-info ,%fpcastfrom (inline ,null-info ,combine ,t ,base))))]
+                 [(32)
+                  (let ([thi (make-tmp 'flsgnh)]
+                        [tlo (make-tmp 'flsgnl)])
+                    (bind #t fp (e)
+                      (let ([,thi ,(inline ,(make-info-double '(#t)) fpcastto/hi ,e)]
+                            [,tlo ,(inline ,(make-info-double '(#t)) fpcastto/lo ,e)])
+                        (inline ,null-info ,%fpcastfrom (inline null-info ,combine ,thi ,base) ,tlo))))]))))
           (define build-flabs
-            (lambda (e)
-              (bind (constant-case ptr-bits [(32) #t] [(64) #f]) (e)
-                (bind #t ([t (%constant-alloc type-flonum (constant size-flonum))])
-                  (%seq
-                    ,(constant-case ptr-bits
-                       [(64)
-                        `(set! ,(%mref ,t ,(constant flonum-data-disp))
-                           ,(%inline logand
-                              ,(%mref ,e ,(constant flonum-data-disp))
-                              ,(%inline srl (immediate -1) (immediate 1))))]
-                       [(32)
-                        (let ()
-                          (constant-case native-endianness
-                            [(big)
-                             (begin
-                               (define disp-high (constant flonum-data-disp))
-                               (define disp-low (fx+ (constant flonum-data-disp) 4)))]
-                            [(little)
-                             (begin
-                               (define disp-low (constant flonum-data-disp))
-                               (define disp-high (fx+ (constant flonum-data-disp) 4)))])
-                          (%seq
-                            (set! ,(%mref ,t ,disp-high)
-                              ,(%inline logand
-                                 ,(%mref ,e ,disp-high)
-                                 ,(%inline srl (immediate -1) (immediate 1))))
-                            (set! ,(%mref ,t ,disp-low)
-                              ,(%mref ,e ,disp-low))))])
-                    ,t)))))
+            (lambda (e can-unbox-fp?)
+              (build-fl-adjust-sign e can-unbox-fp? %logand (%inline srl (immediate -1) (immediate 1)))))
           (define build-flneg
-            (lambda (e)
-              (bind (constant-case ptr-bits [(32) #t] [(64) #f]) (e)
-                (bind #t ([t (%constant-alloc type-flonum (constant size-flonum))])
-                  (%seq
-                    ,(constant-case ptr-bits
-                       [(64)
-                        `(set! ,(%mref ,t ,(constant flonum-data-disp))
-                           ,(%inline logxor
-                              ,(%mref ,e ,(constant flonum-data-disp))
-                              ,(%inline sll (immediate 1) (immediate 63))))]
-                       [(32)
-                        (let ()
-                          (constant-case native-endianness
-                            [(big)
-                             (begin
-                               (define disp-high (constant flonum-data-disp))
-                               (define disp-low (fx+ (constant flonum-data-disp) 4)))]
-                            [(little)
-                             (begin
-                               (define disp-low (constant flonum-data-disp))
-                               (define disp-high (fx+ (constant flonum-data-disp) 4)))])
-                          (%seq
-                            (set! ,(%mref ,t ,disp-high)
-                              ,(%inline logxor
-                                 ,(%mref ,e ,disp-high)
-                                 ,(%inline sll (immediate 1) (immediate 31))))
-                            (set! ,(%mref ,t ,disp-low)
-                              ,(%mref ,e ,disp-low))))])
-                    ,t)))))
+            (lambda (e can-unbox-fp?)
+              (build-fl-adjust-sign e can-unbox-fp? %logxor (%inline sll (immediate -1) (immediate ,(fx- (constant ptr-bits) 1))))))
           
           (define-inline 3 fl+
             [() `(quote 0.0)]
@@ -7332,7 +7341,7 @@
             [(e1 . e*) (reduce-fp src sexpr 3 'fl* e1 e*)])
 
           (define-inline 3 fl-
-            [(e) (build-flneg e)] ; doesn't unbox, but properly negates 0.0
+            [(e) (build-flneg e can-unbox-fp?)]
             [(e1 e2) (build-fp-op-2 can-unbox-fp? %fp- e1 e2)]
             [(e1 . e*) (reduce-fp src sexpr 3 'fl- e1 e*)])
 
@@ -7352,7 +7361,7 @@
             [(e) (build-libcall #f src sexpr flround e)])
 
           (define-inline 3 flabs
-            [(e) (build-flabs e)])
+            [(e) (build-flabs e can-unbox-fp?)])
 
           (let ()
             (define build-fl-make-rectangular
@@ -7379,10 +7388,10 @@
             (define-inline 3 cfl-
               [(e) (bind #t (e)
                      `(if ,(%type-check mask-flonum type-flonum ,e)
-                          ,(build-flneg e)
+                          ,(build-flneg e #f)
                           ,(build-fl-make-rectangular
-                             (build-flneg (build-$inexactnum-real-part e))
-                             (build-flneg (build-$inexactnum-imag-part e)))))]
+                             (build-flneg (build-$inexactnum-real-part e) #f)
+                             (build-flneg (build-$inexactnum-imag-part e) #f))))]
               [(e1 e2) (build-libcall #f src sexpr cfl- e1 e2)]
               ; TODO: add 3 argument version of cfl- library function
               #;[(e1 e2 e3) (build-libcall #f src sexpr cfl- e1 e2 e3)]
@@ -7417,7 +7426,7 @@
                           ,e
                           ,(build-fl-make-rectangular
                              (build-$inexactnum-real-part e)
-                             (build-flneg (build-$inexactnum-imag-part e)))))]))
+                             (build-flneg (build-$inexactnum-imag-part e) #f))))]))
 
           (define-inline 3 $make-exactnum
             [(e1 e2) (bind #f (e1 e2)
@@ -7535,6 +7544,18 @@
                        `(if ,(build-flonums? (list e))
                             ,e
                             ,(k e))))]
+                [(e1 op can-unbox-fp? k)
+                 (if (known-flonum-result? e1)
+                     (build-fp-op-1 can-unbox-fp? op e1)
+                     (bind #t (e1)
+                       (let ([e (build-fp-op-1 can-unbox-fp? op e1)]
+                             [k (lambda (e)
+                                  `(if ,(build-flonums? (list e1))
+                                       ,e
+                                       ,(k e1)))])
+                         (nanopass-case (L7 Expr) e
+                           [(unboxed-fp ,e) `(unboxed-fp ,(k e))]
+                           [else (k e)]))))]
                 [(e1 e2 op can-unbox-fp? k)
                  ;; uses `e1` or `e2` twice for error if other is always a flonum
                  (let ([build (lambda (e1 e2 k)
@@ -7586,11 +7607,9 @@
               [(e1 . e*) (reduce-fp src sexpr 2 'fl* e1 e*)])
 
             (define-inline 2 fl-
-              [(e)
-               (bind #t (e)
-                 `(if ,(build-flonums? (list e))
-                      ,(build-flneg e)
-                      ,(build-libcall #t src sexpr flnegate e)))]
+              [(e) (build-checked-fp-op e (lambda (e) (build-flneg e #t)) can-unbox-fp?
+                     (lambda (e)
+                       (build-libcall #t src sexpr flnegate e)))]
               [(e1 e2) (build-checked-fp-op e1 e2 %fp- can-unbox-fp?
                          (lambda (e1 e2)
                            (build-libcall #t src sexpr fl- e1 e2)))]
@@ -7603,7 +7622,13 @@
               [(e1 e2) (build-checked-fp-op e1 e2 %fp/ can-unbox-fp?
                          (lambda (e1 e2)
                            (build-libcall #t src sexpr fl/ e1 e2)))]
-              [(e1 . e*) (reduce-fp src sexpr 2 'fl/ e1 e*)])))
+              [(e1 . e*) (reduce-fp src sexpr 2 'fl/ e1 e*)])
+
+          (define-inline 2 flabs
+            [(e) (build-checked-fp-op e (lambda (e) (build-flabs e #t)) can-unbox-fp?
+                   (lambda (e)
+                     ;; FIXME: need a new library function
+                     (build-libcall #t src sexpr flnegate e)))])))
 
         ; NB: assuming that we have a trunc instruction for now, will need to change to support Sparc
         (define-inline 3 flonum->fixnum
@@ -10407,7 +10432,7 @@
             [,x (guard (uvar? x))
              (cond
                [(uvar-in-prefix? x)
-                (let ([t (make-tmp 't)])
+                (let ([t (make-tmp 't (uvar-type x))])
                   (uvar-location-set! x t)
                   (uvar-in-prefix! x #f)
                   (set! x* (cons x x*))
@@ -10570,7 +10595,10 @@
               (Expr ir
                 (lambda (e)
                   (nanopass-case (L10 Expr) e
-                    [,rhs `(set! ,lvalue ,rhs)]
+                    [,rhs
+                     (safe-assert (or (not (and (uvar? rhs) (eq? (uvar-type rhs) 'fp)))
+                                      (and (uvar? lvalue) (eq? (uvar-type lvalue) 'fp))))
+                     `(set! ,lvalue ,rhs)]
                     [(values ,info ,t) `(set! ,lvalue ,t)]
                     [(values ,info ,t* ...)
                     ; sets lvalue to void. otherwise, the lvalue we entered with (which
@@ -17549,6 +17577,7 @@
                     ir
                     ((pass np-profile-unroll-loops unparse-L7) ir)))
               (pass np-simplify-if unparse-L7)
+              (pass np-unbox-fp-vars! unparse-L7)
               (pass np-expand-primitives unparse-L9)
               (pass np-place-overflow-and-trap unparse-L9.5)
               (pass np-rebind-on-ruined-path unparse-L9.5)
