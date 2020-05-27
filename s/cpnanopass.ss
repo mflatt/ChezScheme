@@ -4116,6 +4116,15 @@
                        (if (null? e*)
                            e
                            (reduce #f (moi src sexpr #f (list e (car e*))) (cdr e*)))))))))
+        (define reduce-fp
+          (lambda (src sexpr level name e e*)
+            (and (fx<= (length e*) (fx- inline-args-limit 1))
+                 (let ([pr (lookup-primref level name)])
+                   (let reduce ([e e] [src src] [sexpr sexpr] [e* e*])
+                     (if (null? e*)
+                         e
+                         (reduce `(call ,(make-info-call src sexpr #f #f #f) #f ,pr ,e ,(car e*))
+                                 #f #f (cdr e*))))))))
         (module (relop-length RELOP< RELOP<= RELOP= RELOP>= RELOP>)
           (define RELOP< -2)
           (define RELOP<= -1)
@@ -7314,23 +7323,23 @@
             [() `(quote 0.0)]
             [(e) (ensure-single-valued e)]
             [(e1 e2) (build-dblop-2 can-unbox-fp? %dbl+ e1 e2)]
-            [(e1 . e*) (reduce src sexpr moi e1 e*)])
+            [(e1 . e*) (reduce-fp src sexpr 3 'fl+ e1 e*)])
              
           (define-inline 3 fl*
             [() `(quote 1.0)]
             [(e) (ensure-single-valued e)]
             [(e1 e2) (build-dblop-2 can-unbox-fp? %dbl* e1 e2)]
-            [(e1 . e*) (reduce src sexpr moi e1 e*)])
+            [(e1 . e*) (reduce-fp src sexpr 3 'fl* e1 e*)])
 
           (define-inline 3 fl-
             [(e) (build-flneg e)] ; doesn't unbox, but properly negates 0.0
             [(e1 e2) (build-dblop-2 can-unbox-fp? %dbl- e1 e2)]
-            [(e1 . e*) (reduce src sexpr moi e1 e*)])
+            [(e1 . e*) (reduce-fp src sexpr 3 'fl- e1 e*)])
 
           (define-inline 3 fl/
             [(e) (build-dblop-2 can-unbox-fp? %dbl/ `(quote 1.0) e)]
             [(e1 e2) (build-dblop-2 can-unbox-fp? %dbl/ e1 e2)]
-            [(e1 . e*) (reduce src sexpr moi e1 e*)])
+            [(e1 . e*) (reduce-fp src sexpr 3 'fl/ e1 e*)])
 
           (define-inline 3 flsqrt
             [(e)
@@ -7552,7 +7561,7 @@
               [(e1 e2) (build-checked-dblop e1 e2 %dbl+ can-unbox-fp?
                          (lambda (e1 e2)
                            (build-libcall #t src sexpr fl+ e1 e2)))]
-              [(e1 . e*) (reduce src sexpr moi e1 e*)])
+              [(e1 . e*) (reduce-fp src sexpr 2 'fl+ e1 e*)])
 
             (define-inline 2 fl*
               [() `(quote 1.0)]
@@ -7562,7 +7571,7 @@
               [(e1 e2) (build-checked-dblop e1 e2 %dbl* can-unbox-fp?
                          (lambda (e1 e2)
                            (build-libcall #t src sexpr fl* e1 e2)))]
-              [(e1 . e*) (reduce src sexpr moi e1 e*)])
+              [(e1 . e*) (reduce-fp src sexpr 2 'fl* e1 e*)])
 
             (define-inline 2 fl-
               [(e)
@@ -7573,7 +7582,7 @@
               [(e1 e2) (build-checked-dblop e1 e2 %dbl- can-unbox-fp?
                          (lambda (e1 e2)
                            (build-libcall #t src sexpr fl- e1 e2)))]
-              [(e1 . e*) (reduce src sexpr moi e1 e*)])
+              [(e1 . e*) (reduce-fp src sexpr 2 'fl- e1 e*)])
 
             (define-inline 2 fl/
               [(e) (build-checked-dblop `(quote 1.0) e %dbl/ can-unbox-fp?
@@ -7582,7 +7591,7 @@
               [(e1 e2) (build-checked-dblop e1 e2 %dbl/ can-unbox-fp?
                          (lambda (e1 e2)
                            (build-libcall #t src sexpr fl/ e1 e2)))]
-              [(e1 . e*) (reduce src sexpr moi e1 e*)])))
+              [(e1 . e*) (reduce-fp src sexpr 2 'fl/ e1 e*)])))
 
         ; NB: assuming that we have a trunc instruction for now, will need to change to support Sparc
         (define-inline 3 flonum->fixnum
