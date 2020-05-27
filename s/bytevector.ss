@@ -732,16 +732,18 @@
 
   (set-who! bytevector-ieee-double-native-ref
     (lambda (v i)
-      (if ($bytevector-ref-check? 64 v i)
-          (#3%bytevector-ieee-double-native-ref v i)
-          (if (bytevector? v)
-              (invalid-index who v i)
-              (not-a-bytevector who v)))))
+      (#2%bytevector-ieee-double-native-ref v i)))
+
+  ;; FIXME: This should be a library entry
+  (set-who! $bytevector-ieee-double-native-ref-fail
+    (lambda (v i)
+      (if (bytevector? v)
+          (invalid-index 'bytevector-ieee-double-native-ref v i)
+          (not-a-bytevector 'bytevector-ieee-double-native-ref v))))
 
   (set-who! bytevector-ieee-single-native-set!
     (lambda (v i x)
       (if ($bytevector-set!-check? 32 v i)
-         ; inline routine checks to make sure x is a real number
           (#3%bytevector-ieee-single-native-set! v i x)
           (if (mutable-bytevector? v)
               (invalid-index who v i)
@@ -755,6 +757,13 @@
           (if (mutable-bytevector? v)
               (invalid-index who v i)
               (not-a-mutable-bytevector who v)))))
+
+  ;; FIXME: This should be a library entry
+  (set-who! $bytevector-ieee-double-native-set!-fail
+    (lambda (v i)
+      (if (mutable-bytevector? v)
+          (invalid-index 'bytevector-ieee-double-native-set! v i)
+          (not-a-mutable-bytevector 'bytevector-ieee-double-native-set! v))))
 
   (set-who! bytevector-copy
     (lambda (v)

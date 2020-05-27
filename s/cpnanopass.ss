@@ -9084,7 +9084,16 @@
             (define-bv-native-ref-inline bytevector-u64-native-ref unsigned-64)
 
             (define-bv-native-ref-inline bytevector-ieee-single-native-ref single-float)
-            (define-bv-native-ref-inline bytevector-ieee-double-native-ref double-float))
+            (define-bv-native-ref-inline bytevector-ieee-double-native-ref double-float)
+
+            ;; Inline to enable unboxing:
+            (define-inline 2 bytevector-ieee-double-native-ref
+              [(e-bv e-offset)
+               (bind #t (e-bv e-offset)
+                 (let ([info (make-info-call #f #f #f #f #f)])
+                   `(if (call ,info ,#f ,(lookup-primref 3 '$bytevector-ref-check?) (quote 64) ,e-bv ,e-offset)
+                        (call ,info ,#f ,(lookup-primref 3 'bytevector-ieee-double-native-ref) ,e-bv ,e-offset)
+                        (call ,info ,#f ,(lookup-primref 2 '$bytevector-ieee-double-native-ref-fail) ,e-bv ,e-offset))))]))
 
           (let ()
             (define-syntax define-bv-native-int-set!-inline
@@ -9125,7 +9134,17 @@
                               (build-$real->flonum src sexpr e-val `(quote name)))))])])))
 
             (define-bv-native-ieee-set!-inline bytevector-ieee-single-native-set! single-float)
-            (define-bv-native-ieee-set!-inline bytevector-ieee-double-native-set! double-float))
+            (define-bv-native-ieee-set!-inline bytevector-ieee-double-native-set! double-float)
+
+            ;; Inline to enable unboxing:
+            (define-inline 2 bytevector-ieee-double-native-set!
+              [(e-bv e-offset e-val)
+               (bind #t (e-bv e-offset)
+                 (let ([info (make-info-call #f #f #f #f #f)])
+                   `(if (call ,info ,#f ,(lookup-primref 3 '$bytevector-set!-check?) (quote 64) ,e-bv ,e-offset)
+                        ;; checks to make sure e-val produces a real number:
+                        (call ,info ,#f ,(lookup-primref 3 'bytevector-ieee-double-native-set!) ,e-bv ,e-offset ,e-val)
+                        (call ,info ,#f ,(lookup-primref 2 '$bytevector-ieee-double-native-set!-fail) ,e-bv ,e-offset))))]))
 
           (let ()
             (define-syntax define-bv-int-ref-inline
