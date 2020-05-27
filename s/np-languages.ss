@@ -531,7 +531,6 @@
   (declare-primitive deactivate-thread effect #f) ; threaded version only
   (declare-primitive fldl effect #f) ; x86
   (declare-primitive flds effect #f) ; x86
-  (declare-primitive flt effect #f)
   (declare-primitive inc-cc-counter effect #f)
   (declare-primitive inc-profile-counter effect #f)
   (declare-primitive invoke-prelude effect #f)
@@ -618,6 +617,7 @@
   (declare-primitive dbl- value #t)
   (declare-primitive dbl* value #t)
   (declare-primitive dbl/ value #t)
+  (declare-primitive dblt value #t)
   (declare-primitive dblidentity value #t)
   (declare-primitive dblsqrt value #t) ; not implemented for some ppc32 (so we don't use it)
 

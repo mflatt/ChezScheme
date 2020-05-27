@@ -824,8 +824,8 @@
      `(set! ,(make-live-info) ,z
         (asm ,info ,(asm-get-double (info-loadfl-flreg info))))])
 
-  (define-instruction effect (flt)
-    [(op (x mem ur) (y ur)) `(asm ,info ,asm-flt ,x ,y)])
+  (define-instruction value (dblt)
+    [(op (x mem) (y ur)) `(asm ,info ,asm-dblt ,x ,y)])
 
   (define-instruction value (dblidentity)
     [(op (x mem) (y mem)) `(asm ,info ,asm-dblidentity ,x ,y)])
@@ -1037,7 +1037,7 @@
                      asm-direct-jump asm-return-address asm-jump asm-conditional-jump asm-data-label
                      asm-rp-header asm-rp-compact-header
                      asm-lea1 asm-lea2 asm-indirect-call asm-condition-code
-                     asm-fl-cvt asm-fl-store asm-fl-load asm-flt asm-trunc asm-div asm-popcount
+                     asm-fl-cvt asm-fl-store asm-fl-load asm-dblt asm-trunc asm-div asm-popcount
                      asm-exchange asm-pause asm-locked-incr asm-locked-decr asm-locked-cmpxchg
                      asm-dblsqrt asm-dblop-2 asm-dblidentity asm-c-simple-call
                      asm-save-flrv asm-restore-flrv asm-return asm-c-return asm-size
@@ -1958,11 +1958,10 @@
       (lambda (code* dst)
         (emit sse.movd (cons 'reg flreg) (cons 'reg dst) code*))))
 
-  (define asm-flt
-    (lambda (code* src flonumreg)
-      (Trivit (src)
-        (let ([dest `(disp ,(constant flonum-data-disp) ,flonumreg)]
-              [flreg (cons 'reg %flreg1)])
+  (define asm-dblt
+    (lambda (code* dest src)
+      (Trivit (dest src)
+        (let ([flreg (cons 'reg %flreg1)])
           (emit sse.cvtsi2sd src flreg
             (emit sse.movsd flreg dest code*))))))
 

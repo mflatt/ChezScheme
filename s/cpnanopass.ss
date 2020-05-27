@@ -7461,12 +7461,24 @@
               (define-syntax build-bind-and-check
                 (syntax-rules ()
                   [(_ src sexpr op e1 e2 body)
-                   (bind #t (e1 e2)
-                     `(if ,(build-and
-                             (%type-check mask-flonum type-flonum ,e1)
-                             (%type-check mask-flonum type-flonum ,e2))
-                          ,body
-                          ,(build-libcall #t src sexpr op e1 e2)))]))
+                   (if (known-flonum-result? e1)
+                       (if (known-flonum-result? e2)
+                           body
+                           (bind #t (e2)
+                             `(if ,(%type-check mask-flonum type-flonum ,e2)
+                                  ,body
+                                  ,(build-libcall #t src sexpr op e1 e2))))
+                       (if (known-flonum-result? e2)
+                           (bind #t (e1)
+                             `(if ,(%type-check mask-flonum type-flonum ,e1)
+                                  ,body
+                                  ,(build-libcall #t src sexpr op e1 e2)))
+                           (bind #t (e1 e2)
+                             `(if ,(build-and
+                                    (%type-check mask-flonum type-flonum ,e1)
+                                    (%type-check mask-flonum type-flonum ,e2))
+                                  ,body
+                                  ,(build-libcall #t src sexpr op e1 e2)))))]))
               (define-syntax define-fl-cmp-inline
                 (lambda (x)
                   (syntax-case x ()
@@ -7601,20 +7613,31 @@
         (let ()
           (define build-fixnum->flonum
            ; NB: x must already be bound in order to ensure it is done before the flonum is allocated
-            (lambda (e-x)
-              (bind #t ([t (%constant-alloc type-flonum (constant size-flonum))])
-                (%seq
-                  ,(%inline flt ,(build-unfix e-x) ,t)
-                  ,t))))
+            (lambda (e-x can-unbox-fp? k)
+              (let ([e (%inline dblt ,(build-unfix e-x))])
+                (if can-unbox-fp?
+                    `(unboxed-fp ,(k e))
+                    (k (bind #t ([t (%constant-alloc type-flonum (constant size-flonum))])
+                         (%seq
+                          (set! ,(%mref ,t ,(constant flonum-data-disp)) ,e)
+                          ,t)))))))
           (define-inline 3 fixnum->flonum
-            [(e-x) (bind #f (e-x) (build-fixnum->flonum e-x))])
+            [(e-x) (bind #f (e-x) (build-fixnum->flonum e-x can-unbox-fp? values))])
+          (define-inline 2 fixnum->flonum
+            [(e-x) (bind #t (e-x)
+                     (build-fixnum->flonum e-x can-unbox-fp?
+                       (lambda (e)
+                         `(if ,(%type-check mask-fixnum type-fixnum ,e-x)
+                              ,e
+                              ;; FIXME: need a new library call
+                              ,(build-libcall #t src sexpr real->flonum e-x `(quote fixnum->flonum))))))])
           (define-inline 2 real->flonum
             [(e-x)
              (if (known-flonum-result? e-x)
                  e-x
                  (bind #t (e-x)
                    `(if ,(%type-check mask-fixnum type-fixnum ,e-x)
-                        ,(build-fixnum->flonum e-x)
+                        ,(build-fixnum->flonum e-x #f values)
                         (if ,(%type-check mask-flonum type-flonum ,e-x)
                             ,e-x
                             ,(build-libcall #t src sexpr real->flonum e-x `(quote real->flonum))))))]))

@@ -1038,3 +1038,64 @@
     '((3.0 . -2.0) (-2.0 . -2.0) (-3.0 . -2.0) (2.0 . -2.0)
       (0.0 . 4.0) (0.0 . -4.0) (-0.0 . 4.0) (0.0 . -4.0)))
 )
+
+(mat fp-unboxing
+  (begin
+    (define-syntax check-loop-allocation
+      (syntax-rules ()
+        [(_ proc) ; proc should allocate only its result flonum
+         (let ([before (+ (bytes-allocated) (bytes-deallocated))]
+               [N 100000])
+           (box?
+            (let loop ([i N] [bx (box 0.0)])
+              (if (zero? i)
+                  bx
+                  (loop (sub1 i) (let ([v (unbox bx)])
+                                   (box (proc v)))))))
+           (let ([allocated (- (+ (bytes-allocated) (bytes-deallocated)) before)]
+                 [expected (* N (+ (compute-size 1.0)
+                                   (compute-size (box #f))))])
+             (printf "~s ~s\n" allocated expected)
+             (<= expected allocated (* 1.2 expected))))]))
+    #t)
+
+  (check-loop-allocation (lambda (v) (fl+ v v)))
+  (check-loop-allocation (lambda (v) (fl* v v)))
+  (check-loop-allocation (lambda (v) (fl- v 1.0)))
+  (check-loop-allocation (lambda (v) (fl/ v 2.0)))
+
+  (check-loop-allocation (lambda (v) (fl+ v 2.0 v)))
+  (check-loop-allocation (lambda (v) (fl+ v (fl* 2.0 v))))
+
+  (check-loop-allocation (lambda (v) (fl+ v v v)))
+  (check-loop-allocation (lambda (v) (fl+ v (fl* v v) (fl/ v 2.0))))
+
+  (let ([i 0])
+    (check-loop-allocation (lambda (v) (begin
+                                         (set! i (add1 i))
+                                         (fl+ v (fixnum->flonum i))))))
+
+  (check-loop-allocation (lambda (v) (if (fl= (fl+ v (fl* 2.0 v)) 7.0)
+                                         (fl+ v 1.0)
+                                         (fl- v 1.0))))
+  (check-loop-allocation (lambda (v) (if (fl< (fl+ v v) v)
+                                         (fl+ v 1.0)
+                                         (fl- v 1.0))))
+  (check-loop-allocation (lambda (v) (if (fl> (fl+ v v) v)
+                                         (fl+ v 1.0)
+                                         (fl- v 1.0))))
+  (check-loop-allocation (lambda (v) (if (fl<= (fl+ v v) v)
+                                         (fl+ v 1.0)
+                                         (fl- v 1.0))))
+  (check-loop-allocation (lambda (v) (if (fl>= (fl+ v v) v)
+                                         (fl+ v 1.0)
+                                         (fl- v 1.0))))
+
+  (let ([bv (make-bytevector 8 0)])
+    (check-loop-allocation (lambda (v) (fl+ v (bytevector-ieee-double-native-ref bv 0)))))
+  (let ([bv (make-bytevector 8 0)])
+    (check-loop-allocation (lambda (v) (begin
+                                         (bytevector-ieee-double-native-set! bv 0 (fl+ v 0.1))
+                                         (fl* v 0.99)))))
+
+  )
