@@ -7612,33 +7612,26 @@
                            [else (k e)]))))]
                 [(e1 e2 op can-unbox-fp? k)
                  ;; uses `e1` or `e2` twice for error if other is always a flonum
-                 (let ([build (lambda (e1 e2 k)
-                                (let ([e (build-fp-op-2 can-unbox-fp? op e1 e2)])
-                                  (nanopass-case (L7 Expr) e
-                                    [(unboxed-fp ,e) `(unboxed-fp ,(k e))]
-                                    [else (k e)])))])
+                 (let ([build (lambda (e1 e2)
+                                (build-fp-op-2 can-unbox-fp? op e1 e2))])
                    (if (known-flonum-result? e1)
                        (if (known-flonum-result? e2)
                            (build-fp-op-2 can-unbox-fp? op e1 e2)
                            (bind #t (e2)
-                             (build e1 e2
-                                    (lambda (e)
-                                      `(if ,(build-flonums? (list e2))
-                                           ,e
-                                           ,(k e2 e2))))))
+                             (build e1 `(if ,(build-flonums? (list e2))
+                                            ,e2
+                                            ,(k e2 e2)))))
                        (if (known-flonum-result? e2)
                            (bind #t (e1)
-                             (build e1 e2
-                                    (lambda (e)
-                                      `(if ,(build-flonums? (list e1))
-                                           ,e
-                                           ,(k e1 e1)))))
+                             (build `(if ,(build-flonums? (list e1))
+                                         ,e1
+                                         ,(k e1 e1))
+                                    e2))
                            (bind #t (e1 e2)
-                             (build e1 e2
-                                    (lambda (e)
-                                      `(if ,(build-flonums? (list e1 e2))
-                                           ,e
-                                           ,(k e1 e2))))))))]))
+                             (build `(if ,(build-flonums? (list e1 e2))
+                                         ,e1
+                                         ,(k e1 e2))
+                                    e2)))))]))
 
             (define-inline 2 fl+
               [() `(quote 0.0)]
@@ -7681,8 +7674,7 @@
           (define-inline 2 flabs
             [(e) (build-checked-fp-op e (lambda (e) (build-flabs e #t)) can-unbox-fp?
                    (lambda (e)
-                     ;; FIXME: need a new library function
-                     (build-libcall #t src sexpr flnegate e)))])))
+                     (build-libcall #t src sexpr flabs e)))])))
 
         ; NB: assuming that we have a trunc instruction for now, will need to change to support Sparc
         (define-inline 3 flonum->fixnum
@@ -7708,8 +7700,7 @@
                        (lambda (e)
                          `(if ,(%type-check mask-fixnum type-fixnum ,e-x)
                               ,e
-                              ;; FIXME: need a new library call
-                              ,(build-libcall #t src sexpr fx+ e-x `(quote 0))))))])
+                              ,(build-libcall #t src sexpr fixnum->flonum e-x)))))])
           (define-inline 2 real->flonum
             [(e-x)
              (if (known-flonum-result? e-x)
@@ -9195,7 +9186,7 @@
                  (let ([info (make-info-call #f #f #f #f #f)])
                    `(if (call ,info ,#f ,(lookup-primref 3 '$bytevector-ref-check?) (quote 64) ,e-bv ,e-offset)
                         (call ,info ,#f ,(lookup-primref 3 'bytevector-ieee-double-native-ref) ,e-bv ,e-offset)
-                        (call ,info ,#f ,(lookup-primref 2 '$bytevector-ieee-double-native-ref-fail) ,e-bv ,e-offset))))]))
+                        ,(build-libcall #t src sexpr bytevector-ieee-double-native-ref e-bv e-offset))))]))
 
           (let ()
             (define-syntax define-bv-native-int-set!-inline
@@ -9246,7 +9237,7 @@
                    `(if (call ,info ,#f ,(lookup-primref 3 '$bytevector-set!-check?) (quote 64) ,e-bv ,e-offset)
                         ;; checks to make sure e-val produces a real number:
                         (call ,info ,#f ,(lookup-primref 3 'bytevector-ieee-double-native-set!) ,e-bv ,e-offset ,e-val)
-                        (call ,info ,#f ,(lookup-primref 2 '$bytevector-ieee-double-native-set!-fail) ,e-bv ,e-offset))))]))
+                        ,(build-libcall #t src sexpr bytevector-ieee-double-native-set! e-bv e-offset))))]))
 
           (let ()
             (define-syntax define-bv-int-ref-inline

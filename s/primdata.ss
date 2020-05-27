@@ -1833,8 +1833,6 @@
   ($bytevector-set!-check? [sig [(sub-uint ptr ptr) -> (boolean)]] [flags discard])
   ($bytevector-set! [flags single-valued])
   ($bytevector-set-immutable! [sig [(bytevector) -> (void)]] [flags true])
-  ($bytevector-ieee-double-native-ref-fail [sig [(ptr ptr) -> (bottom)]] [flags abort-op])
-  ($bytevector-ieee-double-native-set!-fail [sig [(ptr ptr) -> (bottom)]] [flags abort-op])
   ($capture-fasl-target [flags single-valued])
   ($c-error [flags])
   ($check-heap-errors [flags single-valued])
