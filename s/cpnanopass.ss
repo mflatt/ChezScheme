@@ -7630,7 +7630,7 @@
                          `(if ,(%type-check mask-fixnum type-fixnum ,e-x)
                               ,e
                               ;; FIXME: need a new library call
-                              ,(build-libcall #t src sexpr real->flonum e-x `(quote fixnum->flonum))))))])
+                              ,(build-libcall #t src sexpr fx+ e-x `(quote 0))))))])
           (define-inline 2 real->flonum
             [(e-x)
              (if (known-flonum-result? e-x)
