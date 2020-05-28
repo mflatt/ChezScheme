@@ -754,25 +754,27 @@
     [(op (x ur) (y ur) (z imm32))
      `(asm ,info ,(asm-fl-load op (info-loadfl-flreg info)) ,x ,y ,z)])
 
-  (define-instruction effect (fpt)
-    [(op (x mem ur) (y ur)) `(asm ,info ,asm-flt ,x ,y)])
+  (define-instruction value (fpt)
+    [(op (x mem) (y ur)) `(asm ,info ,asm-fpt ,x ,y)])
 
   (define-instruction value (fpidentity)
     [(op (x mem) (y mem)) `(asm ,info ,asm-fpidentity ,x ,y)])
 
-  (define-instruction value (fpcastto)
-    [(op (x mem) (y mem)) `(asm ,info ,asm-fpidentity ,x ,y)]
-    [(op (x ur) (y mem)) `(asm ,info ,asm-move ,x ,y)])
+  (define-instruction value (fpcastto/hi) ; little endian: high bytes are at +4
+    [(op (x ur) (y mem)) `(set! ,(make-live-info) ,x (asm ,info ,(asm-move-from 4) ,y))])
+
+  (define-instruction value (fpcastto/lo) ; little endian: low byte are immediate bytes
+    [(op (x ur) (y mem)) `(set! ,(make-live-info) ,x (asm ,info ,asm-move ,y))])
 
   (define-instruction value (fpcastfrom)
-    [(op (x mem) (hi ur) (lo ur)) `(asm ,info ,asm-fpcastfrom ,x ,y)])
+    [(op (x mem) (hi ur) (lo ur)) `(asm ,info ,asm-fpcastfrom ,x ,hi ,lo)])
 
-  (define-instruction effect (fp+ fp- fp/ fp*)
+  (define-instruction value (fp+ fp- fp/ fp*)
     [(op (x mem) (y mem) (z mem))
      `(set! ,(make-live-info) ,x (asm ,info ,(asm-fpop-2 op) ,y ,z))])
 
-  (define-instruction effect (fpsqrt)
-    [(op (x ur) (y ur)) `(asm ,info ,asm-fpsqrt ,x ,y)])
+  (define-instruction value (fpsqrt)
+    [(op (x mem) (y mem)) `(asm ,info ,asm-fpsqrt ,x ,y)])
 
   (define-instruction effect inc-cc-counter
     [(op (x ur) (y imm32 ur) (z imm32 ur)) `(asm ,info ,asm-inc-cc-counter ,x ,y ,z)])
@@ -818,10 +820,10 @@
   (define-instruction value pop
     [(op (z ur)) `(set! ,(make-live-info) ,z (asm ,info ,asm-pop))])
 
-  (define-instruction pred (fl= fl< fl<=)
-    [(op (x ur) (y ur))
+  (define-instruction pred (fp= fp< fp<=)
+    [(op (x mem) (y mem))
      (let ([info (make-info-condition-code op #t #f)]) ; NB: reversed? flag is assumed to be #t
-       (values '() `(asm ,info ,(asm-fl-relop info) ,x ,y)))])
+       (values '() `(asm ,info ,(asm-fp-relop info) ,x ,y)))])
 
   (define-instruction pred (eq? u< < > <= >=)
     ; the idea (following from the intel x86/x86_64 documentation)
@@ -944,16 +946,16 @@
 
 ;;; SECTION 3: assembler
 (module asm-module (; required exports
-                     asm-move asm-move/extend asm-load asm-store asm-swap asm-library-call asm-library-jump
+                     asm-move asm-move/extend asm-move-from asm-load asm-store asm-swap asm-library-call asm-library-jump
                      asm-mul asm-muli asm-addop asm-add asm-sub asm-negate asm-sub-negate
                      asm-pop asm-shiftop asm-sll asm-logand asm-lognot
-                     asm-logtest asm-fl-relop asm-relop asm-push asm-indirect-jump asm-literal-jump
+                     asm-logtest asm-fp-relop asm-relop asm-push asm-indirect-jump asm-literal-jump
                      asm-direct-jump asm-return-address asm-jump asm-conditional-jump asm-data-label
                      asm-rp-header asm-rp-compact-header
                      asm-lea1 asm-lea2 asm-indirect-call asm-fstpl asm-fstps asm-fldl asm-flds asm-condition-code
-                     asm-fl-cvt asm-fl-store asm-fl-load asm-flt asm-trunc asm-div
+                     asm-fl-cvt asm-fl-store asm-fl-load asm-fpt asm-trunc asm-div
                      asm-exchange asm-pause asm-locked-incr asm-locked-decr asm-locked-cmpxchg
-                     asm-fpop-2 asm-fpidentity asm-fpsqrt asm-c-simple-call
+                     asm-fpop-2 asm-fpidentity asm-fpcastfrom asm-fpsqrt asm-c-simple-call
                      asm-save-flrv asm-restore-flrv asm-return asm-c-return asm-size
                      asm-enter asm-foreign-call asm-foreign-callable
                      asm-inc-profile-counter
@@ -1671,6 +1673,13 @@
         [(word) 2]
         [else 4])))
 
+  (define shift-address
+    (lambda (src offset)
+      (record-case src
+        [(disp) (imm x1) `(disp ,(fx+ imm offset) ,x1)]
+        [(index) (imm x2 x1) `(index ,(fx+ imm offset) ,x2 ,x1)]
+        [else ($oops 'shift-address "unexpected shift-address argument ~s" src)])))
+
   (define asm-move
     (lambda (code* dest src)
       (Trivit (dest src)
@@ -1692,6 +1701,12 @@
             [(zext8) (emit movzb src dest code*)]
             [(zext16) (emit movzw src dest code*)]
             [else (sorry! who "unexpected op ~s" op)])))))
+
+  (define asm-move-from
+    (lambda (offset)
+      (lambda (code* dest src)
+        (Trivit (dest src)
+          (emit mov (shift-address src offset) dest code*)))))
 
   (define asm-fstpl
     (lambda (code* dest)
@@ -1746,8 +1761,8 @@
 
   (define asm-fpop-2
     (lambda (op)
-      (lambda (code* src1 src2 dest)
-        (trivit (src1 src2 dest)
+      (lambda (code* dest src1 src2)
+        (Trivit (dest src1 src2)
           (let ([code* (emit sse.movsd (cons 'reg %flreg1) dest code*)])
             (let ([code* (case op
                            [(fp+) (emit sse.addsd src2 (cons 'reg %flreg1) code*)]
@@ -1767,6 +1782,12 @@
       (Trivit (dest src)
         (emit sse.movsd src (cons 'reg %flreg1)
           (emit sse.movsd (cons 'reg %flreg1) dest code*)))))
+
+  (define asm-fpcastfrom
+    (lambda (code* dest src1 src2)
+      (Trivit (dest src1 src2)
+        (emit mov src1 dest
+          (emit mov src2 (shift-address dest 4) code*)))))
 
   (define asm-trunc
     (lambda (code* dest flonumreg)
@@ -2086,12 +2107,11 @@
             (let-values ([(l1 l2) (if i? (values l2 l1) (values l1 l2))])
               (asm-conditional-jump info l2 l1 offset)))))))
 
-  (define asm-fl-relop
+  (define asm-fp-relop
     (lambda (info)
       (lambda (l1 l2 offset x y)
         (values
-          (let ([x `(disp ,(constant flonum-data-disp) ,x)]
-                [y `(disp ,(constant flonum-data-disp) ,y)])
+          (Trivit (x y)
             (emit sse.movsd y (cons 'reg %flreg1)
               (emit sse.ucomisd x (cons 'reg %flreg1) '())))
           (asm-conditional-jump info l1 l2 offset)))))
@@ -2290,11 +2310,11 @@
               [(carry) (i? bcc bcs)]
               ; unordered: zf,pf,cf <- 111; gt: 000; lt: 001; eq: 100
               ; reversed & inverted: !(fl< y x) = !(fl> x y) iff zf = 1 & cf = 1
-              [(fl<) bls]
+              [(fp<) bls]
               ; reversed & inverted: !(fl<= y x) = !(fl>= x y) iff cf = 1
-              [(fl<=) bcs]
+              [(fp<=) bcs]
               ; inverted: !(fl= x y) iff zf = 0 or cf (or pf) = 1
-              [(fl=) (or bne bcs)]))))))
+              [(fp=) (or bne bcs)]))))))
 
   (define asm-data-label
     (lambda (code* l offset func code-size)

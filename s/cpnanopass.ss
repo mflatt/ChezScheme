@@ -7353,6 +7353,10 @@
                     `(seq
                       (set! ,(%mref ,t ,%zero ,(constant flonum-data-disp)) ,e)
                       ,t)))))
+          (define (unboxed-explicit->implicit e)
+            (nanopass-case (L7 Expr) e
+              [(unboxed-fp ,e) e]
+              [else (%mref ,e ,(constant flonum-data-disp))]))
           (define build-fp-op-1
             (lambda (can-unbox-fp? op e)
               (build-fp-boxed can-unbox-fp? (if (procedure? op) (op e) `(inline ,(make-info-double '(#t)) ,op ,e)))))
@@ -7372,9 +7376,9 @@
                   (let ([thi (make-tmp 'flsgnh)]
                         [tlo (make-tmp 'flsgnl)])
                     (bind #t fp (e)
-                      (let ([,thi ,(inline ,(make-info-double '(#t)) fpcastto/hi ,e)]
-                            [,tlo ,(inline ,(make-info-double '(#t)) fpcastto/lo ,e)])
-                        (inline ,null-info ,%fpcastfrom (inline null-info ,combine ,thi ,base) ,tlo))))]))))
+                      `(let ([,thi (inline ,(make-info-double '(#t)) ,%fpcastto/hi ,e)]
+                             [,tlo (inline ,(make-info-double '(#t)) ,%fpcastto/lo ,e)])
+                         (inline ,null-info ,%fpcastfrom (inline ,null-info ,combine ,thi ,base) ,tlo))))]))))
           (define build-flabs
             (lambda (e can-unbox-fp?)
               (build-fl-adjust-sign e can-unbox-fp? %logand (%inline srl (immediate -1) (immediate 1)))))
@@ -7670,7 +7674,7 @@
               [(e1 . e*) (reduce-fp src sexpr 2 'fl* e1 e*)])
 
             (define-inline 2 fl-
-              [(e) (build-checked-fp-op e (lambda (e) (build-flneg e #t)) can-unbox-fp?
+              [(e) (build-checked-fp-op e (lambda (e) (unboxed-explicit->implicit (build-flneg e #t))) can-unbox-fp?
                      (lambda (e)
                        (build-libcall #t src sexpr flnegate e)))]
               [(e1 e2) (build-checked-fp-op e1 e2 %fp- can-unbox-fp?
@@ -7688,7 +7692,7 @@
               [(e1 . e*) (reduce-fp src sexpr 2 'fl/ e1 e*)])
 
           (define-inline 2 flabs
-            [(e) (build-checked-fp-op e (lambda (e) (build-flabs e #t)) can-unbox-fp?
+            [(e) (build-checked-fp-op e (lambda (e) (unboxed-explicit->implicit (build-flabs e #t))) can-unbox-fp?
                    (lambda (e)
                      (build-libcall #t src sexpr flabs e)))])))
 
@@ -16280,6 +16284,12 @@
                   (lambda (home max-fv first-open)
                     (uvar-location-set! spill home)
                     (update-conflict! home spill)
+                    (constant-case ptr-bits
+                      [(32)
+                       (when (eq? (uvar-type spill) 'fp)
+                         ;; Make sure next slot is unused
+                         (get-fv (add1 (fv-offset home)) 'reserved))]
+                      [(64) (void)])
                     (values max-fv first-open)))
                 (find-move-related-home spill
                   (lambda (home) (return home max-fv first-open))

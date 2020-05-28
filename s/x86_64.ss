@@ -904,7 +904,7 @@
   (define-instruction pred (fp= fp< fp<=)
     [(op (x mem) (y mem))
      (let ([info (make-info-condition-code op #t #f)]) ; NB: reversed? flag is assumed to be #t
-       (values '() `(asm ,info ,(asm-fl-relop info) ,x ,y)))])
+       (values '() `(asm ,info ,(asm-fp-relop info) ,x ,y)))])
 
   (define-instruction pred (eq? u< < > <= >=)
     ; the idea (following from the intel x86/x86_64 documentation)
@@ -1041,7 +1041,7 @@
                      asm-move asm-move/extend asm-load asm-store asm-swap asm-library-call asm-library-jump
                      asm-mul asm-muli asm-addop asm-add asm-sub asm-negate asm-sub-negate
                      asm-pop asm-shiftop asm-sll asm-logand asm-lognot
-                     asm-logtest asm-fl-relop asm-relop asm-push asm-indirect-jump asm-literal-jump
+                     asm-logtest asm-fp-relop asm-relop asm-push asm-indirect-jump asm-literal-jump
                      asm-direct-jump asm-return-address asm-jump asm-conditional-jump asm-data-label
                      asm-rp-header asm-rp-compact-header
                      asm-lea1 asm-lea2 asm-indirect-call asm-condition-code
@@ -2331,12 +2331,12 @@
             (let-values ([(l1 l2) (if i? (values l2 l1) (values l1 l2))])
               (asm-conditional-jump info l2 l1 offset)))))))
 
-  (define asm-fl-relop
+  (define asm-fp-relop
     (lambda (info)
       (lambda (l1 l2 offset x y)
         (values
           (Trivit (x y)
-             (emit sse.movsd y (cons 'reg %flreg1)
+            (emit sse.movsd y (cons 'reg %flreg1)
               (emit sse.ucomisd x (cons 'reg %flreg1) '())))
           (asm-conditional-jump info l1 l2 offset)))))
 
