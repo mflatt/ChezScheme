@@ -754,14 +754,25 @@
     [(op (x ur) (y ur) (z imm32))
      `(asm ,info ,(asm-fl-load op (info-loadfl-flreg info)) ,x ,y ,z)])
 
-  (define-instruction effect (flt)
+  (define-instruction effect (fpt)
     [(op (x mem ur) (y ur)) `(asm ,info ,asm-flt ,x ,y)])
 
-  (define-instruction effect (fl+ fl- fl/ fl*)
-    [(op (x ur) (y ur) (z ur)) `(asm ,info ,(asm-flop-2 op) ,x ,y ,z)])
+  (define-instruction value (fpidentity)
+    [(op (x mem) (y mem)) `(asm ,info ,asm-fpidentity ,x ,y)])
 
-  (define-instruction effect (flsqrt)
-    [(op (x ur) (y ur)) `(asm ,info ,asm-flsqrt ,x ,y)])
+  (define-instruction value (fpcastto)
+    [(op (x mem) (y mem)) `(asm ,info ,asm-fpidentity ,x ,y)]
+    [(op (x ur) (y mem)) `(asm ,info ,asm-move ,x ,y)])
+
+  (define-instruction value (fpcastfrom)
+    [(op (x mem) (hi ur) (lo ur)) `(asm ,info ,asm-fpcastfrom ,x ,y)])
+
+  (define-instruction effect (fp+ fp- fp/ fp*)
+    [(op (x mem) (y mem) (z mem))
+     `(set! ,(make-live-info) ,x (asm ,info ,(asm-fpop-2 op) ,y ,z))])
+
+  (define-instruction effect (fpsqrt)
+    [(op (x ur) (y ur)) `(asm ,info ,asm-fpsqrt ,x ,y)])
 
   (define-instruction effect inc-cc-counter
     [(op (x ur) (y imm32 ur) (z imm32 ur)) `(asm ,info ,asm-inc-cc-counter ,x ,y ,z)])
@@ -942,7 +953,7 @@
                      asm-lea1 asm-lea2 asm-indirect-call asm-fstpl asm-fstps asm-fldl asm-flds asm-condition-code
                      asm-fl-cvt asm-fl-store asm-fl-load asm-flt asm-trunc asm-div
                      asm-exchange asm-pause asm-locked-incr asm-locked-decr asm-locked-cmpxchg
-                     asm-flop-2 asm-flsqrt asm-c-simple-call
+                     asm-fpop-2 asm-fpidentity asm-fpsqrt asm-c-simple-call
                      asm-save-flrv asm-restore-flrv asm-return asm-c-return asm-size
                      asm-enter asm-foreign-call asm-foreign-callable
                      asm-inc-profile-counter
@@ -1726,33 +1737,35 @@
             [(load-single) (emit sse.movss src (cons 'reg flreg) code*)]
             [(load-double) (emit sse.movsd src (cons 'reg flreg) code*)])))))
 
-  (define asm-flt
-    (lambda (code* src flonumreg)
-      (Trivit (src)
-        (let ([dest `(disp ,(constant flonum-data-disp) ,flonumreg)]
-              [flreg (cons 'reg %flreg1)])
+  (define asm-fpt
+    (lambda (code* dest src)
+      (Trivit (dest src)
+        (let ([flreg (cons 'reg %flreg1)])
           (emit sse.cvtsi2sd src flreg
             (emit sse.movsd flreg dest code*))))))
 
-  (define asm-flop-2
+  (define asm-fpop-2
     (lambda (op)
       (lambda (code* src1 src2 dest)
-        (let ([src1 `(disp ,(constant flonum-data-disp) ,src1)]
-              [src2 `(disp ,(constant flonum-data-disp) ,src2)]
-              [dest `(disp ,(constant flonum-data-disp) ,dest)])
+        (trivit (src1 src2 dest)
           (let ([code* (emit sse.movsd (cons 'reg %flreg1) dest code*)])
             (let ([code* (case op
-                           [(fl+) (emit sse.addsd src2 (cons 'reg %flreg1) code*)]
-                           [(fl-) (emit sse.subsd src2 (cons 'reg %flreg1) code*)]
-                           [(fl*) (emit sse.mulsd src2 (cons 'reg %flreg1) code*)]
-                           [(fl/) (emit sse.divsd src2 (cons 'reg %flreg1) code*)])])
+                           [(fp+) (emit sse.addsd src2 (cons 'reg %flreg1) code*)]
+                           [(fp-) (emit sse.subsd src2 (cons 'reg %flreg1) code*)]
+                           [(fp*) (emit sse.mulsd src2 (cons 'reg %flreg1) code*)]
+                           [(fp/) (emit sse.divsd src2 (cons 'reg %flreg1) code*)])])
               (emit sse.movsd src1 (cons 'reg %flreg1) code*)))))))
 
-  (define asm-flsqrt
-    (lambda (code* src dest)
-      (let ([src `(disp ,(constant flonum-data-disp) ,src)]
-            [dest `(disp ,(constant flonum-data-disp) ,dest)])
+  (define asm-fpsqrt
+    (lambda (code* dest src)
+      (Trivit (dest src)
         (emit sse.sqrtsd src (cons 'reg %flreg1)
+          (emit sse.movsd (cons 'reg %flreg1) dest code*)))))
+
+  (define asm-fpidentity
+    (lambda (code* dest src)
+      (Trivit (dest src)
+        (emit sse.movsd src (cons 'reg %flreg1)
           (emit sse.movsd (cons 'reg %flreg1) dest code*)))))
 
   (define asm-trunc

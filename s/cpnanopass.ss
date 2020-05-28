@@ -7313,7 +7313,7 @@
                            (%inline sll ,body (immediate ,(fx- 0 cnt)))
                            body)))
                   (immediate ,mask)))))
-
+<
           (define-inline 3 fllp
             [(e) (build-flonum-extractor 19 12 e)])
 
@@ -7494,7 +7494,12 @@
 
           (let ()
             (define (build-fl< e1 e2) `(inline ,(make-info-double '(#t #t)) ,%fp< ,e1 ,e2))
-            (define (build-fl= e1 e2) `(inline ,(make-info-double '(#t #t)) ,%fp= ,e1 ,e2))
+            (define build-fl=
+              (case-lambda
+               [(e) (if (constant nan-single-comparison-true?)
+                        (%seq ,e (quote #t))
+                        (bind #t fp (e) (build-fl= e e)))]
+               [(e1 e2) `(inline ,(make-info-double '(#t #t)) ,%fp= ,e1 ,e2)]))
             (define (build-fl<= e1 e2) `(inline ,(make-info-double '(#t #t)) ,%fp<= ,e1 ,e2))
 
             (let ()
@@ -7508,7 +7513,7 @@
                                                 #'reduce-equality)])
                        #'(begin
                            (define-inline 3 op
-                             [(e) (bind #t (e) (build-fl= e e))]
+                             [(e) (build-fl= e)]
                              [(e1 e2) (builder args ...)]
                              [(e1 e2 . e*) (reducer src sexpr moi e1 e2 e*)])
                            (define-inline 3 r6rs:op
@@ -7530,12 +7535,12 @@
                            (bind #t (e2)
                              `(if ,(%type-check mask-flonum type-flonum ,e2)
                                   ,body
-                                  ,(build-libcall #t src sexpr op e1 e2))))
+                                  ,(build-libcall #t src sexpr op e2 e2))))
                        (if (known-flonum-result? e2)
                            (bind #t (e1)
                              `(if ,(%type-check mask-flonum type-flonum ,e1)
                                   ,body
-                                  ,(build-libcall #t src sexpr op e1 e2)))
+                                  ,(build-libcall #t src sexpr op e1 e1)))
                            (bind #t (e1 e2)
                              `(if ,(build-and
                                     (%type-check mask-flonum type-flonum ,e1)
@@ -7549,7 +7554,12 @@
                      (with-syntax ([(args ...) (if (datum swapped?) #'(e2 e1) #'(e1 e2))])
                        #'(begin
                            (define-inline 2 op
-                             [(e) #f]
+                             [(e1) (if (known-flonum-result? e1)
+                                       (build-fl= e1)
+                                       (bind #t (e1)
+                                         `(if ,(%type-check mask-flonum type-flonum ,e1)
+                                              ,(build-fl= e1)
+                                              ,(build-libcall #t src sexpr op e1 e1))))]
                              [(e1 e2) (build-bind-and-check src sexpr op e1 e2 (builder args ...))]
                              [(e1 e2 . e*) #f])
                            (define-inline 2 r6rs:op
@@ -7583,7 +7593,9 @@
                                 (build-$inexactnum-real-part e1)
                                 (build-$inexactnum-real-part e2)))))))
               (define-inline 3 cfl=
-                [(e) (bind #f (e) (build-cfl= e e))] ; this is weird, why not just true?
+                [(e) (if (constant nan-single-comparison-true?)
+                         (%seq ,e (quote #t))
+                         (bind #f (e) (build-cfl= e e)))]
                 [(e1 e2) (bind #f (e1 e2) (build-cfl= e1 e2))]
                 ; TODO: should we avoid building for more then the 3 item case?
                 [(e1 e2 . e*) (reduce-equality src sexpr moi e1 e2 e*)])))

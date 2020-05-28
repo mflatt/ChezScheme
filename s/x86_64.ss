@@ -1974,7 +1974,6 @@
           (emit sse.cvtsi2sd src flreg
             (emit sse.movsd flreg dest code*))))))
 
-  ;; Can do better here by specializing on source and destination kinds
   (define asm-fpop-2
     (lambda (op)
       (lambda (code* dest src1 src2)
