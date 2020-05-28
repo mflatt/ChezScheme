@@ -7611,7 +7611,7 @@
                            [(unboxed-fp ,e) `(unboxed-fp ,(k e))]
                            [else (k e)]))))]
                 [(e1 e2 op can-unbox-fp? k)
-                 ;; uses `e1` or `e2` twice for error if other is always a flonum
+                 ;; uses result of `e1` or `e2` twice for error if other is always a flonum
                  (let ([build (lambda (e1 e2)
                                 (build-fp-op-2 can-unbox-fp? op e1 e2))])
                    (if (known-flonum-result? e1)
@@ -7628,10 +7628,14 @@
                                          ,(k e1 e1))
                                     e2))
                            (bind #t (e1 e2)
-                             (build `(if ,(build-flonums? (list e1 e2))
-                                         ,e1
-                                         ,(k e1 e2))
-                                    e2)))))]))
+                             (let ([e (build e1 e2)]
+                                   [k (lambda (e)
+                                        `(if ,(build-flonums? (list e1 e2))
+                                             ,e
+                                             ,(k e1 e2)))])
+                               (nanopass-case (L7 Expr) e
+                                 [(unboxed-fp ,e) `(unboxed-fp ,(k e))]
+                                 [else (k e)]))))))]))
 
             (define-inline 2 fl+
               [() `(quote 0.0)]
