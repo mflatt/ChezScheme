@@ -173,7 +173,7 @@
       conflict*
       (mutable flags)
       (mutable info-lambda)
-      (mutable location)
+      (mutable location uvar-location uvar-location-set!*)
       (mutable move*)
       (mutable degree)
       (mutable iii)           ; inspector info index
@@ -187,6 +187,14 @@
       (lambda (pargs->new)
         (lambda (name source type conflict* flags)
           ((pargs->new) name source type conflict* flags #f #f '() #f #f 0 0 0)))))
+  (define uvar-location-set!
+    (lambda (x l)
+      (when (fv? l)
+        (unless (or (eq? (uvar-type x) (fv-type l))
+                    (and (not (eq? (uvar-type x) 'fp))
+                         (not (eq? (fv-type l) 'fp))))
+          ($oops 'uvar-location-set! "mismatch: ~s ~s ~s ~s" x l (uvar-type x) (fv-type l))))
+      (uvar-location-set!* x l)))
   (define prelex->uvar
     (lambda (x)
       ($make-uvar (prelex-name x) (prelex-source x) 'ptr '()
@@ -443,6 +451,12 @@
       (- (clause (x* ...) interface body))
       (+ (clause (x* ...) mcp interface body))))
 
+  (define (mref-type? t)
+    ;; Currently, only 'fp vesus non-'fp matters
+    (or (eq? t 'ptr)
+        (eq? t 'uptr)
+        (eq? t 'fp)))
+
  ; move labels to top level and expands closures forms to more primitive operations
   (define-language L7 (extends L6)
     (terminals
@@ -450,7 +464,8 @@
          (fixnum (interface)))
       (+ (var (x))
          (primitive (prim)) ; moved up one language to support closure instrumentation
-         (fixnum (interface offset))))
+         (fixnum (interface offset))
+         (mref-type (type))))
     (entry Program)
     (Program (prog)
       (+ (labels ([l* le*] ...) l)                     => (labels ([l* le*] ...) (l))))
@@ -458,7 +473,7 @@
       (+ (fcallable info l)                            => (fcallable info l)))
     (Lvalue (lvalue)
       (+ x
-         (mref e1 e2 imm)))
+         (mref e1 e2 imm type)))
     (Expr (e body)
       (- x
          (fcallable info)
@@ -615,12 +630,12 @@
   (declare-primitive zext16 value #t)
   (declare-primitive zext32 value #t) ; 64-bit only
 
+  (declare-primitive fpmove value #t)
   (declare-primitive fp+ value #t)
   (declare-primitive fp- value #t)
   (declare-primitive fp* value #t)
   (declare-primitive fp/ value #t)
   (declare-primitive fpt value #t)
-  (declare-primitive fpidentity value #t)
   (declare-primitive fpsqrt value #t) ; not implemented for some ppc32 (so we don't use it)
 
   (declare-primitive fpcastto value #t) ; 64-bit only
@@ -697,8 +712,8 @@
       (- (clause (x* ...) mcp interface body))
       (+ (clause (x* ...) (local* ...) mcp interface body)))
     (Lvalue (lvalue)
-      (- (mref e1 e2 imm))
-      (+ (mref x1 x2 imm)))
+      (- (mref e1 e2 imm type))
+      (+ (mref x1 x2 imm type)))
     (Triv (t)
       (+ lvalue
          (literal info)                          => info
@@ -868,7 +883,8 @@
       (label (l rpl))
       (source-object (src))
       (symbol (sym))
-      (boolean (as-fallthrough)))
+      (boolean (as-fallthrough))
+      (mref-type (type)))
     (Program (prog)
       (labels ([l* le*] ...) l)                   => (letrec ([l* le*] ...) (l)))
     (CaseLambdaExpr (le)
@@ -876,7 +892,7 @@
       (hand-coded sym))
     (Lvalue (lvalue)
       x
-      (mref x1 x2 imm))
+      (mref x1 x2 imm type))
     (Triv (t)
       lvalue
       (literal info)                              => info
@@ -999,7 +1015,8 @@
       (return-label (mrvl))
       (boolean (error-on-values as-fallthrough))
       (fixnum (max-fv offset))
-      (block (block entry-block)))
+      (block (block entry-block))
+      (mref-type (type)))
     (Program (pgm)
       (labels ([l* le*] ...) l)                  => (letrec ([l* le*] ...) (l)))
     (CaseLambdaExpr (le)
@@ -1007,7 +1024,7 @@
     (Dummy (dumdum) (dummy))
     (Lvalue (lvalue)
       x
-      (mref x1 x2 imm))
+      (mref x1 x2 imm type))
     (Triv (t)
       lvalue
       (literal info)                            => info
@@ -1069,8 +1086,8 @@
       (+ (ur (x))))
     ; NB: base and index are really either regs or (mref %sfp %zero imm)
     (Lvalue (lvalue)
-      (- (mref x1 x2 imm))
-      (+ (mref lvalue1 lvalue2 imm)))
+      (- (mref x1 x2 imm type))
+      (+ (mref lvalue1 lvalue2 imm type)))
     (Effect (e)
       (- (fp-offset live-info imm))))
 
@@ -1082,8 +1099,8 @@
       (+ (procedure (proc)) => $procedure-name))
     (entry Program)
     (Lvalue (lvalue)
-      (- (mref lvalue1 lvalue2 imm))
-      (+ (mref x1 x2 imm)))
+      (- (mref lvalue1 lvalue2 imm type))
+      (+ (mref x1 x2 imm type)))
     (Rhs (rhs)
       (- (inline info value-prim t* ...))
       (+ (asm info proc t* ...) => (asm proc t* ...)))
