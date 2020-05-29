@@ -1044,19 +1044,20 @@
     (define-syntax check-loop-allocation
       (syntax-rules ()
         [(_ proc) ; proc should allocate only its result flonum
-         (let ([before (+ (bytes-allocated) (bytes-deallocated))]
-               [N 100000])
-           (box?
-            (let loop ([i N] [bx (box 0.0)])
-              (if (zero? i)
-                  bx
-                  (loop (sub1 i) (let ([v (unbox bx)])
-                                   (box (proc v)))))))
-           (let ([allocated (- (+ (bytes-allocated) (bytes-deallocated)) before)]
-                 [expected (* N (+ (compute-size 1.0)
-                                   (compute-size (box #f))))])
-             (printf "~s ~s\n" allocated expected)
-             (<= expected allocated (* 1.2 expected))))]))
+         (or (eq? (current-eval) interpret)
+             (let ([before (+ (bytes-allocated) (bytes-deallocated))]
+                   [N 100000])
+               (box?
+                (let loop ([i N] [bx (box 0.0)])
+                  (if (zero? i)
+                      bx
+                      (loop (sub1 i) (let ([v (unbox bx)])
+                                       (box (proc v)))))))
+               (let ([allocated (- (+ (bytes-allocated) (bytes-deallocated)) before)]
+                     [expected (* N (+ (compute-size 1.0)
+                                       (compute-size (box #f))))])
+                 (printf "~s ~s\n" allocated expected)
+                 (<= expected allocated (* 1.2 expected)))))]))
     #t)
 
   (check-loop-allocation (lambda (v) (fl+ v v)))
