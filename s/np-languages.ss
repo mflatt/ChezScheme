@@ -173,7 +173,7 @@
       conflict*
       (mutable flags)
       (mutable info-lambda)
-      (mutable location uvar-location uvar-location-set!*)
+      (mutable location)
       (mutable move*)
       (mutable degree)
       (mutable iii)           ; inspector info index
@@ -187,14 +187,6 @@
       (lambda (pargs->new)
         (lambda (name source type conflict* flags)
           ((pargs->new) name source type conflict* flags #f #f '() #f #f 0 0 0)))))
-  (define uvar-location-set!
-    (lambda (x l)
-      (when (fv? l)
-        (unless (or (eq? (uvar-type x) (fv-type l))
-                    (and (not (eq? (uvar-type x) 'fp))
-                         (not (eq? (fv-type l) 'fp))))
-          ($oops 'uvar-location-set! "mismatch: ~s ~s ~s ~s" x l (uvar-type x) (fv-type l))))
-      (uvar-location-set!* x l)))
   (define prelex->uvar
     (lambda (x)
       ($make-uvar (prelex-name x) (prelex-source x) 'ptr '()
