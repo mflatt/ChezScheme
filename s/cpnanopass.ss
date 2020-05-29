@@ -641,7 +641,12 @@
                       (loop n))))
                 (set! frame-vars new-vec))))
           (or (vector-ref frame-vars x)
-              (let ([fv ($make-fv x type)])
+              (let ([fv ($make-fv x (constant-case stack-word-alignment
+                                      [(2) (if (and (eq? type 'fp)
+                                                    (fxodd? x))
+                                               'ptr
+                                               type)]
+                                      [(1) type]))])
                 (vector-set! frame-vars x fv)
                 fv))]))
       (define get-ptr-fv
@@ -13930,8 +13935,10 @@
                        (in %ac0 %cp scheme-args)
                        (out %ac1 %xp %yp %ts %td extra-regs))
                     (new-frame ,(make-info-newframe #f #f '() '() '()) ,'() ... ,Lret)
-                    ; NB: hack!!!
-                    (set! ,%sfp ,(%inline - ,%sfp (immediate ,(constant ptr-bytes))))
+                    ; NB: hack!!! Asssuming a frame-size calculation:
+                    (set! ,%sfp ,(%inline - ,%sfp (immediate ,(constant-case stack-word-alignment
+                                                                [(2) (fx* 2 (constant ptr-bytes))]
+                                                                [(1) (constant ptr-bytes)]))))
                     (set! ,%ref-ret (label-ref ,Lret ,(constant size-rp-header)))
                     (tail ,(do-call)) ; argcnt already in ac0
                     #;(asm align)
@@ -15845,6 +15852,18 @@
             (tree-extract (cset-tree cset) (cset-size cset) v)))
         )
 
+      ;; Alignment to support unboxed doubles
+      (define stack-align
+        (lambda (n)
+          (constant-case stack-word-alignment
+            [(2) (if (fxodd? n) (fx+ n 1) n)]
+            [(1) n])))
+      (define stack-aligned-first-argument?
+        (lambda (n)
+          (constant-case stack-word-alignment
+            [(2) (fxodd? n)]
+            [(1) #t])))
+
       (define do-live-analysis!
         (lambda (live-size entry-block*)
           (define add-var (make-add-var live-size))
@@ -16340,7 +16359,8 @@
                               (cond
                                 [(eq? (uvar-type spill) 'fp)
                                  ;; Make sure next slot is unused
-                                 (get-fv (fx+ 1 (fv-offset home)) 'reserved)
+                                 (let ([fv (get-fv (fx+ 1 (fv-offset home)) 'reserved)])
+                                   (safe-assert (eq? (fv-type fv) 'reserved)))
                                  (fxmax max-fv (fx+ 1 (fv-offset home)))]
                                 [else max-fv])]
                              [(64) max-fv])])
@@ -16385,8 +16405,10 @@
                 (let loop ([nfv* nfv*] [offset base])
                   (or (null? nfv*)
                       (and (or (not (car nfv*))
-                               (let ([cset (var-spillable-conflict* (get-fv offset))])
-                                 (not (and cset (conflict-bit-set? cset (var-index (car nfv*)))))))
+                               (let ([fv (get-fv offset)])
+                                 (and (compatible-fv? fv 'ptr)
+                                      (let ([cset (var-spillable-conflict* fv)])
+                                        (not (and cset (conflict-bit-set? cset (var-index (car nfv*)))))))))
                            (loop (cdr nfv*) (fx+ offset 1)))))))
             (define assign-new-frame!
               (lambda (cnfv* nfv** call-live*)
@@ -16395,17 +16417,16 @@
                     (if (null? nfv*)
                         (set! max-fv (fxmax offset max-fv))
                         (let* ([nfv (car nfv*)] [home (get-fv offset (uvar-type nfv))])
-                          (cond
-                            [(compatible-fv? home (uvar-type nfv))
-                             (uvar-location-set! nfv home)
-                             (update-conflict! home nfv)
-                             (set-offsets! (cdr nfv*) (fx+ offset 1))]
-                            [else
-                             (set-offsets! nfv* (fx+ offset 1))])))))
+                          (safe-assert (compatible-fv? home (uvar-type nfv)))
+                          (uvar-location-set! nfv home)
+                          (update-conflict! home nfv)
+                          (set-offsets! (cdr nfv*) (fx+ offset 1))))))
                 (let ([arg-offset (fx+ (length cnfv*) 1)]) ; +1 for return address slot
                   (let loop ([base (fx+ (find-max-fv call-live*) 1)])
                     (let ([arg-base (fx+ base arg-offset)])
-                      (if (and (cool? base cnfv*) (andmap (lambda (nfv*) (cool? arg-base nfv*)) nfv**))
+                      (if (and (stack-aligned-first-argument? arg-base)
+                               (cool? base cnfv*)
+                               (andmap (lambda (nfv*) (cool? arg-base nfv*)) nfv**))
                           (begin
                             (set! max-fs@call (fxmax max-fs@call base)) ; max frame size @ call in ptrs
                             (set-offsets! cnfv* base)
@@ -16828,10 +16849,10 @@
                 (if force-overflow?
                     (fxmax
                       (fx- (fx* max-fs@call (constant ptr-bytes)) 0)
-                      (fx- (fx* (fx+ max-fv 1) (constant ptr-bytes)) (fx- (constant stack-slop) (fx* (constant stack-frame-limit) 2))))
+                      (fx- (fx* (fx+ (stack-align max-fv) 1) (constant ptr-bytes)) (fx- (constant stack-slop) (fx* (constant stack-frame-limit) 2))))
                     (fxmax
                       (fx- (fx* max-fs@call (constant ptr-bytes)) (constant stack-frame-limit))
-                      (fx- (fx* (fx+ max-fv 1) (constant ptr-bytes)) (fx- (constant stack-slop) (constant stack-frame-limit)))))))
+                      (fx- (fx* (fx+ (stack-align max-fv) 1) (constant ptr-bytes)) (fx- (constant stack-slop) (constant stack-frame-limit)))))))
             (define overage (compute-overage max-fs@call))
             (define handle-overflow-check
               (lambda (reg info new-effect* live)

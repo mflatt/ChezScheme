@@ -412,6 +412,11 @@
 (define-constant ptr-alignment
   (/ (constant byte-alignment) (constant ptr-bytes)))
 
+;; Stack alignment may be needed for unboxed floating-point values:
+(constant-case ptr-bits
+  [(32) (define-constant stack-word-alignment 2)]
+  [(64) (define-constant stack-word-alignment 1)])
+
 ;; seginfo offsets, must be consistent with `seginfo` in "types.h"
 (define-constant seginfo-space-disp 0)
 (define-constant seginfo-generation-disp 1)
