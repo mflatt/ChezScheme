@@ -473,6 +473,7 @@
          (inline info prim e* ...)                     => (inline info prim e* ...)
          (call info mdcl (maybe e0) e1 ...)            => (call mdcl e0 e1 ...)
          (set! lvalue e)
+         (set-fp! lvalue e)
          ; these two forms are added here so expand-inline handlers can expand into them
          (values info e* ...)
          (goto l)
@@ -615,12 +616,12 @@
   (declare-primitive zext16 value #t)
   (declare-primitive zext32 value #t) ; 64-bit only
 
+  (declare-primitive fpmove value #t)
   (declare-primitive fp+ value #t)
   (declare-primitive fp- value #t)
   (declare-primitive fp* value #t)
   (declare-primitive fp/ value #t)
   (declare-primitive fpt value #t)
-  (declare-primitive fpidentity value #t)
   (declare-primitive fpsqrt value #t) ; not implemented for some ppc32 (so we don't use it)
 
   (declare-primitive fpcastto value #t) ; 64-bit only
@@ -660,13 +661,17 @@
     (terminals
       (- (datum (d))
          (primref (pr)))
-      (+ (symbol (sym))))
+      (+ (symbol (sym))
+         (boolean (is-fp))))
     (CaseLambdaExpr (le)
       (+ (hand-coded sym)))
     (Expr (e body)
       (- (quote d)
          pr
-         (unboxed-fp e))))
+         (unboxed-fp e)
+         (set! lvalue e)
+         (set-fp! lvalue e))
+      (+ (set! is-fp lvalue e))))
 
  ; determine where we should be placing interrupt and overflow
   (define-language L9.5 (extends L9)
@@ -724,7 +729,7 @@
          (inline info prim e* ...)
          (alloc info e)
          (let ([x e] ...) body)
-         (set! lvalue e)
+         (set! is-fp lvalue e)
          (mvcall info e1 e2)
          (foreign-call info e e* ...)
          (attachment-get reified (maybe e))
@@ -732,7 +737,7 @@
          (continuation-get))
       (+ rhs
          (values info t* ...)
-         (set! lvalue rhs))))
+         (set! is-fp lvalue rhs))))
 
   (define-language L10.5 (extends L10)
     (entry Program)
@@ -767,7 +772,7 @@
     (Expr (e body)
       (- rhs
          (label l body)
-         (set! lvalue rhs)
+         (set! is-fp lvalue rhs)
          (if e0 e1 e2)
          (seq e0 e1)
          (mvset info (mdcl (maybe t0) t1 ...) (t* ...) ((x** ...) interface* l*) ...)
@@ -802,7 +807,7 @@
          (trap-check ioc)
          (overflow-check)
          (profile src)                                 => (profile)
-         (set! lvalue rhs)
+         (set! is-fp lvalue rhs)
          (inline info effect-prim t* ...)              => (inline info effect-prim t* ...)
          (if p0 e1 e2)
          (seq e0 e1)
@@ -817,7 +822,8 @@
   (define-language L12 (extends L11)
     (terminals
       (- (fixnum (interface offset))
-         (label (l)))
+         (label (l))
+         (boolean (is-fp)))
       (+ (fixnum (fixed-args offset))
          (label (l dcl))))
     (entry Program)
@@ -829,9 +835,12 @@
     (Tail (tl tlbody)
       (+ (entry-point (x* ...) dcl mcp tlbody)))
     (Effect (e ebody)
-      (- (mvset info (mdcl (maybe t0) t1 ...) (t* ...) ((x** ...) interface* l*) ...))
+      (- (mvset info (mdcl (maybe t0) t1 ...) (t* ...) ((x** ...) interface* l*) ...)
+         (set! is-fp lvalue rhs))
       (+ (do-rest fixed-args)
          (mvset info (mdcl (maybe t0) t1 ...) (t* ...) ((x** ...) ...) ebody)
+         (set! lvalue rhs)
+         (set-fp! lvalue rhs)
          ; mventry-point can appear only within an mvset ebody
          ; ideally, grammar would reflect this
          (mventry-point (x* ...) l))))
@@ -905,6 +914,7 @@
       (restore-local-saves info)
       (shift-arg reg imm info)
       (set! lvalue rhs)
+      (set-fp! lvalue rhs)
       (inline info effect-prim t* ...)            => (inline info effect-prim t* ...)
       (nop)
       (pariah)
@@ -997,7 +1007,7 @@
       (info (info))
       (label (l rpl))
       (return-label (mrvl))
-      (boolean (error-on-values as-fallthrough))
+      (boolean (error-on-values as-fallthrough is-fp))
       (fixnum (max-fv offset))
       (block (block entry-block)))
     (Program (pgm)
@@ -1028,7 +1038,7 @@
       (remove-frame live-info info)
       (restore-local-saves live-info info)
       (shift-arg live-info reg imm info)
-      (set! live-info lvalue rhs)
+      (set! is-fp live-info lvalue rhs)
       (inline live-info info effect-prim t* ...)
       (check-live live-info reg* ...))
     (Tail (tl)
@@ -1072,7 +1082,10 @@
       (- (mref x1 x2 imm))
       (+ (mref lvalue1 lvalue2 imm)))
     (Effect (e)
-      (- (fp-offset live-info imm))))
+      (- (fp-offset live-info imm)
+         (set! is-fp live-info lvalue rhs))
+      (+ (set! live-info lvalue rhs)
+         (set-fp! live-info lvalue rhs))))
 
   (define-language L15d (extends L15c)
     (terminals
@@ -1112,8 +1125,9 @@
       (+ (lambda info (entry-block* ...) (block* ...)) => (lambda (entry-block* ...) (block* ...))))
     (Effect (e)
       (- (set! live-info lvalue rhs)
+         (set-fp! live-info lvalue rhs)
          (move-related x1 x2))
-      (+ (set! lvalue rhs))))
+      (+ (set! is-fp lvalue rhs))))
 
   (define-language L16 (extends L15e)
     (entry Program)

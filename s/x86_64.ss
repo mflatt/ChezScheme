@@ -827,15 +827,15 @@
   (define-instruction value (fpt)
     [(op (x mem) (y ur)) `(asm ,info ,asm-fpt ,x ,y)])
 
-  (define-instruction value (fpidentity)
-    [(op (x mem) (y mem)) `(asm ,info ,asm-fpidentity ,x ,y)])
+  (define-instruction value (fpmove)
+    [(op (x mem) (y mem)) `(asm ,info ,asm-fpmove ,x ,y)])
 
   (define-instruction value (fpcastto)
-    [(op (x mem) (y mem)) `(asm ,info ,asm-fpidentity ,x ,y)]
+    [(op (x mem) (y mem)) `(asm ,info ,asm-fpmove ,x ,y)]
     [(op (x ur) (y mem)) `(asm ,info ,asm-move ,x ,y)])
 
   (define-instruction value (fpcastfrom)
-    [(op (x mem) (y mem)) `(asm ,info ,asm-fpidentity ,x ,y)]
+    [(op (x mem) (y mem)) `(asm ,info ,asm-fpmove ,x ,y)]
     [(op (x mem) (y ur)) `(asm ,info ,asm-move ,x ,y)])
 
   (define-instruction value (fp+ fp- fp/ fp*)
@@ -1047,7 +1047,7 @@
                      asm-lea1 asm-lea2 asm-indirect-call asm-condition-code
                      asm-fl-cvt asm-fl-store asm-fl-load asm-fpt asm-trunc asm-div asm-popcount
                      asm-exchange asm-pause asm-locked-incr asm-locked-decr asm-locked-cmpxchg
-                     asm-fpsqrt asm-fpop-2 asm-fpidentity
+                     asm-fpsqrt asm-fpop-2 asm-fpmove
                      asm-c-simple-call
                      asm-save-flrv asm-restore-flrv asm-return asm-c-return asm-size
                      asm-enter asm-foreign-call asm-foreign-callable
@@ -1992,7 +1992,7 @@
         (emit sse.sqrtsd src (cons 'reg %flreg1)
           (emit sse.movsd (cons 'reg %flreg1) dest code*)))))
 
-  (define asm-fpidentity
+  (define asm-fpmove
     (lambda (code* dest src)
       (Trivit (dest src)
         (emit sse.movsd src (cons 'reg %flreg1)
