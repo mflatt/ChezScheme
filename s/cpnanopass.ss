@@ -1024,9 +1024,9 @@
       (sealed #t)
       (fields))
 
-    (define-record-type info-double (nongenerative)
+    (define-record-type info-unboxed-args (nongenerative)
       (parent info)
-      (fields unboxed-arg?*))
+      (fields unboxed?*))
 
     (module ()
       (record-writer (record-type-descriptor info-load)
@@ -3147,14 +3147,14 @@
              (values `(call ,info ,mdcl ,e ,e* ...) #f))]
           [(inline ,info ,prim ,e* ...)
            (cond
-             [(info-double? info)
+             [(info-unboxed-args? info)
               (let ([e* (map (lambda (e unbox-arg?)
                                (let-values ([(e unboxed-arg?) (Expr e unbox-arg?)])
                                  (if (and unbox-arg? (not unboxed-arg?))
                                      (%mref ,e ,%zero ,(constant flonum-data-disp) fp)
                                      e)))
                              e*
-                             (info-double-unboxed-arg?* info))])
+                             (info-unboxed-args-unboxed?* info))])
                 (values `(inline ,info ,prim ,e* ...)
                         ;; Especially likely to be replaced by enclosing `unboxed-fp` wrapper:
                         #f))]
@@ -3446,7 +3446,7 @@
                             (build-and check (f e*))))))))))
         (define build-fl=
           (lambda (e1 e2) ; must be bound
-            `(inline ,(make-info-double '(#t #t)) ,%fp= ,e1 ,e2)))
+            `(inline ,(make-info-unboxed-args '(#t #t)) ,%fp= ,e1 ,e2)))
         (define build-chars?
           (lambda (e1 e2)
             (define char-constant?
@@ -7395,11 +7395,11 @@
           (define build-fp-op-1
             (lambda (can-unbox-fp? op e)
               (bind #f fp (e)
-                (build-fp-boxed can-unbox-fp? (if (procedure? op) (op e) `(inline ,(make-info-double '(#t)) ,op ,e))))))
+                (build-fp-boxed can-unbox-fp? (if (procedure? op) (op e) `(inline ,(make-info-unboxed-args '(#t)) ,op ,e))))))
           (define build-fp-op-2
             (lambda (can-unbox-fp? op e1 e2)
               (bind #f fp (e1 e2)
-                (build-fp-boxed can-unbox-fp? `(inline ,(make-info-double '(#t #t)) ,op ,e1 ,e2)))))
+                (build-fp-boxed can-unbox-fp? `(inline ,(make-info-unboxed-args '(#t #t)) ,op ,e1 ,e2)))))
           (define build-fl-adjust-sign
             (lambda (e can-unbox-fp? combine base)
               (build-fp-boxed
@@ -7407,14 +7407,14 @@
                (constant-case ptr-bits
                  [(64)
                   (let ([t (make-tmp 'flsgn)])
-                    `(let ([,t (inline ,(make-info-double '(#t)) ,%fpcastto ,e)])
+                    `(let ([,t (inline ,(make-info-unboxed-args '(#t)) ,%fpcastto ,e)])
                        (inline ,null-info ,%fpcastfrom (inline ,null-info ,combine ,t ,base))))]
                  [(32)
                   (let ([thi (make-tmp 'flsgnh)]
                         [tlo (make-tmp 'flsgnl)])
                     (bind #t fp (e)
-                      `(let ([,thi (inline ,(make-info-double '(#t)) ,%fpcastto/hi ,e)]
-                             [,tlo (inline ,(make-info-double '(#t)) ,%fpcastto/lo ,e)])
+                      `(let ([,thi (inline ,(make-info-unboxed-args '(#t)) ,%fpcastto/hi ,e)]
+                             [,tlo (inline ,(make-info-unboxed-args '(#t)) ,%fpcastto/lo ,e)])
                          (inline ,null-info ,%fpcastfrom (inline ,null-info ,combine ,thi ,base) ,tlo))))]))))
           (define build-flabs
             (lambda (e can-unbox-fp?)
@@ -7534,15 +7534,15 @@
                            ,t)))])
 
           (let ()
-            (define (build-fl< e1 e2) `(inline ,(make-info-double '(#t #t)) ,%fp< ,e1 ,e2))
+            (define (build-fl< e1 e2) `(inline ,(make-info-unboxed-args '(#t #t)) ,%fp< ,e1 ,e2))
             (define build-fl=
               (case-lambda
                [(e) (if (constant nan-single-comparison-true?)
                         (%seq ,e (quote #t))
                         (bind #t fp (e) (build-fl= e e)))]
                [(e1 e2) (bind #f fp (e1 e2)
-                          `(inline ,(make-info-double '(#t #t)) ,%fp= ,e1 ,e2))]))
-            (define (build-fl<= e1 e2) `(inline ,(make-info-double '(#t #t)) ,%fp<= ,e1 ,e2))
+                          `(inline ,(make-info-unboxed-args '(#t #t)) ,%fp= ,e1 ,e2))]))
+            (define (build-fl<= e1 e2) `(inline ,(make-info-unboxed-args '(#t #t)) ,%fp<= ,e1 ,e2))
 
             (let ()
               (define-syntax define-fl-cmp-inline
@@ -10750,8 +10750,8 @@
            (values tmp (list (Rhs ir tmp))))])
       (Expr : Expr (ir fp? k) -> Expr ()
         [(inline ,info ,prim ,e1* ...)
-         (Triv* e1* (and (info-double? info)
-                         (info-double-unboxed-arg?* info))
+         (Triv* e1* (and (info-unboxed-args? info)
+                         (info-unboxed-args-unboxed?* info))
            (lambda (t1*)
              (k `(inline ,info ,prim ,t1* ...))))]
         [(alloc ,info ,e)
