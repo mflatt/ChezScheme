@@ -11099,8 +11099,10 @@
          ($oops who "unrecognized prim ~s" prim)]
         [(set! ,[lvalue] (inline ,info ,prim ,[t*] ...))
          `(seq ,(rhs-inline lvalue info prim t*) (true))]
-        [(set! ,[lvalue] (mvcall ,info ,mdcl ,[t0?] ,[t1] ... (,[t*] ...)))
-         (guard (info-call-error? info) (fx< (debug-level) 2))
+        [(set! ,[lvalue -> lvalue] (mvcall ,info ,mdcl ,[t0?] ,[t1] ... (,[t*] ...)))
+         (guard (info-call-error? info) (or (fx< (debug-level) 2)
+                                            ;; must really escape if fp context
+                                            (fp-lvalue? lvalue)))
          (%seq
            (tail (mvcall ,info ,mdcl ,t0? ,t1 ... (,t* ...)))
            (true))]
@@ -11181,8 +11183,10 @@
          ($oops who "unrecognized prim ~s" prim)]
         [(set! ,[lvalue] (inline ,info ,prim ,[t*] ...))
          `(seq ,(rhs-inline lvalue info prim t*) ,(%constant svoid))]
-        [(set! ,[lvalue] (mvcall ,info ,mdcl ,[t0?] ,[t1] ... (,[t*] ...)))
-         (guard (info-call-error? info) (fx< (debug-level) 2))
+        [(set! ,[lvalue -> lvalue] (mvcall ,info ,mdcl ,[t0?] ,[t1] ... (,[t*] ...)))
+         (guard (info-call-error? info) (or (fx< (debug-level) 2)
+                                            ;; must really escape if fp context
+                                            (fp-lvalue? lvalue)))
          `(mvcall ,info ,mdcl ,t0? ,t1 ... (,t* ...))]
         [(set! ,[lvalue] ,[rhs]) `(seq (set! ,lvalue ,rhs) ,(%constant svoid))]
         [(mvset ,info (,mdcl ,[t0?] ,[t1] ...) (,[t*] ...) ((,x** ...) ,interface* ,l*) ...)
