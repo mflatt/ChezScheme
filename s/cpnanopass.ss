@@ -10687,7 +10687,7 @@
         (define Triv?
           (lambda (maybe-e k)
             (if maybe-e
-                (let-values ([(t setup*) (Triv maybe-e #f #t)])
+                (let-values ([(t setup*) (Triv maybe-e #f #f)])
                   (build-seq* setup* (k t)))
                 (k #f))))
         (define (fp-lvalue? lvalue)
