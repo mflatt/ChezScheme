@@ -11160,7 +11160,6 @@
          `(seq ,(rhs-inline lvalue info prim t* is-fp) ,(%constant svoid))]
         [(set! ,is-fp ,[lvalue] (mvcall ,info ,mdcl ,[t0?] ,[t1] ... (,[t*] ...)))
          (guard (info-call-error? info) (fx< (debug-level) 2))
-         (safe-assert (not is-fp))
          `(mvcall ,info ,mdcl ,t0? ,t1 ... (,t* ...))]
         [(set! ,is-fp ,[lvalue] ,[rhs]) `(seq (set! ,is-fp ,lvalue ,rhs) ,(%constant svoid))]
         [(mvset ,info (,mdcl ,[t0?] ,[t1] ...) (,[t*] ...) ((,x** ...) ,interface* ,l*) ...)
@@ -11309,7 +11308,10 @@
          `(mvset ,info (,mdcl ,t0? ,t1 ...) (,t* ...) ((,x** ...) ...)
                  ,(flatten-mvclauses x** interface* l*))]
         [(set! ,is-fp ,[lvalue] ,[rhs])
-         (if is-fp
+         (if (and is-fp
+                  (nanopass-case (L12 Rhs) rhs
+                    [(mvcall ,info ,mdcl ,t0? ,t1* ... (,t* ...)) #f]
+                    [else #t]))
              `(set-fp! ,lvalue ,rhs)
              `(set! ,lvalue ,rhs))]))
 
