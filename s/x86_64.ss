@@ -1300,7 +1300,7 @@
   (define-op sse.cvttsd2si sse-op1 #xF2 #x2C 1)
   (define-op sse.cvtsi2sd  sse-op1 #xF2 #x2A 1)
   (define-op sse.divsd     sse-op1 #xF2 #x5E 0)
-  (define-op sse.movd      sse-op2 #x66 #x7E #x6E 1)
+  (define-op sse.movd      sse-op2 #x66 #x6E #x7E 1)
   (define-op sse.movsd     sse-op2 #xF2 #x10 #x11 0)
   (define-op sse.movss     sse-op2 #xF3 #x10 #x11 0)
   (define-op sse.mulsd     sse-op1 #xF2 #x59 0)
