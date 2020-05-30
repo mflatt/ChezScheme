@@ -901,12 +901,12 @@
   (define-instruction value (fpcastto)
     [(op (x mem) (y fpur)) `(set! ,(make-live-info) ,x (asm ,info ,asm-fpmove ,y))]
     [(op (x ur) (y fpmem)) `(set! ,(make-live-info) ,x (asm ,info ,asm-move ,y))]
-    [(op (x ur) (y fpur)) `(set! ,(make-live-info) ,x (asm ,info ,(asm-fpcast 0) ,y))])
+    [(op (x ur) (y fpur)) `(set! ,(make-live-info) ,x (asm ,info ,asm-fpcast ,y))])
 
   (define-instruction value (fpcastfrom)
     [(op (x fpmem) (y ur)) `(set! ,(make-live-info) ,x (asm ,info ,asm-move ,y))]
     [(op (x fpur) (y mem)) `(set! ,(make-live-info) ,x (asm ,info ,asm-fpmove ,y))]
-    [(op (x fpur) (y ur)) `(set! ,(make-live-info) ,x (asm ,info ,(asm-fpcast 1) ,y))])
+    [(op (x fpur) (y ur)) `(set! ,(make-live-info) ,x (asm ,info ,asm-fpcast ,y))])
 
   (define-instruction value (fp+ fp- fp* fp/)
     [(op (x fpur) (y fpmem fpur) (z fpmem fpur))
@@ -1137,6 +1137,9 @@
       [(x) (record-case x [(reg) r #t] [else #f])]
       [(x reg) (record-case x [(reg) r (eq? r reg)] [else #f])]))
 
+  (define ax-fp-register?
+    (lambda (x) (record-case x [(reg) r (eq? 'fp (reg-type r))] [else #f])))
+
   (define ax-ea-reg-code
     (lambda (ea)
       (record-case ea
@@ -1297,7 +1300,7 @@
   (define-op sse.cvttsd2si sse-op1 #xF2 #x2C 1)
   (define-op sse.cvtsi2sd  sse-op1 #xF2 #x2A 1)
   (define-op sse.divsd     sse-op1 #xF2 #x5E 0)
-  (define-op sse.movd      sse-op2 #x66 #x6E #x7E)
+  (define-op sse.movd      sse-op2 #x66 #x7E #x6E 1)
   (define-op sse.movsd     sse-op2 #xF2 #x10 #x11 0)
   (define-op sse.movss     sse-op2 #xF3 #x10 #x11 0)
   (define-op sse.mulsd     sse-op1 #xF2 #x59 0)
@@ -1320,7 +1323,7 @@
   (define sse-op2
     (lambda (op prefix-code dstreg-op-code srcreg-op-code w source dest code*)
       (cond
-        [(ax-register? source)
+        [(ax-fp-register? source)
          (emit-code (op source dest code*)
            (build byte prefix-code)
            (ax-ea-rex w dest source #f)
@@ -1329,7 +1332,7 @@
            (ax-ea-modrm-reg dest source)
            (ax-ea-sib dest)
            (ax-ea-addr-disp dest))]
-        [(ax-register? dest)
+        [(ax-fp-register? dest)
          (emit-code (op source dest code*)
            (build byte prefix-code)
            (ax-ea-rex w source dest #f)
@@ -2038,7 +2041,7 @@
   (define asm-get-double
     (lambda (flreg)
       (lambda (code* dst)
-        (emit sse.movd 0 (cons 'reg flreg) (cons 'reg dst) code*))))
+        (emit sse.movd (cons 'reg flreg) (cons 'reg dst) code*))))
 
   (define asm-fpt
     (lambda (code* dest src)
@@ -2079,10 +2082,9 @@
         (emit sse.movsd src dest code*))))
 
   (define asm-fpcast
-    (lambda (direction)
-      (lambda (code* dest src)
-        (Trivit (dest src)
-          (emit sse.movd direction src dest code*)))))
+    (lambda (code* dest src)
+      (Trivit (dest src)
+        (emit sse.movd src dest code*))))
 
   (define asm-trunc
     (lambda (code* dest flonumreg)
