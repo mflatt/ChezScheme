@@ -500,11 +500,11 @@
     (define-syntax define-reserved-registers
       (lambda (x)
         (syntax-case x ()
-          [(_ [regid alias ... callee-save? mdinfo] ...)
+          [(_ [regid alias ... callee-save? mdinfo type] ...)
            (syntax-case #'(regid ...) (%tc %sfp) [(%tc %sfp . others) #t] [_ #f])
            #'(begin
                (begin
-                 (define regid (make-reg 'regid 'mdinfo (tc-disp regid) callee-save?))
+                 (define regid (make-reg 'regid 'mdinfo (tc-disp regid) callee-save? 'type))
                  (module (alias ...) (define x regid) (define alias x) ...))
                ...)])))
 
@@ -512,17 +512,27 @@
       (lambda (x)
         (assert (fx<= (constant asm-arg-reg-cnt) (constant asm-arg-reg-max)))
         (syntax-case x ()
-          [(_ regvec arg-registers extra-registers with-initialized-registers [regid reg-alias ... callee-save? mdinfo] ...)
-           (with-syntax ([((tc-disp ...) (arg-regid ...) (extra-regid ...))
-                          (syntax-case #'(regid ...) (%ac0 %xp %ts %td)
-                            [(%ac0 %xp %ts %td other ...)
+          [(_ regvec arg-registers extra-registers extra-fpregisters with-initialized-registers
+              [regid reg-alias ... callee-save? mdinfo type] ...)
+           (with-syntax ([((tc-disp ...) (arg-regid ...) (extra-regid ...) (extra-fpregid ...))
+                          (syntax-case #'([regid type] ...) (%ac0 %xp %ts %td uptr)
+                            [([%ac0 _] [%xp _] [%ts _] [%td _] [other other-type] ...)
                              (let f ([other* #'(other ...)]
+                                     [other-type* #'(other-type ...)]
                                      [rtc-disp* '()]
                                      [arg-offset (constant tc-arg-regs-disp)]
-                                     [rextra* '()])
+                                     [fp-offset (constant tc-fpregs-disp)]
+                                     [rextra* '()]
+                                     [rfpextra* '()])
                                (if (null? other*)
-                                   (if (fx= (length rextra*) (constant asm-arg-reg-max))
-                                       (let ([extra* (reverse rextra*)])
+                                   (cond
+                                     [(not (fx= (length rextra*) (constant asm-arg-reg-max)))
+                                      (syntax-error x (format "asm-arg-reg-max extra registers are not specified ~s" (syntax->datum rextra*)))]
+                                     [(not (fx= (length rfpextra*) (constant asm-fpreg-max)))
+                                      (syntax-error x (format "asm-fpreg-max extra registers are not specified ~s" (syntax->datum rfpextra*)))]
+                                     [else
+                                       (let ([extra* (reverse rextra*)]
+                                             [fpextra* (reverse rfpextra*)])
                                          (list
                                            (list*
                                              (constant tc-ac0-disp)
@@ -531,14 +541,17 @@
                                              (constant tc-td-disp)
                                              (reverse rtc-disp*))
                                            (list-head extra* (constant asm-arg-reg-cnt))
-                                           (list-tail extra* (constant asm-arg-reg-cnt))))
-                                       (syntax-error x (format "asm-arg-reg-max extra registers are not specified ~s" (syntax->datum rextra*))))
+                                           (list-tail extra* (constant asm-arg-reg-cnt))
+                                           fpextra*))])
                                    (let ([other (car other*)])
                                      (if (memq (syntax->datum other) '(%ac1 %yp %cp %ret))
-                                         (f (cdr other*) (cons #`(tc-disp #,other) rtc-disp*)
-                                            arg-offset rextra*)
-                                         (f (cdr other*) (cons arg-offset rtc-disp*)
-                                            (fx+ arg-offset (constant ptr-bytes)) (cons other rextra*))))))]
+                                         (f (cdr other*) (cdr other-type*) (cons #`(tc-disp #,other) rtc-disp*)
+                                            arg-offset fp-offset rextra* rfpextra*)
+                                         (if (eq? (syntax->datum (car other-type*)) 'fp)
+                                             (f (cdr other*) (cdr other-type*) (cons fp-offset rtc-disp*)
+                                                arg-offset (fx+ fp-offset 8) rextra* (cons other rfpextra*))
+                                             (f (cdr other*) (cdr other-type*) (cons arg-offset rtc-disp*)
+                                                (fx+ arg-offset (constant ptr-bytes)) fp-offset (cons other rextra*) rfpextra*))))))]
                             [_ (syntax-error x "missing or out-of-order required registers")])]
                          [(regid-loc ...) (generate-temporaries #'(regid ...))])
              #'(begin
@@ -560,36 +573,39 @@
                  (define-squawking-parameter regvec regvec-loc)
                  (define-squawking-parameter arg-registers arg-registers-loc)
                  (define-squawking-parameter extra-registers extra-registers-loc)
+                 (define-squawking-parameter extra-fpregisters extra-fpregisters-loc)
                  (define-syntax with-initialized-registers
                    (syntax-rules ()
                      [(_ b1 b2 (... ...))
-                      (parameterize ([regid-loc (make-reg 'regid 'mdinfo tc-disp callee-save?)] ...)
+                      (parameterize ([regid-loc (make-reg 'regid 'mdinfo tc-disp callee-save? 'type)] ...)
                         (parameterize ([regvec-loc (vector regid ...)]
                                        [arg-registers-loc (list arg-regid ...)]
-                                       [extra-registers-loc (list extra-regid ...)])
+                                       [extra-registers-loc (list extra-regid ...)]
+                                       [extra-fpregisters-loc (list extra-fpregid ...)])
                           (let () b1 b2 (... ...))))]))))])))
 
     (define-syntax define-machine-dependent-registers
       (lambda (x)
         (syntax-case x ()
-          [(_ [regid alias ... callee-save? mdinfo] ...)
+          [(_ [regid alias ... callee-save? mdinfo type] ...)
            #'(begin
                (begin
-                 (define regid (make-reg 'regid 'mdinfo #f callee-save?))
+                 (define regid (make-reg 'regid 'mdinfo #f callee-save? 'type))
                  (module (alias ...) (define x regid) (define alias x) ...))
                ...)])))
 
     (define-syntax define-registers
       (lambda (x)
         (syntax-case x (reserved allocable machine-dependent)
-          [(k (reserved [rreg rreg-alias ... rreg-callee-save? rreg-mdinfo] ...)
-              (allocable [areg areg-alias ... areg-callee-save? areg-mdinfo] ...)
-              (machine-depdendent [mdreg mdreg-alias ... mdreg-callee-save? mdreg-mdinfo] ...))
-           (with-implicit (k regvec arg-registers extra-registers real-register? with-initialized-registers)
+          [(k (reserved [rreg rreg-alias ... rreg-callee-save? rreg-mdinfo rreg-type] ...)
+              (allocable [areg areg-alias ... areg-callee-save? areg-mdinfo areg-type] ...)
+              (machine-depdendent [mdreg mdreg-alias ... mdreg-callee-save? mdreg-mdinfo mdreg-type] ...))
+           (with-implicit (k regvec arg-registers extra-registers extra-fpregisters real-register? with-initialized-registers)
              #`(begin
-                 (define-reserved-registers [rreg rreg-alias ... rreg-callee-save? rreg-mdinfo] ...)
-                 (define-allocable-registers regvec arg-registers extra-registers with-initialized-registers [areg areg-alias ... areg-callee-save? areg-mdinfo] ...)
-                 (define-machine-dependent-registers [mdreg mdreg-alias ... mdreg-callee-save? mdreg-mdinfo] ...)
+                 (define-reserved-registers [rreg rreg-alias ... rreg-callee-save? rreg-mdinfo rreg-type] ...)
+                 (define-allocable-registers regvec arg-registers extra-registers extra-fpregisters with-initialized-registers
+                   [areg areg-alias ... areg-callee-save? areg-mdinfo areg-type] ...)
+                 (define-machine-dependent-registers [mdreg mdreg-alias ... mdreg-callee-save? mdreg-mdinfo mdreg-type] ...)
                  (define-syntax real-register?
                    (with-syntax ([real-reg* #''(rreg ... rreg-alias ... ... areg ... areg-alias ... ... mdreg ... mdreg-alias ... ...)])
                      (syntax-rules ()
@@ -598,7 +614,7 @@
     (architecture registers)
 
     ; pseudo register used for mref's with no actual index
-    (define %zero (make-reg 'zero #f #f #f))
+    (define %zero (make-reg 'zero #f #f #f #f))
 
     ; define %ref-ret to be sfp[0] on machines w/no ret register
     (define-syntax %ref-ret
@@ -624,6 +640,12 @@
       (lambda ()
         (make-libspec-label 'event-detour (lookup-libspec event-detour)
           (reg-cons* %ret %cp %ac0 arg-registers))))
+
+    ;; Both 'fp or both not
+    (define (compatible-var-types? t1 t2)
+      (cond
+        [(eq? t1 'fp) (eq? t2 'fp)]
+        [else (not (eq? t2 'fp))]))
 
     (module (frame-vars get-fv get-ptr-fv get-ret-fv compatible-fv?)
       (define-threaded frame-vars)
@@ -659,9 +681,7 @@
           (get-ptr-fv 0)))
       (define (compatible-fv? fv type)
         (and (not (eq? (fv-type fv) 'reserved))
-             (cond
-               [(eq? type 'fp) (eq? (fv-type fv) 'fp)]
-               [else (not (eq? (fv-type fv) 'fp))]))))
+             (compatible-var-types? (fv-type fv) type))))
 
     (define-syntax reg-cons*
       (lambda (x)
@@ -722,10 +742,10 @@
                  #`(cons* (ref-reg in) ...
                      #,(if (memq 'scheme-args in*)
                            (if (memq 'extra-regs in*)
-                               #'(append arg-registers extra-registers)
+                               #'(append arg-registers extra-registers extra-fpregisters)
                                #'arg-registers)
                            (if (memq 'extra-regs in*)
-                               #'extra-registers
+                               #'(append extra-registers extra-fpregisters)
                                #''())))))])))
       (define-syntax get-tcslot
         (lambda (x)
@@ -733,7 +753,7 @@
             [(_ k reg)
              (with-implicit (k in-context %mref)
                #'(in-context Lvalue
-                   (%mref ,%tc ,(reg-tc-disp reg))))])))
+                   (%mref ,%tc ,%zero ,(reg-tc-disp reg) ,(reg-type reg))))])))
       (define-syntax $save-scheme-state
         (lambda (x)
           (syntax-case x ()
@@ -2916,9 +2936,7 @@
          (Expr body)
          (for-each (lambda (x)
                      (when (eq? (uvar-type x) 'fp)
-                       (uvar-location-set! x #f)
-                       (uvar-spilled! x #t)
-                       (uvar-poison! x #t)))
+                       (uvar-location-set! x #f)))
                    x*)
          ir]
         [(call ,info ,mdcl ,pr ,e* ...)
@@ -15542,7 +15560,8 @@
               (unless (libspec-label? l) (local-label-iteration-set! l 1))))
           (define (fp-lvalue? lvalue)
             (nanopass-case (L16 Lvalue) lvalue
-              [,x (and (uvar? x) (eq? (uvar-type x) 'fp))]
+              [,x (or (and (uvar? x) (eq? (uvar-type x) 'fp))
+                      (and (reg? x) (eq? (reg-type x) 'fp)))]
               [(mref ,x1 ,x2 ,imm ,type) (eq? type 'fp)]))
           (define LambdaBody
             (lambda (entry-block* block* func)
@@ -16691,13 +16710,16 @@
             block*)
           `(dummy)))
 
+      ;; updates live-variable info as instructions are expanded
       (module (select-instructions!)
         (define make-tmp
-          (lambda (x)
+          (case-lambda
+           [(x) (make-tmp x 'uptr)]
+           [(x type)
             (import (only np-languages make-unspillable))
-            (let ([tmp (make-unspillable x)])
+            (let ([tmp (make-unspillable x type)])
               (set! unspillable* (cons tmp unspillable*))
-              tmp)))
+              tmp)]))
         (define make-restricted-unspillable
           (lambda (x reg*)
             (import (only np-languages make-restricted-unspillable))
@@ -16911,7 +16933,8 @@
                     e*)))
             (define (fp-lvalue? lvalue)
               (nanopass-case (L15c Lvalue) lvalue
-                [,x (and (uvar? x) (eq? (uvar-type x) 'fp))]
+                [,x (or (and (uvar? x) (eq? (uvar-type x) 'fp))
+                        (and (reg? x) (eq? (reg-type x) 'fp)))]
                 [(mref ,lvalue1 ,lvalue2 ,imm ,type) (eq? type 'fp)])))
           (Rhs : Rhs (ir lvalue new-effect* live) -> * (new-effect*)
             [(inline ,info ,value-prim ,t* ...)
@@ -17061,6 +17084,8 @@
           (define Effect*
             (lambda (e* unspillable*)
               (if (null? e*)
+                  ;; If this assertion fails, then an unspillable was referenced
+                  ;; without a preceding assignment:
                   (safe-assert (null? unspillable*))
                   (Effect* (cdr e*)
                     (nanopass-case (L15d Effect) (car e*)
@@ -17115,7 +17140,12 @@
 
       (define-who assign-registers!
         (lambda (lambda-info varvec unvarvec)
-          (define k (vector-length regvec))
+          (define total-k (vector-length regvec))
+          (define ptr-k (let loop ([ptr-k total-k])
+                          (if (eq? (reg-type (vector-ref regvec (fx- ptr-k 1))) 'fp)
+                              (loop (fx- ptr-k 1))
+                              ptr-k)))
+          (define fp-k (fx- total-k ptr-k))
           (define uvar-weight
             (lambda (x)
               (fx- (uvar-ref-weight x) (uvar-save-weight x))))
@@ -17149,8 +17179,9 @@
             (lambda (x)
               (define conflict?
                 (lambda (reg x)
-                  (let ([cset (if (uvar-unspillable? x) (var-unspillable-conflict* reg) (var-spillable-conflict* reg))])
-                    (conflict-bit-set? cset (var-index x)))))
+                  (or (not (compatible-var-types? (reg-type reg) (uvar-type x)))
+                      (let ([cset (if (uvar-unspillable? x) (var-unspillable-conflict* reg) (var-spillable-conflict* reg))])
+                        (conflict-bit-set? cset (var-index x))))))
               (define find-move-related-home
                 (lambda (x0 succ fail)
                   (let f ([x x0] [work* '()] [clear-seen! void])
@@ -17186,17 +17217,19 @@
               (find-move-related-home x
                 set-home!
                 (lambda ()
-                  (let f ([offset (fx- k 1)])
+                  (let f ([offset (fx- total-k 1)])
                     (cond
                       [(fx< offset 0)
                        (uvar-spilled! x #t)
                        (when (uvar-unspillable? x)
-                         (sorry! who "spilled unspillable ~s" x))]
+                         (sorry! who "spilled unspillable ~s in ~s" x lambda-info))]
                       [(conflict? (vector-ref regvec offset) x) (f (fx- offset 1))]
                       [else (set-home! (vector-ref regvec offset))]))))))
           (define pick-victims
             (lambda (x*)
-              (define low-degree? (lambda (x) (fx< (uvar-degree x) k)))
+              (define low-degree? (lambda (x) (fx< (uvar-degree x) (if (eq? (uvar-type x) 'fp)
+                                                                       fp-k
+                                                                       ptr-k))))
               (define pick-potential-spill
                 ; x* is already sorted by weight, so this effectively picks uvar with
                 ; the highest degree among those with the lowest weight
@@ -17531,7 +17564,8 @@
                                (let* ([kunspillable (length unspillable*)] [unvarvec (make-vector kunspillable)])
                                  ; set up var indices & unvarvec mapping from indices to unspillables
                                  (fold-left (lambda (i x) (var-index-set! x i) (vector-set! unvarvec i x) (fx+ i 1)) 0 unspillable*)
-                                 ; rerun intra-block live analysis and record (reg v spillable v unspillable) x unspillable conflicts
+                                 ; select-instrcutions! kept intra-block live analysis up-to-date, so now
+                                 ; record (reg v spillable v unspillable) x unspillable conflicts
                                  (RApass unparse-L15d do-unspillable-conflict! kfv kspillable varvec live-size kunspillable unvarvec block*)
                                  #;(show-conflicts (info-lambda-name info) varvec unvarvec)
                                  (RApass unparse-L15d assign-registers! info varvec unvarvec)

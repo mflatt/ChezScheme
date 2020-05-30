@@ -1453,7 +1453,8 @@
    [void* lz4-out-buffer]
    [U64 instr-counter]
    [U64 alloc-counter]
-   [ptr parameters]))
+   [ptr parameters]
+   [double fpregs (constant asm-fpreg-max)]))
 
 (define tc-field-list
   (let f ([ls (oblist)] [params '()])

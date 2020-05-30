@@ -35,7 +35,7 @@
     uvar-degree uvar-degree-set!
     uvar-info-lambda uvar-info-lambda-set!
     uvar-iii uvar-iii-set!
-    ur?
+    ur? fpur?
     block make-block block? block-label block-effect* block-src* block-pseudo-src block-in-link* block-flags
     block-label-set! block-effect*-set! block-src*-set! block-pseudo-src-set! block-in-link*-set! block-flags-set! 
     block-live-in block-live-in-set! block-fp-offset block-fp-offset-set!
@@ -57,7 +57,7 @@
     live-info make-live-info live-info-live live-info-live-set! live-info-useless live-info-useless-set!
     primitive-pure? primitive-type primitive-handler primitive-handler-set!
     %primitive value-primitive? pred-primitive? effect-primitive?
-    fv? $make-fv make-reg reg? reg-name reg-tc-disp reg-callee-save? reg-mdinfo
+    fv? $make-fv make-reg reg? reg-name reg-tc-disp reg-callee-save? reg-mdinfo reg-type
     reg-precolored reg-precolored-set!
     label? label-name
     libspec-label? make-libspec-label libspec-label-libspec libspec-label-live-reg*
@@ -107,13 +107,13 @@
 
   (define-record-type reg
     (parent var)
-    (fields name mdinfo tc-disp callee-save? (mutable precolored))
+    (fields name mdinfo tc-disp callee-save? type (mutable precolored))
     (nongenerative)
     (sealed #t)
     (protocol
       (lambda (pargs->new)
-        (lambda (name mdinfo tc-disp callee-save?)
-          ((pargs->new) name mdinfo tc-disp callee-save? #f)))))
+        (lambda (name mdinfo tc-disp callee-save? type)
+          ((pargs->new) name mdinfo tc-disp callee-save? type #f)))))
 
   (module ()
     (record-writer (record-type-descriptor reg)
@@ -200,16 +200,14 @@
   (define make-tmp
     (case-lambda
       [(name) (make-tmp name 'ptr)]
-      [(name type) ($make-uvar name #f type '() (if (eq? type 'fp)
-                                                    (uvar-flags-mask referenced spilled poison)
-                                                    (uvar-flags-mask referenced)))]))
+      [(name type) ($make-uvar name #f type '() (uvar-flags-mask referenced))]))
   (define make-assigned-tmp
     (case-lambda
       [(name) (make-assigned-tmp name 'ptr)]
       [(name type) ($make-uvar name #f type '() (uvar-flags-mask referenced assigned))]))
   (define make-unspillable
-    (lambda (name)
-      ($make-uvar name #f 'ptr '() (uvar-flags-mask referenced unspillable))))
+    (lambda (name type)
+      ($make-uvar name #f type '() (uvar-flags-mask referenced unspillable))))
   (define make-cpvar
     (lambda ()
       (include "types.ss")
@@ -1071,6 +1069,13 @@
   (define ur?
     (lambda (x)
       (or (reg? x) (uvar? x))))
+
+  (define fpur?
+    (lambda (x)
+      (or (and (reg? x)
+               (eq? (reg-type x) 'fp))
+          (and (uvar? x)
+               (eq? (uvar-type x) 'fp)))))
 
   (define-language L15c (extends L15b)
     (terminals
