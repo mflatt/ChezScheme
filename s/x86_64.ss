@@ -41,9 +41,10 @@
     (machine-dependent
       [%Cfparg1 %Cfpretval #f  0 fp]
       [%Cfparg2            #f  1 fp]
-      [%flreg1             #f  4 fp]  ; xmm 0-5 are caller-save
-      [%flreg2             #f  5 fp]  ; xmm 6-15 are callee-save
-      [%sp                 #t  4 fp]))
+      [%fptmp1             #f  4 fp]  ; xmm 0-5 are caller-save
+      [%fptmp2             #f  5 fp]  ; xmm 6-15 are callee-save
+      [%sp                 #t  4 fp])
+    (reify-support %ts))
   (define-registers
     (reserved
       [%tc  %r14           #t 14 uptr]
@@ -74,9 +75,10 @@
       [%Cfparg6            #f  5 fp]
       [%Cfparg7            #f  6 fp]
       [%Cfparg8            #f  7 fp]
-      [%flreg1             #f  8 fp]
-      [%flreg2             #f  9 fp]
-      [%sp                 #t  4 uptr])))
+      [%fptmp1             #f  8 fp]
+      [%fptmp2             #f  9 fp]
+      [%sp                 #t  4 uptr])
+    (reify-support %ts)))
 
 ;;; SECTION 2: instructions
 (module (md-handle-jump) ; also sets primitive handlers
@@ -111,12 +113,6 @@
       (syntax-case stx (mem fpmem)
         [(_ mem e) #'(lmem? e)]
         [(_ fpmem e) #'(fpmem? e)])))
-
-  (define literal-flonum?
-    (lambda (x)
-      (nanopass-case (L15c Triv) x
-        [(literal ,info) (flonum? (info-literal-addr info))]
-        [else #f])))
 
   (define real-imm32?
     (lambda (x)
@@ -2067,9 +2063,9 @@
              (emit-it src1 dest-reg code*))]
           [else
            (Trivit (dest-reg src1 src2)
-             (emit sse.movsd src2 (cons 'reg %flreg1)
+             (emit sse.movsd src2 (cons 'reg %fptmp1)
                    (emit sse.movsd src1 dest-reg
-                         (emit-it (cons 'reg %flreg1) dest-reg code*))))]))))
+                         (emit-it (cons 'reg %fptmp1) dest-reg code*))))]))))
 
   (define asm-fpsqrt
     (lambda (code* dest-reg src)
@@ -2866,14 +2862,14 @@
                   (lambda (offset)
                     (lambda (x) ; requires var
                       (%seq
-                        (inline ,(make-info-loadfl %flreg1) ,%load-double ,x ,%zero ,(%constant flonum-data-disp))
-                        (inline ,(make-info-loadfl %flreg1) ,%store-double ,%sp ,%zero (immediate ,offset)))))]
+                        (inline ,(make-info-loadfl %fptmp1) ,%load-double ,x ,%zero ,(%constant flonum-data-disp))
+                        (inline ,(make-info-loadfl %fptmp1) ,%store-double ,%sp ,%zero (immediate ,offset)))))]
                  [load-single-stack
                   (lambda (offset)
                     (lambda (x) ; requires var
                       (%seq
-                        (inline ,(make-info-loadfl %flreg1) ,%load-double->single ,x ,%zero ,(%constant flonum-data-disp))
-                        (inline ,(make-info-loadfl %flreg1) ,%store-single ,%sp ,%zero (immediate ,offset)))))]
+                        (inline ,(make-info-loadfl %fptmp1) ,%load-double->single ,x ,%zero ,(%constant flonum-data-disp))
+                        (inline ,(make-info-loadfl %fptmp1) ,%store-single ,%sp ,%zero (immediate ,offset)))))]
                  [load-int-stack
                   (lambda (offset)
                     (lambda (rhs) ; requires rhs
@@ -3327,14 +3323,14 @@
             (lambda (offset)
               (lambda (x) ; requires var
                 (%seq
-                  (inline ,(make-info-loadfl %flreg1) ,%load-double ,%sp ,%zero (immediate ,offset))
-                  (inline ,(make-info-loadfl %flreg1) ,%store-double ,x ,%zero ,(%constant flonum-data-disp))))))
+                  (inline ,(make-info-loadfl %fptmp1) ,%load-double ,%sp ,%zero (immediate ,offset))
+                  (inline ,(make-info-loadfl %fptmp1) ,%store-double ,x ,%zero ,(%constant flonum-data-disp))))))
           (define load-single-stack
             (lambda (offset)
               (lambda (x) ; requires var
                 (%seq
-                  (inline ,(make-info-loadfl %flreg1) ,%load-single->double ,%sp ,%zero (immediate ,offset))
-                  (inline ,(make-info-loadfl %flreg1) ,%store-double ,x ,%zero ,(%constant flonum-data-disp))))))
+                  (inline ,(make-info-loadfl %fptmp1) ,%load-single->double ,%sp ,%zero (immediate ,offset))
+                  (inline ,(make-info-loadfl %fptmp1) ,%store-double ,x ,%zero ,(%constant flonum-data-disp))))))
           (define load-int-stack
             (lambda (type offset)
               (lambda (lvalue)
