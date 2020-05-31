@@ -1224,6 +1224,7 @@
   (define-op sse.xorpd     sse-op1 #x66 #x57)
   (define-op sse.psllq     sse-shift 6)
   (define-op sse.psrlq     sse-shift 2)
+  (define-op sse.orpd      sse-op1 #x66 #x56)
 
   (define sse-op1
     (lambda (op prefix-code op-code source dest-reg code*)
@@ -1891,7 +1892,7 @@
         (emit sse.movd src1 dest-reg
           (emit sse.movd src2 (cons 'reg %flreg1)
             (emit sse.psllq (cons 'reg %flreg1) 32
-              (emit sse.addsd (cons 'reg %flreg1) dest-reg code*)))))))
+              (emit sse.orpd (cons 'reg %flreg1) dest-reg code*)))))))
 
   (define asm-fpcastto
     (lambda (shift)
