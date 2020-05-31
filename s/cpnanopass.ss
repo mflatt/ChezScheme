@@ -7664,7 +7664,7 @@
                                             (lambda (e1 e2 . e*) (reducer src sexpr moi e1 e2 e*)))])
                            (define-inline 2 r6rs:op
                              [(e1 e2) (build-bind-and-check src sexpr r6rs:op e1 e2 (builder args ...))]
-                             [(e1 e2 . e*) (build-check-fp-arguments src sexpr (cons* e1 e2 e*)
+                             [(e1 e2 . e*) (build-check-fp-arguments (cons* e1 e2 e*)
                                             (lambda (e1 e2) (build-libcall #t src sexpr op e1 e2))
                                             (lambda (e1 e2 . e*) (reducer src sexpr moi e1 e2 e*)))])))])))
 
