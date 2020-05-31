@@ -4270,7 +4270,15 @@
                        (if (null? e*)
                            e
                            (reduce #f (moi src sexpr #f (list e (car e*))) (cdr e*)))))))))
-        (define reduce-fp
+        (define reduce-fp-compare ; suitable for arguments known or assumed to produce flonums
+          (lambda (reduce)
+            (lambda (src sexpr moi e1 e2 e*)
+              (and (fx<= (length e*) (fx- inline-args-limit 2))
+                   (bind #t fp (e1)
+                     (bind #f fp (e2)
+                       (list-bind #f fp (e*)
+                          (reduce src sexpr moi e1 e2 e*))))))))
+        (define reduce-fp ; specialized reducer supports unboxing for nesting
           (lambda (src sexpr level name e e*)
             (and (fx<= (length e*) (fx- inline-args-limit 1))
                  (let ([pr (lookup-primref level name)])
@@ -7569,8 +7577,8 @@
                     [(_ op r6rs:op builder inequality? swapped?)
                      (with-syntax ([(args ...) (if (datum swapped?) #'(e2 e1) #'(e1 e2))]
                                    [reducer (if (datum inequality?)
-                                                #'reduce-inequality
-                                                #'reduce-equality)])
+                                                #'(reduce-fp-compare reduce-inequality)
+                                                #'(reduce-fp-compare reduce-equality))])
                        #'(begin
                            (define-inline 3 op
                              [(e) (build-fl= e)]
@@ -7607,11 +7615,41 @@
                                     (%type-check mask-flonum type-flonum ,e2))
                                   ,body
                                   ,(build-libcall #t src sexpr op e1 e2)))))]))
+              (define build-check-fp-arguments
+                (lambda (e* build-libcall k)
+                  (let loop ([e* e*] [check-e* '()] [all-e* '()])
+                    (cond
+                      [(null? e*)
+                       (let loop ([check-e* (reverse check-e*)])
+                         (cond
+                           [(null? check-e*) (apply k (reverse all-e*))]
+                           [(null? (cdr check-e*))
+                            (let ([e1 (car check-e*)])
+                              `(if ,(%type-check mask-flonum type-flonum ,e1)
+                                   ,(loop '())
+                                   ,(build-libcall e1 e1)))]
+                           [else
+                            (let ([e1 (car check-e*)]
+                                  [e2 (cadr check-e*)])
+                              `(if ,(build-and
+                                     (%type-check mask-flonum type-flonum ,e1)
+                                     (%type-check mask-flonum type-flonum ,e2))
+                                   ,(loop (cddr check-e*))
+                                   ,(build-libcall e1 e2)))]))]
+                      [else
+                       (let ([e1 (car e*)])
+                         (if (known-flonum-result? e1)
+                             (loop (cdr e*) check-e* (cons e1 all-e*))
+                             (bind #t (e1)
+                               (loop (cdr e*) (cons e1 check-e*) (cons e1 all-e*)))))]))))
               (define-syntax define-fl-cmp-inline
                 (lambda (x)
                   (syntax-case x ()
                     [(_ op r6rs:op builder inequality? swapped?)
-                     (with-syntax ([(args ...) (if (datum swapped?) #'(e2 e1) #'(e1 e2))])
+                     (with-syntax ([(args ...) (if (datum swapped?) #'(e2 e1) #'(e1 e2))]
+                                   [reducer (if (datum inequality?)
+                                                #'(reduce-fp-compare reduce-inequality)
+                                                #'(reduce-fp-compare reduce-equality))])
                        #'(begin
                            (define-inline 2 op
                              [(e1) (if (known-flonum-result? e1)
@@ -7621,10 +7659,14 @@
                                               ,(build-fl= e1)
                                               ,(build-libcall #t src sexpr op e1 e1))))]
                              [(e1 e2) (build-bind-and-check src sexpr op e1 e2 (builder args ...))]
-                             [(e1 e2 . e*) #f])
+                             [(e1 e2 . e*) (build-check-fp-arguments (cons* e1 e2 e*)
+                                            (lambda (e1 e2) (build-libcall #t src sexpr op e1 e2))
+                                            (lambda (e1 e2 . e*) (reducer src sexpr moi e1 e2 e*)))])
                            (define-inline 2 r6rs:op
                              [(e1 e2) (build-bind-and-check src sexpr r6rs:op e1 e2 (builder args ...))]
-                             [(e1 e2 . e*) #f])))])))
+                             [(e1 e2 . e*) (build-check-fp-arguments src sexpr (cons* e1 e2 e*)
+                                            (lambda (e1 e2) (build-libcall #t src sexpr op e1 e2))
+                                            (lambda (e1 e2 . e*) (reducer src sexpr moi e1 e2 e*)))])))])))
 
               (define-fl-cmp-inline fl= fl=? build-fl= #f #f)
               (define-fl-cmp-inline fl< fl<? build-fl< #t #f)
