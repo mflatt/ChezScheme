@@ -2607,6 +2607,15 @@
                        (%seq
                         (set! ,loreg ,(%inline fpcastto/lo ,x))
                         (set! ,hireg ,(%inline fpcastto/hi ,x)))))]
+                 [load-boxed-double-reg
+                   (lambda (fpreg fp-disp)
+                     (lambda (x) ; address (always a var) of a flonum
+                       `(set! ,fpreg ,(%mref ,x ,%zero ,(constant flonum-data-disp) fp))))]
+                 [load-boxed-single-reg
+                   (lambda (fpreg fp-disp single?)
+                     (lambda (x) ; address (always a var) of a flonum
+                       (let ([%op (if single? %load-single %double->single)])
+                         `(set! ,fpreg (inline ,null-info ,%op ,(%mref ,x ,%zero ,(constant flonum-data-disp) fp))))))]
                  [load-int-reg
                    (lambda (ireg)
                      (lambda (x)
@@ -2705,7 +2714,7 @@
 					  (loop (cdr types) (cons loc locs) live* int* sgl* #f isp)]
 					 [else
 					  (dbl-loop (fx- size 8) (fx+ offset 8) (cddr sgl*)
-						    (combine-loc loc (load-double-reg (car sgl*) offset)))]))]
+						    (combine-loc loc (load-boxed-double-reg (car sgl*) offset)))]))]
 				     [else
 				      ;; General case; for non-doubles, use integer registers while available,
 				      ;;  possibly splitting between registers and stack
@@ -2741,7 +2750,7 @@
 					    (flt-loop (fx- size 4) (fx+ offset 4)
 						      (if bsgl sgl* (cddr sgl*))
 						      (if bsgl #f (cadr sgl*))
-						      (combine-loc loc (load-single-reg (or bsgl (car sgl*)) offset #t))
+						      (combine-loc loc (load-boxed-single-reg (or bsgl (car sgl*)) offset #t))
                                                       (cons (or bsgl (car sgl*)) live*))]))]
 				       [else
 					;; General case; use integer registers while available,
