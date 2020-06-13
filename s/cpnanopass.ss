@@ -772,7 +772,7 @@
       (define-syntax $save-scheme-state
         (lambda (x)
           (syntax-case x ()
-            [(_ k orig-x filter in out)
+            [(_ k orig-x save? in out)
              (with-implicit (k quasiquote)
                ; although eap might be changed by dirty writes, and esp might be changed by
                ; one-shot continuation handling, we always write through to the tc so that
@@ -782,18 +782,18 @@
                ; out of the save list (but not the restore list below).
                #'(let ([regs-to-save (build-reg-list orig-x (base-in %sfp %ap %trap) in out)])
                    (fold-left (lambda (body reg)
-                                (if (filter reg)
+                                (if (save? reg)
                                     `(seq (set! ,(get-tcslot k reg) ,reg) ,body)
                                     body))
                      `(nop) regs-to-save)))])))
       (define-syntax $restore-scheme-state
         (lambda (x)
           (syntax-case x ()
-            [(_ k orig-x filter in out)
+            [(_ k orig-x save? in out)
              (with-implicit (k quasiquote)
                #'(let ([regs-to-restore (build-reg-list orig-x (base-in %sfp %ap %trap %eap %esp) in out)])
                    (fold-left (lambda (body reg)
-                                (if (filter reg)
+                                (if (save? reg)
                                     `(seq (set! ,reg ,(get-tcslot k reg)) ,body)
                                     body))
                      `(nop) regs-to-restore)))])))
@@ -809,12 +809,12 @@
         (lambda (x)
           (syntax-case x ()
             [(k in out ?body) #`(k (lambda (x) #t) in out ?body)]
-            [(k filter in out ?body)
+            [(k save? in out ?body)
              (with-implicit (k quasiquote %seq)
                #`(%seq
-                   ,($save-scheme-state k #,x filter in out)
+                   ,($save-scheme-state k #,x save? in out)
                    ,?body
-                   ,($restore-scheme-state k #,x filter in out)))]))))
+                   ,($restore-scheme-state k #,x save? in out)))]))))
 
     (define add-caller-save-registers
       ;; Adds alloctable caller-saved registers, since those may be
@@ -11615,7 +11615,7 @@
         (define-$type-check (L13 Pred))
         (define make-tmp
           (case-lambda
-           [(x) (make-tmp x 'uptr)]
+           [(x) (make-tmp x 'ptr)]
            [(x type)
             (import (only np-languages make-tmp))
             (let ([x (make-tmp x type)])

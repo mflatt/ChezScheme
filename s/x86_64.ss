@@ -129,6 +129,7 @@
 
   (define lvalue->ur
     (lambda (x k)
+      (safe-assert (not (fpmem? x)))
       (if (mref? x)
           (let ([u (make-tmp 'u)])
             (seq

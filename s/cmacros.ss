@@ -795,7 +795,7 @@
 (define-constant iptr most-positive-fixnum
                  (- (expt 2 (- (constant fixnum-bits) 1)) 1))
 (define-constant iptr most-negative-fixnum
-  (- (expt 2 (- (constant fixnum-bits) 1))))
+                 (- (expt 2 (- (constant fixnum-bits) 1))))
 
 (define-constant double too-negative-flonum-for-fixnum
   (cond

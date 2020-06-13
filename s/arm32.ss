@@ -742,7 +742,7 @@
      `(asm ,info ,asm-fpmove-single ,x ,y)])
 
   (define-instruction value (load-single)
-    [(op (x fpur) (y fpmem))
+    [(op (x fpur) (y fpmem fpur))
      `(set! ,(make-live-info) ,x (asm ,info ,asm-fpmove-single ,y))])
 
   (define-instruction value (single->double double->single)
@@ -2603,13 +2603,10 @@
                          `(set! ,fpreg (inline ,null-info ,%op ,x)))))]
                  [load-double-int-reg
                    (lambda (loreg hireg)
-                     (lambda (x) ; requires var
-                       (let-values ([(endreg otherreg) (constant-case native-endianness
-                                                         [(little) (values loreg hireg)]
-                                                         [(big) (values hireg loreg)])])
-                         (%seq
-                          (set! ,endreg ,(%mref ,x ,(constant flonum-data-disp)))
-                          (set! ,otherreg ,(%mref ,x ,(fx+ 4 (constant flonum-data-disp))))))))]
+                     (lambda (x) ; unboxed
+                       (%seq
+                        (set! ,loreg ,(%inline fpcastto/lo ,x))
+                        (set! ,hireg ,(%inline fpcastto/hi ,x)))))]
                  [load-int-reg
                    (lambda (ireg)
                      (lambda (x)
