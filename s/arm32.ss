@@ -2557,14 +2557,12 @@
         (define int-regs (lambda () (list %Carg1 %Carg2 %Carg3 %Carg4)))
         (letrec ([load-double-stack
                    (lambda (offset)
-                     (lambda (x) ; requires var
-                      `(set! ,(%mref ,%sp ,%zero ,offset fp)
-                             ,(%mref ,x ,%zero ,(constant flonum-data-disp) fp))))]
+                     (lambda (x) ; unboxed
+                      `(set! ,(%mref ,%sp ,%zero ,offset fp) ,x)))]
                  [load-single-stack
                    (lambda (offset)
-                     (lambda (x) ; requires var
-                      (%inline store-double->single ,(%mref ,%sp ,%zero ,offset fp)
-                               ,(%mref ,x ,%zero ,(constant flonum-data-disp) fp))))]
+                     (lambda (x) ; unboxed
+                      (%inline store-double->single ,(%mref ,%sp ,%zero ,offset fp) ,x)))]
                  [load-int-stack
                    (lambda (offset)
                      (lambda (rhs) ; requires rhs
@@ -2596,13 +2594,13 @@
 			(set! ,(%mref ,%sp ,(fx+ offset 4)) ,(%mref ,x ,(fx+ from-offset 4))))))]
                  [load-double-reg
                    (lambda (fpreg fp-disp)
-                     (lambda (x) ; requires var
-                       `(set! ,fpreg ,(%mref ,x ,%zero ,fp-disp fp))))]
+                     (lambda (x) ; unboxed
+                       `(set! ,fpreg ,x)))]
                  [load-single-reg
                    (lambda (fpreg fp-disp single?)
-                     (lambda (x) ; requires var
+                     (lambda (x) ; unboxed
                        (let ([%op (if single? %load-single %double->single)])
-                         `(set! ,fpreg (inline ,null-info ,%op ,(%mref ,x ,%zero ,fp-disp fp))))))]
+                         `(set! ,fpreg (inline ,null-info ,%op ,x)))))]
                  [load-double-int-reg
                    (lambda (loreg hireg)
                      (lambda (x) ; requires var
@@ -2877,27 +2875,25 @@
 			  ;; stash extra argument on the stack to be retrieved after call and filled with the result:
 			  (cons (load-int-stack args-frame-size) locs)]
 			 [else locs]))
-                      (lambda (t0)
+                      (lambda (t0 not-varargs?)
 			(add-fill-result fill-result-here? result-type args-frame-size
-			  `(inline ,(make-info-kill*-live* result-reg* live*) ,%c-call ,t0)))
+			  `(inline ,(make-info-kill*-live* (add-caller-save-registers result-reg*) live*) ,%c-call ,t0)))
                       (nanopass-case (Ltype Type) result-type
                         [(fp-double-float)
                          (if varargs?
-                             (lambda (lvalue)
-                               `(set! ,(%mref ,lvalue ,%zero ,(constant flonum-data-disp) fp)
-                                      ,(%inline fpcastfrom ,%r1 ,%Cretval)))
-                             (lambda (lvalue)
-                               `(set! ,(%mref ,lvalue ,%zero ,(constant flonum-data-disp) fp)
-                                      ,%Cfpretval)))]
+                             (lambda (lvalue) ; unboxed
+                               `(set! ,lvalue ,(%inline fpcastfrom ,%r1 ,%Cretval)))
+                             (lambda (lvalue) ; unboxed
+                               `(set! ,lvalue ,%Cfpretval)))]
                         [(fp-single-float)
                          (if varargs?
-                             (lambda (lvalue)
+                             (lambda (lvalue) ; unboxed
                                (let ([t %Cfpretval]) ; should be ok as a temporary register
                                  `(seq
                                    (set! ,t ,(%inline fpcastfrom ,%r1 ,%Cretval)) ; we don't actually care about the hi/%r1 part
-                                   (set! ,(%mref ,lvalue ,%zero ,(constant flonum-data-disp) fp) ,(%inline single->double ,t)))))
-                             (lambda (lvalue)
-                               `(set! ,(%mref ,lvalue ,%zero ,(constant flonum-data-disp) fp) ,(%inline single->double ,%Cfpretval))))]
+                                   (set! ,lvalue ,(%inline single->double ,t)))))
+                             (lambda (lvalue) ; unboxed
+                               `(set! ,lvalue ,(%inline single->double ,%Cfpretval))))]
                         [(fp-integer ,bits)
                          (case bits
                            [(8) (lambda (lvalue) `(set! ,lvalue ,(%inline sext8 ,%r0)))]
