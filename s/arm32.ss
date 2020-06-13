@@ -2593,11 +2593,11 @@
 			(set! ,(%mref ,%sp ,offset) ,(%mref ,x ,from-offset))
 			(set! ,(%mref ,%sp ,(fx+ offset 4)) ,(%mref ,x ,(fx+ from-offset 4))))))]
                  [load-double-reg
-                   (lambda (fpreg fp-disp)
+                   (lambda (fpreg)
                      (lambda (x) ; unboxed
                        `(set! ,fpreg ,x)))]
                  [load-single-reg
-                   (lambda (fpreg fp-disp single?)
+                   (lambda (fpreg single?)
                      (lambda (x) ; unboxed
                        (let ([%op (if single? %load-single %double->single)])
                          `(set! ,fpreg (inline ,null-info ,%op ,x)))))]
@@ -2610,12 +2610,12 @@
                  [load-boxed-double-reg
                    (lambda (fpreg fp-disp)
                      (lambda (x) ; address (always a var) of a flonum
-                       `(set! ,fpreg ,(%mref ,x ,%zero ,(constant flonum-data-disp) fp))))]
+                       `(set! ,fpreg ,(%mref ,x ,%zero ,fp-disp fp))))]
                  [load-boxed-single-reg
                    (lambda (fpreg fp-disp single?)
                      (lambda (x) ; address (always a var) of a flonum
                        (let ([%op (if single? %load-single %double->single)])
-                         `(set! ,fpreg (inline ,null-info ,%op ,(%mref ,x ,%zero ,(constant flonum-data-disp) fp))))))]
+                         `(set! ,fpreg (inline ,null-info ,%op ,(%mref ,x ,%zero ,fp-disp fp))))))]
                  [load-int-reg
                    (lambda (ireg)
                      (lambda (x)
@@ -2674,20 +2674,20 @@
                                      live* int* '() #f (fx+ isp 8)))]
                                [else
                                 (loop (cdr types)
-                                  (cons (load-double-reg (car sgl*) (constant flonum-data-disp)) locs)
+                                  (cons (load-double-reg (car sgl*)) locs)
                                   (cons (car sgl*) live*) int* (cddr sgl*) bsgl isp)])]
                             [(fp-single-float)
                              (safe-assert (not varargs?))
                              (if bsgl
                                  (loop (cdr types)
-                                   (cons (load-single-reg bsgl (constant flonum-data-disp) #f) locs)
+                                   (cons (load-single-reg bsgl #f) locs)
                                    (cons bsgl live*) int* sgl* #f isp)
                                  (if (null? sgl*)
                                      (loop (cdr types)
                                        (cons (load-single-stack isp) locs)
                                        live* int* '() #f (fx+ isp 4))
                                      (loop (cdr types)
-                                       (cons (load-single-reg (car sgl*) (constant flonum-data-disp) #f) locs)
+                                       (cons (load-single-reg (car sgl*) #f) locs)
                                        (cons (car sgl*) live*) int* (cddr sgl*) (cadr sgl*) isp)))]
 			    [(fp-ftd& ,ftd)
 			     (let ([size ($ftd-size ftd)]
