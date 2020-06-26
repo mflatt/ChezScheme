@@ -959,6 +959,10 @@
                `(set! ,(make-live-info) ,u2 (asm ,null-info ,asm-kill))
 	       `(asm ,info ,asm-cas ,r ,old ,new ,u1 ,u2)))))]))
 
+  (define-instruction effect (write-write-fence)
+    [(op)
+     `(asm ,info ,asm-write-write-fence)])
+
   (define-instruction effect (pause)
     ; NB: user sqrt or something like that?
     [(op) '()])
@@ -1003,7 +1007,7 @@
                      asm-rp-header asm-rp-compact-header
                      asm-indirect-call asm-condition-code
                      asm-fpmove-single asm-fl-cvt asm-fpt asm-fpmove asm-fpcastto asm-fpcastfrom asm-fptrunc 
-                     asm-lock asm-lock+/- asm-cas
+                     asm-lock asm-lock+/- asm-cas asm-write-write-fence
                      asm-fpop-2 asm-fpsqrt asm-c-simple-call
                      asm-save-flrv asm-restore-flrv asm-return asm-c-return asm-size
                      asm-enter asm-foreign-call asm-foreign-callable
@@ -1154,6 +1158,8 @@
 
   (define-op ldrex ldrex-op      #b00011001)
   (define-op strex strex-op      #b00011000)
+
+  (define-op dmbishst dmb-op #b1010)
 
   (define-op bnei  branch-imm-op       (ax-cond 'ne))
   (define-op brai  branch-imm-op       (ax-cond 'al))
@@ -1396,6 +1402,12 @@
         [8  #b1111]
         [4  #b1001]
         [0  (ax-ea-reg-code opnd0-ea)])))
+
+  (define dmb-op
+    (lambda (op opcode code*)
+      (emit-code (op code*)
+	[4 #b1111010101111111111100000101]
+	[0 opcode])))
 
   (define branch-imm-op
     (lambda (op cond-bits disp code*)
@@ -2148,6 +2160,10 @@
               (emit strex tmp2 new src
                 (emit cmpi tmp2 0
                    code*))))))))
+
+  (define asm-write-write-fence
+    (lambda (code*)
+      (emit dmbishst code*)))
 
   (define asm-fp-relop
     (lambda (info)

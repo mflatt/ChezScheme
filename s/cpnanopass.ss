@@ -3702,6 +3702,11 @@
               ,(%inline sll ,e
                  (immediate ,(fx- (constant char-data-offset) (constant fixnum-offset))))
               ,(%constant type-char))))
+	(define add-write-fence
+	  (lambda (e)
+	    (constant-case architecture
+	      [(arm32) `(seq ,(%inline write-write-fence) ,e)]
+	      [else e])))
         (define build-dirty-store
           (case-lambda
             [(base offset e) (build-dirty-store base %zero offset e)]
@@ -3725,8 +3730,9 @@
                          ; eval a second so the address is not live across any calls
                          (bind #t ([a a])
                            (build-seq
-                             (build-assign a %zero 0 e)
-                             (%inline remember ,a))))
+                            (build-assign a %zero 0 e)
+			    (add-write-fence
+                             (%inline remember ,a)))))
                        (bind #t ([e e])
                          ; eval a second so the address is not live across any calls
                          (bind #t ([a a])
@@ -3734,7 +3740,8 @@
                              (build-assign a %zero 0 e)
                              `(if ,(%type-check mask-fixnum type-fixnum ,e)
                                   ,(%constant svoid)
-                                  ,(%inline remember ,a))))))))]))
+                                  ,(add-write-fence
+				    (%inline remember ,a)))))))))]))
         (define make-build-cas
           (lambda (old-v)
             (lambda (base index offset v)
