@@ -842,6 +842,32 @@
          `(set! ,(make-live-info) ,ulr (asm ,null-info ,asm-kill))
          `(set! ,(make-live-info) ,z (asm ,info ,asm-get-tc ,u ,ulr))))])
 
+  (define-instruction value activate-thread
+    [(op (z ur))
+     (safe-assert (eq? z %Cretval))
+     (let ([u (make-tmp 'u)] [ulr (make-precolored-unspillable 'ulr %lr)])
+       (seq
+         `(set! ,(make-live-info) ,u (asm ,null-info ,asm-kill))
+         `(set! ,(make-live-info) ,ulr (asm ,null-info ,asm-kill))
+         `(set! ,(make-live-info) ,z (asm ,info ,asm-activate-thread ,u ,ulr))))])
+
+  (define-instruction effect deactivate-thread
+    [(op)
+     (let ([u (make-tmp 'u)] [ulr (make-precolored-unspillable 'ulr %lr)])
+       (seq
+         `(set! ,(make-live-info) ,u (asm ,null-info ,asm-kill))
+         `(set! ,(make-live-info) ,ulr (asm ,null-info ,asm-kill))
+         `(asm ,info ,asm-deactivate-thread ,u ,ulr)))])
+
+  (define-instruction effect unactivate-thread
+    [(op (x ur))
+     (safe-assert (eq? x %r2))
+     (let ([u (make-tmp 'u)] [ulr (make-precolored-unspillable 'ulr %lr)])
+       (seq
+         `(set! ,(make-live-info) ,u (asm ,null-info ,asm-kill))
+         `(set! ,(make-live-info) ,ulr (asm ,null-info ,asm-kill))
+         `(asm ,info ,asm-unactivate-thread ,x ,u ,ulr)))])
+
   (define-instruction value (asmlibcall)
     [(op (z ur)) 
      (let ([u (make-tmp 'u)])
@@ -1017,6 +1043,7 @@
                      shift-count? unsigned8? unsigned12?
                      ; threaded version specific
                      asm-get-tc
+                     asm-activate-thread asm-deactivate-thread asm-unactivate-thread
                      ; machine dependent exports
                      asm-kill
                      info-vpush-reg info-vpush-n)
@@ -2308,6 +2335,21 @@
       (lambda (code* dest jmp-tmp . ignore) ; dest is ignored, since it is always Cretval
         (asm-helper-call code* target #f jmp-tmp))))
 
+  (define asm-activate-thread
+    (let ([target `(arm32-call 0 (entry ,(lookup-c-entry activate-thread)))])
+      (lambda (code* dest jmp-tmp . ignore)
+        (asm-helper-call code* target #t jmp-tmp))))
+
+  (define asm-deactivate-thread
+    (let ([target `(arm32-call 0 (entry ,(lookup-c-entry deactivate-thread)))])
+      (lambda (code* jmp-tmp . ignore)
+        (asm-helper-call code* target #f jmp-tmp))))
+
+  (define asm-unactivate-thread
+    (let ([target `(arm32-call 0 (entry ,(lookup-c-entry unactivate-thread)))])
+      (lambda (code* arg-reg jmp-tmp . ignore)
+        (asm-helper-call code* target #f jmp-tmp))))
+
   (define-who asm-return-address
     (lambda (dest l incr-offset next-addr)
       (make-rachunk dest l incr-offset next-addr
@@ -2568,6 +2610,28 @@
     (define num-dbl-regs 8) ; number of `double` registers normally usd by the ABI
     (define sgl-regs (lambda () (list %Cfparg1 %Cfparg1b %Cfparg2 %Cfparg2b %Cfparg3 %Cfparg3b %Cfparg4 %Cfparg4b
 				      %Cfparg5 %Cfparg5b %Cfparg6 %Cfparg6b %Cfparg7 %Cfparg7b %Cfparg8 %Cfparg8b)))
+    (define save-and-restore
+      (lambda (regs e)
+        (let ([save-and-restore-gp
+               (lambda (regs e)
+                 (let* ([regs (filter (lambda (r) (not (eq? (reg-type r) 'fp))) regs)]
+                        [regs (if (fxodd? (length regs))
+                                  (cons %tc regs) ; keep doubleword aligned
+                                  regs)])
+                   (cond
+                     [(null? regs) e]
+                     [else
+                      (let ([info (make-info-kill*-live* '() regs)])
+                        (%seq (inline ,info push-multiple) ,e (inline ,info pop-multiple)))])))]
+              [save-and-restore-fp
+               (lambda (regs e)
+                 (let ([fp-regs (filter (lambda (r) (eq? (reg-type r) 'fp)) regs)])
+                   (cond
+                     [(null? fp-regs) e]
+                     [else
+                      (let ([info (make-info-vpush (car fp-regs) (length fp-regs))])
+                        (%seq (inline ,info vpush-multiple) ,e (inline ,info vpop-multiple)))])))])
+          (save-and-restore-gp regs (save-and-restore-fp regs e)))))
     (define-who asm-foreign-call
       (with-output-language (L13 Effect)
         (define int-regs (lambda () (list %Carg1 %Carg2 %Carg3 %Carg4)))
@@ -2869,14 +2933,25 @@
                        (case bits
                          [(64) (list %r1 %Cretval)]
                          [else (list %Cretval)])]
-                      [else (list %r0)]))])
+                      [else (list %r0)]))]
+                 [add-deactivate
+                  (lambda (adjust-active? live* result-live* e)
+                    (cond
+                      [adjust-active?
+                       (%seq
+                        ,(save-and-restore live* (%inline deactivate-thread))
+                        ,e
+                        ,(save-and-restore result-live* `(set! ,%Cretval ,(%inline activate-thread))))]
+                      [else e]))])
           (lambda (info)
             (safe-assert (reg-callee-save? %tc)) ; no need to save-restore
             (let* ([arg-type* (info-foreign-arg-type* info)]
-                   [varargs? (memq 'varargs (info-foreign-conv* info))]
+                   [conv* (info-foreign-conv* info)]
+                   [varargs? (memq 'varargs conv*)]
 		   [result-type (info-foreign-result-type info)]
                    [result-reg* (get-result-regs result-type varargs?)]
-		   [fill-result-here? (indirect-result-that-fits-in-registers? result-type)])
+		   [fill-result-here? (indirect-result-that-fits-in-registers? result-type)]
+                   [adjust-active? (if-feature pthreads (memq 'adjust-active conv*) #f)])
               (with-values (do-args (if fill-result-here? (cdr arg-type*) arg-type*)
                                     varargs?)
                 (lambda (args-frame-size locs live*)
@@ -2899,7 +2974,8 @@
 			 [else locs]))
                       (lambda (t0 not-varargs?)
 			(add-fill-result fill-result-here? result-type args-frame-size
-			  `(inline ,(make-info-kill*-live* (add-caller-save-registers result-reg*) live*) ,%c-call ,t0)))
+                         (add-deactivate adjust-active? (cons t0 live*) result-reg*
+			  `(inline ,(make-info-kill*-live* (add-caller-save-registers result-reg*) live*) ,%c-call ,t0))))
                       (nanopass-case (Ltype Type) result-type
                         [(fp-double-float)
                          (if varargs?
@@ -2964,9 +3040,9 @@
                    |      &-return space       | up to 8 words
           sp+52+R: |                           |
                    +---------------------------+<- 8-byte boundary
-                   |                           | 
-                   |   pad word if necessary   | 0-1 words
-            sp+52: |                           |
+                   |     activatation state    | 
+                   |          and/or           | 0-2 words
+            sp+52: |   pad word if necessary   |
                    +---------------------------+
                    |                           |
                    |   callee-save regs + lr   | 13 words
@@ -3332,12 +3408,16 @@
                                            (memq r callee-save-regs+lr))))
                                  (vector->list regvec)))
             (let* ([arg-type* (info-foreign-arg-type* info)]
-		   [varargs? (memq 'varargs (info-foreign-conv* info))]
+                   [conv* (info-foreign-conv* info)]
+		   [varargs? (memq 'varargs conv*)]
 		   [result-type (info-foreign-result-type info)]
-                   [synthesize-first? (indirect-result-that-fits-in-registers? result-type)])
+                   [synthesize-first? (indirect-result-that-fits-in-registers? result-type)]
+                   [adjust-active? (if-feature pthreads (memq 'adjust-active conv*) #f)])
               (let-values ([(iint idbl) (count-reg-args arg-type* synthesize-first? varargs?)])
                 (let ([saved-reg-bytes (fx+ (fx* isaved 4) (fx* fpsaved 8))]
-                      [pre-pad-bytes (if (fxeven? isaved) 0 4)]
+                      [pre-pad-bytes (if (fxeven? isaved) 
+                                         (if adjust-active? 8 0)
+                                         4)]
                       [int-reg-bytes (fx* iint 4)]
                       [post-pad-bytes (if (fxeven? iint) 0 4)]
                       [float-reg-bytes (fx* idbl 8)])
@@ -3359,6 +3439,12 @@
                             ; save the callee save registers & return address
                             (inline ,(make-info-kill*-live* '() callee-save-regs+lr) ,%push-multiple)
                             (inline ,(make-info-vpush (car callee-save-fpregs) fpsaved) ,%vpush-multiple)
+                            ; maybe activate
+                            ,(if adjust-active?
+                                 `(seq
+                                   (set! ,%Cretval ,(%inline activate-thread))
+                                   (set! ,(%mref ,%sp ,saved-reg-bytes) ,%Cretval))
+                                 `(nop))
                             ; set up tc for benefit of argument-conversion code, which might allocate
                             ,(if-feature pthreads
                                (%seq 
@@ -3376,6 +3462,11 @@
                               ; restore the callee save registers
                               (inline ,(make-info-vpush (car callee-save-fpregs) fpsaved) ,%vpop-multiple)
                               (inline ,(make-info-kill* callee-save-regs+lr) ,%pop-multiple)
+                              ,(if adjust-active?
+                                   `(seq
+                                     (set! ,%r2 ,(%mref ,%sp 0))
+                                     ,(save-and-restore result-regs (%inline unactivate-thread ,%r2)))
+                                   `(nop))
                               ; deallocate space for pad & arg reg values
                               (set! ,%sp ,(%inline + ,%sp (immediate ,(fx+ pre-pad-bytes int-reg-bytes post-pad-bytes float-reg-bytes))))
                               ; done
