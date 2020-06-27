@@ -2137,6 +2137,7 @@
               [else (sorry! who "unexpected asm-swap type argument ~s" type)]))))))
 
   (define asm-lock
+    ;  tmp = 1 # in case load result is not 0
     ;  tmp2 = ldrex src
     ;  cmp tmp2, 0
     ;  bne L1 (+2)
@@ -2145,11 +2146,12 @@
     ;L1:
     (lambda (code* src tmp tmp2)
       (Trivit (src tmp tmp2)
-        (emit ldrex tmp2 src
-          (emit cmpi tmp2 0
-            (emit bnei 1
-              (emit movi1 tmp2 1
-                (emit strex tmp tmp2 src code*))))))))
+        (emit movi1 tmp 1
+          (emit ldrex tmp2 src
+            (emit cmpi tmp2 0
+              (emit bnei 1
+                (emit movi1 tmp2 1
+                  (emit strex tmp tmp2 src code*)))))))))
 
   (define-who asm-lock+/-
     ; L:
