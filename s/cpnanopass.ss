@@ -3712,7 +3712,7 @@
             [(base offset e) (build-dirty-store base %zero offset e)]
             [(base index offset e) (build-dirty-store base index offset e
                                      (lambda (base index offset e) `(set! ,(%mref ,base ,index ,offset) ,e))
-                                     (lambda (s r) `(seq ,s ,r)))]
+                                     (lambda (s r) (add-write-fence `(seq ,s ,r))))]
             [(base index offset e build-assign build-seq)
              (if (nanopass-case (L7 Expr) e
                    [(quote ,d) (ptr->imm d)]
@@ -3730,18 +3730,16 @@
                          ; eval a second so the address is not live across any calls
                          (bind #t ([a a])
                            (build-seq
-                            (build-assign a %zero 0 e)
-			    (add-write-fence
-                             (%inline remember ,a)))))
+                             (build-assign a %zero 0 e)
+                             (%inline remember ,a))))
                        (bind #t ([e e])
                          ; eval a second so the address is not live across any calls
                          (bind #t ([a a])
-                           (build-seq
+			   (build-seq
                              (build-assign a %zero 0 e)
                              `(if ,(%type-check mask-fixnum type-fixnum ,e)
                                   ,(%constant svoid)
-                                  ,(add-write-fence
-				    (%inline remember ,a)))))))))]))
+                                  ,(%inline remember ,a))))))))]))
         (define make-build-cas
           (lambda (old-v)
             (lambda (base index offset v)
@@ -3750,9 +3748,10 @@
                 (inline ,(make-info-condition-code 'eq? #f #t) ,%condition-code)))))
         (define build-cas-seq
           (lambda (cas remember)
-            `(if ,cas
-                 (seq ,remember ,(%constant strue))
-                 ,(%constant sfalse))))
+	    (add-write-fence
+             `(if ,cas
+                  (seq ,remember ,(%constant strue))
+                  ,(%constant sfalse)))))
         (define build-$record
           (lambda (tag args)
             (bind #f (tag)
