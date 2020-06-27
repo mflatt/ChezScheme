@@ -2612,26 +2612,33 @@
 				      %Cfparg5 %Cfparg5b %Cfparg6 %Cfparg6b %Cfparg7 %Cfparg7b %Cfparg8 %Cfparg8b)))
     (define save-and-restore
       (lambda (regs e)
-        (let ([save-and-restore-gp
-               (lambda (regs e)
-                 (let* ([regs (filter (lambda (r) (not (eq? (reg-type r) 'fp))) regs)]
-                        [regs (if (fxodd? (length regs))
-                                  (cons %tc regs) ; keep doubleword aligned
-                                  regs)])
-                   (cond
-                     [(null? regs) e]
-                     [else
-                      (let ([info (make-info-kill*-live* '() regs)])
-                        (%seq (inline ,info push-multiple) ,e (inline ,info pop-multiple)))])))]
-              [save-and-restore-fp
-               (lambda (regs e)
-                 (let ([fp-regs (filter (lambda (r) (eq? (reg-type r) 'fp)) regs)])
-                   (cond
-                     [(null? fp-regs) e]
-                     [else
-                      (let ([info (make-info-vpush (car fp-regs) (length fp-regs))])
-                        (%seq (inline ,info vpush-multiple) ,e (inline ,info vpop-multiple)))])))])
-          (save-and-restore-gp regs (save-and-restore-fp regs e)))))
+        (safe-assert (andmap reg? regs))
+	(with-output-language (L13 Effect)
+          (let ([save-and-restore-gp
+		 (lambda (regs e)
+                   (let* ([regs (filter (lambda (r) (not (eq? (reg-type r) 'fp))) regs)]
+                          [regs (if (fxodd? (length regs))
+                                    (cons %tc regs) ; keep doubleword aligned
+                                    regs)])
+                     (cond
+                      [(null? regs) e]
+                      [else
+                       (%seq
+			(inline ,(make-info-kill*-live* '() regs) ,%push-multiple)
+			,e
+			(inline ,(make-info-kill*-live* regs '()) ,%pop-multiple))])))]
+		[save-and-restore-fp
+		 (lambda (regs e)
+                   (let ([fp-regs (filter (lambda (r) (eq? (reg-type r) 'fp)) regs)])
+                     (cond
+                      [(null? fp-regs) e]
+                      [else
+                       (let ([info (make-info-vpush (car fp-regs) (length fp-regs))])
+                         (%seq
+			  (inline ,info ,%vpush-multiple)
+			  ,e
+			  (inline ,info ,%vpop-multiple)))])))])
+            (save-and-restore-gp regs (save-and-restore-fp regs e))))))
     (define-who asm-foreign-call
       (with-output-language (L13 Effect)
         (define int-regs (lambda () (list %Carg1 %Carg2 %Carg3 %Carg4)))
@@ -2788,12 +2795,12 @@
 				     [(and doubles?
 					   (fx>= (length sgl*) (fx* 2 num-members)))
 				      ;; Allocate each double to a register
-				      (let dbl-loop ([size size] [offset 0] [sgl* sgl*] [loc #f])
+				      (let dbl-loop ([size size] [offset 0] [live* live*] [sgl* sgl*] [loc #f])
 					(cond
 					 [(fx= size 0)
 					  (loop (cdr types) (cons loc locs) live* int* sgl* #f isp)]
 					 [else
-					  (dbl-loop (fx- size 8) (fx+ offset 8) (cddr sgl*)
+					  (dbl-loop (fx- size 8) (fx+ offset 8) (cons (car sgl*) live*) (cddr sgl*)
 						    (combine-loc loc (load-boxed-double-reg (car sgl*) offset)))]))]
 				     [else
 				      ;; General case; for non-doubles, use integer registers while available,
@@ -2933,16 +2940,40 @@
                        (case bits
                          [(64) (list %r1 %Cretval)]
                          [else (list %Cretval)])]
+		      [(fp-ftd& ,ftd)
+		       (let* ([members ($ftd->members ftd)]
+			      [num-members (length members)])
+			 (cond
+			  [(and (fx<= num-members 4)
+				(or (andmap double-member? members)
+				    (andmap float-member? members)))
+			   ;; double/float results are in floating-point registers
+			   (let ([double? (and (pair? members) (double-member? (car members)))])
+			     (let loop ([members members] [sgl* (sgl-regs)])
+			       (cond
+				[(null? members) '()]
+				[double?
+				 (cons (car sgl*) (loop (cdr members) (cddr sgl*)))]
+				[else
+				 (cons (car sgl*) (if (null? (cdr members))
+						      '()
+						      (loop (cddr members) (cddr sgl*))))])))]
+			    [else
+			     ;; result is in %Cretval and maybe %r1
+			     (case ($ftd-size ftd)
+			       [(8) (list %Cretval %r1)]
+			       [else (list %Cretval)])]))]
                       [else (list %r0)]))]
                  [add-deactivate
-                  (lambda (adjust-active? live* result-live* e)
+                  (lambda (adjust-active? t0 live* result-live* k)
                     (cond
                       [adjust-active?
                        (%seq
+			(set! ,%ac0 ,t0)
                         ,(save-and-restore live* (%inline deactivate-thread))
-                        ,e
+                        ,(k %ac0)
                         ,(save-and-restore result-live* `(set! ,%Cretval ,(%inline activate-thread))))]
-                      [else e]))])
+                      [else (k t0)]))])
           (lambda (info)
             (safe-assert (reg-callee-save? %tc)) ; no need to save-restore
             (let* ([arg-type* (info-foreign-arg-type* info)]
@@ -2974,8 +3005,9 @@
 			 [else locs]))
                       (lambda (t0 not-varargs?)
 			(add-fill-result fill-result-here? result-type args-frame-size
-                         (add-deactivate adjust-active? (cons t0 live*) result-reg*
-			  `(inline ,(make-info-kill*-live* (add-caller-save-registers result-reg*) live*) ,%c-call ,t0))))
+                         (add-deactivate adjust-active? t0 live* result-reg*
+			  (lambda (t0)
+ 			    `(inline ,(make-info-kill*-live* (add-caller-save-registers result-reg*) live*) ,%c-call ,t0)))))
                       (nanopass-case (Ltype Type) result-type
                         [(fp-double-float)
                          (if varargs?
@@ -3325,7 +3357,14 @@
                                                `(set! ,(car sgl*) ,(%mref ,%sp ,%zero ,offset fp))
                                                `(set! ,(car sgl*) ,(%inline load-single ,(%mref ,%sp ,%zero ,offset fp))))])
 				      (if e `(seq ,e ,new-e) new-e)))]))))
-		      '()
+		      (let ([double? (and (pair? members) (double-member? (car members)))])
+			(let loop ([members members] [sgl* (sgl-regs)] [aligned? #t])
+			  (cond
+			   [(null? members) '()]
+			   [else (let ([regs (loop (cdr members)
+						   (if double? (cddr sgl*) (cdr sgl*))
+						   (or double? (not aligned?)))])
+				   (if aligned? (cons (car sgl*) regs) regs))])))
 		      ($ftd-size ftd))]
 		    [else
 		     (case ($ftd-size ftd)
@@ -3459,14 +3498,14 @@
                         (lambda ()
                           (in-context Tail
                             (%seq
+                              ,(if adjust-active?
+                                   `(seq
+                                     (set! ,%r2 ,(%mref ,%sp ,saved-reg-bytes))
+                                     ,(save-and-restore result-regs (%inline unactivate-thread ,%r2)))
+                                   `(nop))
                               ; restore the callee save registers
                               (inline ,(make-info-vpush (car callee-save-fpregs) fpsaved) ,%vpop-multiple)
                               (inline ,(make-info-kill* callee-save-regs+lr) ,%pop-multiple)
-                              ,(if adjust-active?
-                                   `(seq
-                                     (set! ,%r2 ,(%mref ,%sp 0))
-                                     ,(save-and-restore result-regs (%inline unactivate-thread ,%r2)))
-                                   `(nop))
                               ; deallocate space for pad & arg reg values
                               (set! ,%sp ,(%inline + ,%sp (immediate ,(fx+ pre-pad-bytes int-reg-bytes post-pad-bytes float-reg-bytes))))
                               ; done
