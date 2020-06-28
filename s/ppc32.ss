@@ -2229,7 +2229,7 @@
                [code* (cons* (if (target-fixnum? lpm)
                                  `(long . ,(fix lpm))
                                  `(abs 0 (object ,lpm)))
-                             (aop-cons* `(asm livemask: ,(format "~b" lpm))
+                             (aop-cons* `(asm livemask: ,(if (number? lpm) (format "~b" lpm) (format "~s" lpm)))
                                         code*))]
                [code* (if mrvl
                           (asm-data-label code* mrvl 0 func code-size)

@@ -328,7 +328,7 @@
                  [(_ foo e1 e2) e1] ...
                  [(_ bar e1 e2) e2]))))])))
 
-(define-constant scheme-version #x0905031E)
+(define-constant scheme-version #x0905031F)
 
 (define-syntax define-machine-types
   (lambda (x)
@@ -1566,7 +1566,7 @@
 (define-primitive-structure-disps rp-header typemod
   ([uptr toplink]
    [uptr mv-return-address]
-   [ptr livemask]
+   [ptr livemask] ; a fixnum or (cons size tree)
    [iptr frame-size])) ; low bit is 0 to distinguish from a `rp-compact-header`
 (define-constant return-address-mv-return-address-disp
   (- (constant rp-header-mv-return-address-disp) (constant size-rp-header)))

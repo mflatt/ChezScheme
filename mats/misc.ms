@@ -5368,3 +5368,30 @@
                             "new-string-to-go")
                     (sel-loop (cdr sels))))]))))
   )
+
+(mat livemask
+  (begin
+    (define livemask-vars
+      (let loop ([i 1000])
+        (cond
+          [(zero? i) '()]
+          [else (cons (gensym) (loop (sub1 i)))])))
+    (define livemask-f
+      (time
+       (compile
+        `(lambda ,livemask-vars
+           ,@(map (lambda (v) `(,v)) livemask-vars)))))
+    #t)
+  (equal? 'var
+          (apply f (map (lambda (var i)
+                          (lambda ()
+                            (when (zero? (modulo i 25)) (collect))
+                            (when (= i 500)
+                              (let* ([k (call/cc (lambda (k) k))]
+                                     [p (inspect/object k)])
+                                (unless (pair? (#%$continuation-return-livemask ((p 'link) 'value)))
+                                  (error 'livemask "expected implementation as a tree"))))
+                            'var))
+                        livemask-vars
+                        (iota (length livemask-vars)))))
+  )
