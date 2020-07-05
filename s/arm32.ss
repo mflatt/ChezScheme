@@ -622,7 +622,7 @@
   (define-instruction value (move)
     [(op (z mem) (x ur))
      `(set! ,(make-live-info) ,z ,x)]
-    [(op (z ur) (x ur mem imm))
+    [(op (z ur) (x ur mem imm-constant))
      `(set! ,(make-live-info) ,z ,x)])
 
   (define-instruction value lea1
