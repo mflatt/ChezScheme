@@ -14,7 +14,7 @@
 # limitations under the License.
 
 m = tarm64le
-Cpu = ARMV6
+Cpu = AARCH64
 
 mdclib = -lm -ldl ${ncursesLib} -lpthread -lrt -luuid
 C = ${CC} ${CPPFLAGS} -Wpointer-arith -Wextra -Werror -Wno-implicit-fallthrough -O2 ${CFLAGS}
