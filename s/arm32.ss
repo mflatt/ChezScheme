@@ -1806,14 +1806,6 @@
          (fold-right cons #'(aop-cons* `(asm ,op ,opnd ...) ?code*)
            #'((build long (byte-fields chunk ...))))])))
 
-  (define-who ax-size-code
-    (lambda (x)
-      (case x
-        [(byte) 0]
-        [(word) 1]
-        [(long) 1]
-        [else (sorry! who "invalid size ~s" x)])))
-
   (define-syntax build
     (syntax-rules ()
       [(_ x e)

@@ -17463,6 +17463,7 @@
                        (let ([spillable-live (live-info-live live-info)])
                          (if (unspillable? x)
                              (let ([unspillable* (remq x unspillable*)])
+                               (unless (uvar-seen? x) (#%printf ">> ~s\n" x))
                                (safe-assert (uvar-seen? x))
                                (uvar-seen! x #f)
                                (if (and (var? rhs) (var-index rhs))
