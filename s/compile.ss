@@ -185,12 +185,12 @@
                                   (let ([r ($reloc (constant reloc-arm64-abs) n (fx- a1 ra))])
                                     (mkc0 (cdr c*) a (cons r r*) a1 x*))))]
                              [(arm64-call) (n x)
-                              (let ([a1 (fx- a 16)])
+                              (let ([a1 (fx- a 20)]) ; movz, movk, movk, movk, bl
                                 (let ([x* (cons (mkcode x) x*)])
                                   (let ([r ($reloc (constant reloc-arm64-call) n (fx- a1 ra))])
                                     (mkc0 (cdr c*) a (cons r r*) a1 x*))))]
                              [(arm64-jump) (n x)
-                              (let ([a1 (fx- a 16)])
+                              (let ([a1 (fx- a 20)]) ; movz, movk, movk, movk, b
                                 (let ([x* (cons (mkcode x) x*)])
                                   (let ([r ($reloc (constant reloc-arm64-jump) n (fx- a1 ra))])
                                     (mkc0 (cdr c*) a (cons r r*) a1 x*))))]
@@ -425,11 +425,11 @@
                                (let ([r ($reloc (constant reloc-arm64-abs) n (fx- a1 ra))])
                                  (prf0 (cdr c*) a (cons r r*) a1 (cons x x*))))]
                             [(arm64-call) (n x)
-                             (let ([a1 (fx- a 16)])
+                             (let ([a1 (fx- a 20)]) ; movz, movk, movk, movk, bl
                                (let ([r ($reloc (constant reloc-arm64-call) n (fx- a1 ra))])
                                  (prf0 (cdr c*) a (cons r r*) a1 (cons x x*))))]
                             [(arm64-jump) (n x)
-                             (let ([a1 (fx- a 16)])
+                             (let ([a1 (fx- a 20)]) ; movz, movk, movk, movk, b
                                (let ([r ($reloc (constant reloc-arm64-jump) n (fx- a1 ra))])
                                  (prf0 (cdr c*) a (cons r r*) a1 (cons x x*))))]
                             [else (c-assembler-output-error c)])]

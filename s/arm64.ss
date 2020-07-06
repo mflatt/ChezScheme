@@ -89,16 +89,16 @@
         [(immediate ,imm) (and (funkymask imm) #t)]
         [else #f])))
 
-  (define imm-addend12?
+  (define imm-unsigned12?
     (lambda (x)
       (nanopass-case (L15c Triv) x
-        [(immediate ,imm) (addend12? imm)]
+        [(immediate ,imm) (unsigned12? imm)]
         [else #f])))
 
-  (define imm-neg-addend12?
+  (define imm-neg-unsigned12?
     (lambda (x)
       (nanopass-case (L15c Triv) x
-        [(immediate ,imm) (addend12? (- imm))]
+        [(immediate ,imm) (unsigned12? (- imm))]
         [else #f])))
 
   (define imm-constant?
@@ -141,15 +141,15 @@
              (lvalue->ur lvalue1
                (lambda (x1)
                  (cond
-                   [(and (eq? x1 %zero) (or (unsigned9? imm)
+                   [(and (eq? x1 %zero) (or (signed9? imm)
                                             (aligned-offset? imm)))
                     (return x0 %zero imm type)]
-                   [(and (not (eq? x1 %zero)) (addend12? imm))
+                   [(and (not (eq? x1 %zero)) (unsigned12? imm))
                     (let ([u (make-tmp 'u)])
                       (seq
                        (build-set! ,u (asm ,null-info ,(asm-add #f) ,x1 (immediate ,imm)))
                        (return x0 u 0 type)))]
-                   [(and (not (eq? x1 %zero)) (addend12? (- imm)))
+                   [(and (not (eq? x1 %zero)) (unsigned12? (- imm)))
                     (let ([u (make-tmp 'u)])
                       (seq
                        (build-set! ,u (asm ,null-info ,(asm-sub #f) ,x1 (immediate ,imm)))
@@ -182,8 +182,8 @@
        (let ([a ?a] [aty* ?aty*])
          (or (and (memq 'ur aty*) (not (or (fpmem? a) (fpur? a))))
              (and (memq 'fpur aty*) (or (fpmem? a) (fpur? a)))
-             (and (memq 'addend12 aty*) (imm-addend12? a))
-             (and (memq 'neg-addend12 aty*) (imm-neg-addend12? a))
+             (and (memq 'unsigned12 aty*) (imm-unsigned12? a))
+             (and (memq 'neg-unsigned12 aty*) (imm-neg-unsigned12? a))
              (and (memq 'funkymask aty*) (imm-funkymask? a))
              (and (memq 'imm-constant aty*) (imm-constant? a))
              (and (memq 'mem aty*) (mem? a))
@@ -196,8 +196,8 @@
          (cond
            [(and (memq 'mem aty*) (mem? a)) (mem->mem a k)]
            [(and (memq 'fpmem aty*) (fpmem? a)) (fpmem->fpmem a k)]
-           [(and (memq 'addend12 aty*) (imm-addend12? a)) (k (imm->imm a))]
-           [(and (memq 'neg-addend12 aty*) (imm-neg-addend12? a)) (k (imm->negate-imm a))]
+           [(and (memq 'unsigned12 aty*) (imm-unsigned12? a)) (k (imm->imm a))]
+           [(and (memq 'neg-unsigned12 aty*) (imm-neg-unsigned12? a)) (k (imm->negate-imm a))]
            [(and (memq 'funkymask aty*) (imm-funkymask? a)) (k (imm->imm a))]
            [(and (memq 'imm-constant aty*) (imm-constant? a)) (k (imm->imm a))]
            [(memq 'ur aty*)
@@ -423,19 +423,19 @@
   ; of z, since x might be an mref with z as it's base or index
 
   (define-instruction value (- -/ovfl -/eq)
-    [(op (z ur) (x ur) (y addend12))
+    [(op (z ur) (x ur) (y unsigned12))
      `(set! ,(make-live-info) ,z (asm ,info ,(asm-sub (memq op '(-/ovfl -/eq))) ,x ,y))]
-    [(op (z ur) (x ur) (y neg-addend12))
+    [(op (z ur) (x ur) (y neg-unsigned12))
      `(set! ,(make-live-info) ,z (asm ,info ,(asm-add (memq op '(-/ovfl -/eq))) ,x ,y))]
     [(op (z ur) (x ur) (y ur))
      `(set! ,(make-live-info) ,z (asm ,info ,(asm-sub (memq op '(-/ovfl -/eq))) ,x ,y))])
 
   (define-instruction value (+ +/ovfl +/carry)
-    [(op (z ur) (x ur) (y addend12))
+    [(op (z ur) (x ur) (y unsigned12))
      `(set! ,(make-live-info) ,z (asm ,info ,(asm-add (memq op '(+/ovfl +/carry))) ,x ,y))]
-    [(op (z ur) (x ur) (y neg-addend12))
+    [(op (z ur) (x ur) (y neg-unsigned12))
      `(set! ,(make-live-info) ,z (asm ,info ,(asm-sub (memq op '(+/ovfl +/carry))) ,x ,y))]
-    [(op (z ur) (x addend12) (y ur))
+    [(op (z ur) (x unsigned12) (y ur))
      `(set! ,(make-live-info) ,z (asm ,info ,(asm-add (memq op '(+/ovfl +/carry))) ,y ,x))]
     [(op (z ur) (x ur) (y ur))
      `(set! ,(make-live-info) ,z (asm ,info ,(asm-add (memq op '(+/ovfl +/carry))) ,x ,y))])
@@ -494,9 +494,9 @@
         (let ([offset (info-lea-offset info)])
           (with-output-language (L15d Effect)
             (cond
-              [(addend12? offset)
+              [(unsigned12? offset)
                `(set! ,(make-live-info) ,z (asm ,info ,(asm-add #f) ,x (immediate ,offset)))]
-              [(addend12? (- offset))
+              [(unsigned12? (- offset))
                `(set! ,(make-live-info) ,z (asm ,info ,(asm-sub #f) ,x (immediate ,(- offset))))]
               [else
                (let ([u (make-tmp 'u)])
@@ -542,16 +542,16 @@
                                              [else 3])))
                    (let ([w (in-context Triv `(immediate ,n))])
                      (k x y w))]
-                  [(and (eq? y %zero) (unsigned9? n))
+                  [(and (eq? y %zero) (signed9? n))
                    (let ([w (in-context Triv `(immediate ,n))])
                      (k x y w))]
-                  [(and (not (eq? y %zero)) (addend12? n))
+                  [(and (not (eq? y %zero)) (unsigned12? n))
                    (let ([w (in-context Triv `(immediate ,n))])
                      (let ([u (make-tmp 'u)])
                        (seq
                         `(set! ,(make-live-info) ,u (asm ,null-info ,(asm-add #f) ,y ,w))
                         (k x u imm-zero))))]
-                  [(and (not (eq? y %zero)) (addend12? (- n)))
+                  [(and (not (eq? y %zero)) (unsigned12? (- n)))
                    (let ([w (in-context Triv `(immediate ,(- n)))])
                      (let ([u (make-tmp 'u)])
                        (seq
@@ -655,14 +655,14 @@
        (values '() `(asm ,info ,(asm-fp-relop info) ,x ,y)))])
 
   (define-instruction effect (inc-cc-counter)
-    [(op (x ur) (w addend12) (z ur addend12))
+    [(op (x ur) (w unsigned12) (z ur unsigned12))
      (let ([u (make-tmp 'u)])
        (seq
         `(set! ,(make-live-info) ,u (asm ,null-info ,asm-kill))
         `(asm ,null-info ,asm-inc-cc-counter ,x ,w ,z ,u)))])
 
   (define-instruction effect (inc-profile-counter)
-    [(op (x mem) (y addend12))
+    [(op (x mem) (y unsigned12))
      (let ([u (make-tmp 'u)])
        (seq
          `(set! ,(make-live-info) ,u ,x)
@@ -739,16 +739,16 @@
             `(asm ,info ,(asm-c-simple-call (info-c-simple-call-entry info) #f) ,ulr))))])
 
   (define-instruction pred (eq? u< < > <= >=)
-    [(op (y addend12) (x ur))
+    [(op (y unsigned12) (x ur))
      (let ([info (if (eq? op 'eq?) info-cc-eq (make-info-condition-code op #t #t))])
        (values '() `(asm ,info ,(asm-relop info #f) ,x ,y)))]
-    [(op (y neg-addend12) (x ur))
+    [(op (y neg-unsigned12) (x ur))
      (let ([info (if (eq? op 'eq?) info-cc-eq (make-info-condition-code op #t #t))])
        (values '() `(asm ,info ,(asm-relop info #t) ,x ,y)))]
-    [(op (x ur) (y neg-addend12))
+    [(op (x ur) (y neg-unsigned12))
      (let ([info (if (eq? op 'eq?) info-cc-eq (make-info-condition-code op #f #t))])
        (values '() `(asm ,info ,(asm-relop info #t) ,x ,y)))]
-    [(op (x ur) (y ur addend12))
+    [(op (x ur) (y ur unsigned12))
      (let ([info (if (eq? op 'eq?) info-cc-eq (make-info-condition-code op #f #t))])
        (values '() `(asm ,info ,(asm-relop info #f) ,x ,y)))])
 
@@ -756,7 +756,7 @@
     [(op) (values '() `(asm ,info ,(asm-condition-code info)))])
 
   (define-instruction pred (type-check?)
-    [(op (x ur) (mask funkymask ur) (type addend12 ur))
+    [(op (x ur) (mask funkymask ur) (type unsigned12 ur))
      (let ([tmp (make-tmp 'u)])
        (values
          (with-output-language (L15d Effect)
@@ -789,7 +789,7 @@
                   (add-offset u)))))))
     ;; NB: compiler implements init-lock! and unlock! as word store of zero 
     (define-instruction pred (lock!)
-      [(op (x ur) (y ur) (w addend12))
+      [(op (x ur) (y ur) (w unsigned12))
        (let ([u (make-tmp 'u)]
              [u2 (make-tmp 'u2)])
          (values
@@ -802,7 +802,7 @@
                    `(asm ,null-info ,asm-lock ,r ,u ,u2)))))
            `(asm ,info-cc-eq ,asm-eq ,u (immediate 0))))])
     (define-instruction effect (locked-incr! locked-decr!)
-      [(op (x ur) (y ur) (w addend12))
+      [(op (x ur) (y ur) (w unsigned12))
        (lea->reg x y w
          (lambda (r)
            (let ([u1 (make-tmp 'u1)] [u2 (make-tmp 'u2)])
@@ -811,7 +811,7 @@
                `(set! ,(make-live-info) ,u2 (asm ,null-info ,asm-kill))
                `(asm ,null-info ,(asm-lock+/- op) ,r ,u1 ,u2)))))])
     (define-instruction effect (cas)
-      [(op (x ur) (y ur) (w addend12) (old ur) (new ur))
+      [(op (x ur) (y ur) (w unsigned12) (old ur) (new ur))
        (lea->reg x y w
          (lambda (r)
 	   (let ([u1 (make-tmp 'u1)] [u2 (make-tmp 'u2)])
@@ -874,7 +874,7 @@
                      asm-enter asm-foreign-call asm-foreign-callable
                      asm-read-counter
                      asm-inc-cc-counter
-                     unsigned9? addend12? aligned-offset? funkymask shifted16
+                     signed9? unsigned12? aligned-offset? funkymask shifted16
                      ; threaded version specific
                      asm-get-tc
                      asm-activate-thread asm-deactivate-thread asm-unactivate-thread
@@ -1008,7 +1008,7 @@
   (define-op strfi   load-imm-op  3 #b11 #b1 #b01)
   (define-op strfsi  load-imm-op  2 #b10 #b1 #b01) ; single-precision
 
-  ;; unscaled variants (offset must be unsigned9):
+  ;; unscaled variants (offset must be signed9):
   (define-op lduri    load-unscaled-imm-op  #b11 #b0 #b01) ; selectors are at bits 30 (size), 26, and 22 (opc)
   (define-op ldurbi   load-unscaled-imm-op  #b00 #b0 #b01)
   (define-op ldurhi   load-unscaled-imm-op  #b01 #b0 #b01)
@@ -1204,7 +1204,7 @@
 
   (define cmp-imm-op
     (lambda (op opc src imm code*)
-      (safe-assert (addend12? imm))
+      (safe-assert (unsigned12? imm))
       (emit-code (op src imm code*)
         [31 #b1]
         [30 opc]
@@ -1329,7 +1329,7 @@
         [24 #b00]
         [22 opc]
         [21 #b0]
-        [12 imm]
+        [12 (fxand imm (fx- (fxsll 1 9) 1))]
         [10 idx]
         [5  (ax-ea-reg-code src)]
         [0  (ax-ea-reg-code dest)])))
@@ -1342,7 +1342,7 @@
           [26 mode]
           [23 opx]
           [22 l]
-          [15 imm]
+          [15 (fxand imm (fx- (fxsll 1 9) 1))]
           [10 (ax-ea-reg-code dest1)]
           [5  (ax-ea-reg-code src)]
           [0 (ax-ea-reg-code dest0)])))
@@ -1374,7 +1374,7 @@
     (lambda (op cond-bits imm code*)
       (emit-code (op imm code*)
         [24 #b01010100]
-        [5  (fxsra imm 2)]
+        [5  (fxand (fxsra imm 2) (fx- (fxsll 1 19) 1))]
         [4  #b0]
         [0  cond-bits])))
 
@@ -1396,7 +1396,7 @@
         [(label) (offset l)
          (emit-code (op dest code*)
            [24 #b01010100]
-           [5  (fxsra (fx- offset 4) 2)]
+           [5  (fxand (fxsra (fx+ offset 4) 2) (fx- (fxsll 1 19) 1))]
            [4  #b0]
            [0  cond-bits])]
         [else (sorry! who "unexpected dest ~s" dest)])))
@@ -1405,9 +1405,9 @@
     (lambda (op dest imm code*)
       (emit-code (op dest imm code*)
         [31 #b0]
-        [29 (bitwise-and imm #b11)]
+        [29 (fxand imm #b11)]
         [24 #b10000]
-        [5  (bitwise-arithmetic-shift-right imm 2)]
+        [5  (fxand (fxsra imm 2) (fx- (fxsll 1 19) 1))]
         [0  (ax-ea-reg-code dest)])))
 
   (define ret-op
@@ -1575,15 +1575,13 @@
        (andmap fixnum? (datum (n ...)))
        (+ (bitwise-arithmetic-shift-left e n) ...)]))
 
-  (define unsigned9?
+  (define signed9?
     (lambda (imm)
-      (and (fixnum? imm) ($fxu< imm (expt 2 9)))))
+      (and (fixnum? imm) (fx<= (fx- (expt 2 8)) imm (fx- (expt 2 8) 1)))))
 
-  (define addend12?
+  (define unsigned12?
     (lambda (imm)
-      (and (fixnum? imm)
-           (fx>= imm 0)
-           (fx< imm (expt 2 12)))))
+      (and (fixnum? imm)  ($fxu< imm (expt 2 12)))))
 
   (define aligned-offset?
     (case-lambda
@@ -1650,7 +1648,7 @@
                                            [(8) #b110000]
                                            [(16) #b10000]
                                            [else 0])
-                                         total-1s)))))))])))
+                                         (fx- total-1s 1))))))))])))
 
   (define shifted16
     (lambda (imm)
@@ -1663,15 +1661,13 @@
   (define branch-disp?
     (lambda (x)
       (and (fixnum? x) 
-           ;; -4 accounts for fact that pc reads as the instruction after next, not next
-           (fx<= (- (expt 2 20)) (fx- x 4) (- (expt 2 20) 1))
+           (fx<= (- (expt 2 20)) (fx+ x 4) (- (expt 2 20) 1))
            (not (fxlogtest x #b11)))))
 
   (define uncond-branch-disp?
     (lambda (x)
       (and (fixnum? x) 
-           ;; -4 accounts for fact that pc reads as the instruction after next, not next
-           (fx<= (- (expt 2 26)) (fx- x 4) (- (expt 2 20) 1))
+           (fx<= (- (expt 2 26)) (fx+ x 4) (- (expt 2 20) 1))
            (not (fxlogtest x #b11)))))
   
   (define asm-size
@@ -1729,7 +1725,7 @@
                 (asm-helper-relocation code* (cons 'arm64-abs stuff)))]
              [(disp) (n breg)
               (cond
-                [(unsigned9? n)
+                [(signed9? n)
                  (emit lduri dest `(reg . ,breg) n code*)]
                 [else
                  (assert (aligned-offset? n))
@@ -1742,7 +1738,7 @@
            (record-case dest
              [(disp) (n breg)
               (cond
-                [(unsigned9? n)
+                [(signed9? n)
                  (emit sturi src `(reg . ,breg) n code*)]
                 [else
                  (assert (aligned-offset? n))
@@ -1829,7 +1825,7 @@
               (cond
                 [(eq? index %zero)
                  (cond
-                   [(unsigned9? n)
+                   [(signed9? n)
                     (case type
                       [(integer-64 unsigned-64) (emit lduri dest base n code*)]
                       [(integer-32) (emit ldurswi dest base n code*)]
@@ -1875,7 +1871,7 @@
               (cond
                 [(eq? index %zero)
                  (cond
-                   [(unsigned9? n)
+                   [(signed9? n)
                     (case type
                       [(integer-64 unsigned-64) (emit sturi src base n code*)]
                       [(integer-32 unsigned-32) (emit sturwi src base n code*)]
@@ -1943,13 +1939,13 @@
           [(disp) (imm reg)
            (if double?
                (cond
-                 [(unsigned9? imm)
+                 [(signed9? imm)
                   (emit sturfi src (cons 'reg reg) imm code*)]
                  [else
                   (safe-assert (aligned-offset? imm))
                   (emit strfi src (cons 'reg reg) imm code*)])
                (cond
-                 [(unsigned9? imm)
+                 [(signed9? imm)
                   (emit sturfsi src (cons 'reg reg) imm code*)]
                  [else
                   (safe-assert (aligned-offset? imm 2))
@@ -1967,13 +1963,13 @@
              [(disp) (imm reg)
               (if double?
                   (cond
-                    [(unsigned9? imm)
+                    [(signed9? imm)
                      (emit ldurfi dest (cons 'reg reg) imm code*)]
                     [else
                      (safe-assert (aligned-offset? imm))
                      (emit ldrfi dest (cons 'reg reg) imm code*)])
                   (cond
-                    [(unsigned9? imm)
+                    [(signed9? imm)
                      (emit ldurfsi dest (cons 'reg reg) imm code*)]
                     [else
                      (safe-assert (aligned-offset? imm 2))
@@ -2205,15 +2201,23 @@
         (record-case src
           [(reg) ignore (emit br src '())]
           [(disp) (n breg)
-           (safe-assert (or (addend12? n) (addend12? (- n))))
-           (if (addend12? n)
-               (emit addi #f `(reg . ,%jmptmp) `(reg . ,breg) n
-                 (emit br `(reg . ,%jmptmp) '()))
-               (emit subi #f `(reg . ,%jmptmp) `(reg . ,breg) (- n)
-                 (emit br `(reg . ,%jmptmp) '())))]
+           (cond
+             [(signed9? n)
+              (emit lduri `(reg . ,%jmptmp) `(reg . ,breg) n
+                 (emit br `(reg . ,%jmptmp) '()))]
+             [(aligned-offset? n)
+              (emit ldri `(reg . ,%jmptmp) `(reg . ,breg) n
+                 (emit br `(reg . ,%jmptmp) '()))]
+             [else
+              (safe-assert (or (unsigned12? n) (unsigned12? (- n))))
+              (let ([code* (emit ldri `(reg . ,%jmptmp) `(reg . ,%jmptmp) 0
+                             (emit br `(reg . ,%jmptmp) '()))])
+                (if (unsigned12? n)
+                    (emit addi #f `(reg . ,%jmptmp) `(reg . ,breg) n code*)
+                    (emit subi #f `(reg . ,%jmptmp) `(reg . ,breg) (- n) code*)))])]
           [(index) (n ireg breg)
            (safe-assert (eqv? n 0))
-           (emit add #f `(reg . ,%jmptmp) `(reg . ,breg) `(reg . ,ireg)
+           (emit ldr `(reg . ,%jmptmp) `(reg . ,breg) `(reg . ,ireg)
              (emit br `(reg . ,%jmptmp) '()))]
           [else (sorry! who "unexpected src ~s" src)]))))
 
@@ -2255,7 +2259,7 @@
               [(local-label-offset l) =>
                (lambda (offset)
                  (let ([incr-offset (adjust-return-point-offset incr-offset l)])
-                   (let ([disp (fx- next-addr (fx- offset incr-offset) 4)])
+                   (let ([disp (fx+ (fx- next-addr (fx- offset incr-offset)) 4)])
                      (cond
                        [($fxu< disp (expt 2 21))
                         (Trivit (dest)
@@ -2417,7 +2421,7 @@
 
   (define asm-rp-compact-header
     (lambda (code* err? fs lpm func code-size)
-      (let* ([code* (cons* `(long . ,(fxior (constant compact-header-mask)
+      (let* ([code* (cons* `(quad . ,(fxior (constant compact-header-mask)
                                             (if err?
                                                 (constant compact-header-values-error-mask)
                                                 0)
