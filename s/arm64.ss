@@ -1049,10 +1049,10 @@
   (define-op ldr/postidx  load-idx-op  #b01 #b0 #b01) ; selectors are at bits 22 (opc), 26, and 10
   (define-op str/preidx   load-idx-op  #b00 #b0 #b11)
 
-  (define-op ldrf/postidx load-idx-op  #b11 #b1 #b01)
-  (define-op strf/preidx  load-idx-op  #b11 #b1 #b00)
+  (define-op ldrf/postidx load-idx-op  #b01 #b1 #b01)
+  (define-op strf/preidx  load-idx-op  #b00 #b1 #b11)
 
-  (define-op ldrp/postidx loadp-idx-op  #b10 #b0 #b001 #b1) ; selectors are at bits 31 (opc), 26, 23, and 22 (L)
+  (define-op ldrp/postidx loadp-idx-op  #b10 #b0 #b001 #b1) ; selectors are at bits 30 (opc), 26, 23, and 22 (L)
   (define-op strp/preidx  loadp-idx-op  #b10 #b0 #b011 #b0)
 
   (define-op ldrpf/postidx loadp-idx-op  #b01 #b1 #b001 #b1)
@@ -1580,7 +1580,7 @@
          (quote (x . e)))]
       [(_ x e)
        (memq (datum x) '(byte word long))
-       (cons 'x e #;(let ([x e]) (safe-assert (not (eqv? x #xb8c0a03e))) x))]))
+       (cons 'x #;e (let ([x e]) (safe-assert (not (eqv? x #xfcdf03e0))) x))]))
 
   (define-syntax byte-fields
     ; NB: make more efficient for fixnums
@@ -1659,10 +1659,10 @@
                       (list (if (fx= width 64) 1 0)
                             rotate
                             (bitwise-ior (case width
-                                           [(2) #b111100]
-                                           [(4) #b111000]
-                                           [(8) #b110000]
-                                           [(16) #b10000]
+                                           [(2)  #b111100]
+                                           [(4)  #b111000]
+                                           [(8)  #b110000]
+                                           [(16) #b100000]
                                            [else 0])
                                          (fx- total-1s 1))))))))])))
 
@@ -2064,7 +2064,7 @@
           (emit ldxr tmp1 src
             (let ([code* (emit stxr tmp2 tmp1 src
                            (emit cmpi tmp2 0
-                             (emit bnei -32
+                             (emit bnei -16
                                (emit cmpi tmp1 0 code*))))])
               (case op
                 [(locked-incr!) (emit addi #f tmp1 tmp1 1 code*)]
