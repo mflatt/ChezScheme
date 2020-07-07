@@ -978,12 +978,11 @@
   (define-op lsr  shift-op #b01) 
   (define-op asr  shift-op #b10)
 
-  (define-op sxtb extend-op  #b100 #b000111) ; selectors are at bits 19 (sfc+opc) and 10 (imms)
-  (define-op sxth extend-op  #b100 #b001111)
-  (define-op sxtw extend-op  #b100 #b011111)
-  (define-op uxtb extend-op  #b010 #b000111)
-  (define-op uxth extend-op  #b010 #b001111)
-  (define-op uxtw extend-op  #b100 #b011111)
+  (define-op sxtb extend-op  #b100 #b1 #b000111) ; selectors are at bits 29 (sfc+opc), 22 (N), and 10 (imms)
+  (define-op sxth extend-op  #b100 #b1 #b001111)
+  (define-op sxtw extend-op  #b100 #b1 #b011111)
+  (define-op uxtb extend-op  #b010 #b0 #b000111)
+  (define-op uxth extend-op  #b010 #b0 #b001111)
 
   (define-op mul   mul-op  #b000) ; selector is at bit 21
   (define-op smulh mul-op  #b010)
@@ -1253,10 +1252,11 @@
         [0  (ax-ea-reg-code dest)])))
 
   (define extend-op
-    (lambda (op sf+opc imms-as-op2 dest src code*)
+    (lambda (op sf+opc n imms-as-op2 dest src code*)
       (emit-code (op dest src code*)
         [29 sf+opc]
-        [22 #b1001101]
+        [23 #b100110]
+        [22 n]
         [16 #b000000]
         [10 imms-as-op2]
         [5  (ax-ea-reg-code src)]
@@ -1347,7 +1347,7 @@
           [26 mode]
           [23 opx]
           [22 l]
-          [15 (fxand imm (fx- (fxsll 1 9) 1))]
+          [15 (fxand (fxsrl imm 3) (fx- (fxsll 1 7) 1))]
           [10 (ax-ea-reg-code dest1)]
           [5  (ax-ea-reg-code src)]
           [0 (ax-ea-reg-code dest0)])))
@@ -1580,7 +1580,7 @@
          (quote (x . e)))]
       [(_ x e)
        (memq (datum x) '(byte word long))
-       (cons 'x #;e (let ([x e]) (safe-assert (not (eqv? x #xfcdf03e0))) x))]))
+       (cons 'x e #;(let ([x e]) (safe-assert (not (eqv? x #x53401c17))) x))]))
 
   (define-syntax byte-fields
     ; NB: make more efficient for fixnums
@@ -2029,7 +2029,7 @@
               [(integer-32) (emit rev32 dest src
                               (emit sxtw dest dest code*))]
               [(unsigned-32) (emit rev32 dest src
-                               (emit uxtw dest dest code*))]
+                               (emit movw dest dest code*))]
               [(integer-64 unsigned-64) (emit rev dest src code*)]
               [else (sorry! who "unexpected asm-swap type argument ~s" type)]))))))
 
@@ -2166,7 +2166,7 @@
           [rev?
            (two sp (cons 'reg (car regs)) (cons 'reg (cadr regs)) (loop (cddr regs) code*))]
           [else
-           (loop (cddr regs) (two (car regs) (cadr regs) code*))]))))
+           (loop (cddr regs) (two sp (cons 'reg (car regs)) (cons 'reg (cadr regs)) code*))]))))
 
   (define asm-read-counter
     (lambda (op0 op1 crn crm op2)
@@ -3019,21 +3019,21 @@
                    |    incoming stack args    |
                    |                           |
                    +---------------------------+<- 16-byte boundary
-                   |                           | 
                    |    saved int reg args     | 
                    |    + %r8 for indirect     |
-                   +---------------------------+
+                   |    + maybe padding        | 
+                   +---------------------------+<- 16-byte boundary
                    |                           | 
                    |   saved float reg args    |
-                   |                           |
-                   +---------------------------+
+                   |    + maybe padding        | 
+                   +---------------------------+<- 16-byte boundary
+                   |                           | 
                    |     activatation state    | 
-                   |          and/or           |
-                   |    pad word if necessary  |
+                   |       if necessary        |
                    +---------------------------+<- 16-byte boundary
                    |                           | 
                    |      &-return space       |
-                   |                           |
+                   |       if necessary        |
                    +---------------------------+<- 16-byte boundary
                    |                           |
                    |   callee-save regs + lr   | 
@@ -3151,7 +3151,7 @@
                              [else
                               (let ([indirect-bytes (cat-indirect-bytes cat)])
                                 (cond
-                                  [indirect-bytes
+                                 [indirect-bytes
                                    ;; pointer (passed on stack) to an indirect argument (also on stack)
                                    (safe-assert (fx= (cat-count cat) 8))
                                    (loop types cats
@@ -3248,7 +3248,7 @@
                                                                 (eq? type (reg-type reg)))
                                                            (cons reg (loop (fx+ i 1)))
                                                            (loop (fx+ i 1))))]))))
-            (define callee-save-regs+lr (get-callee-save-regs 'uptr))
+            (define callee-save-regs+lr (cons %lr (get-callee-save-regs 'uptr)))
             (define callee-save-fpregs  (get-callee-save-regs 'fp))
             (define isaved (length callee-save-regs+lr))
             (define fpsaved (length callee-save-fpregs))
@@ -3275,19 +3275,16 @@
                    [arg-fp-regs (get-argument-fp-registers arg-cat*)]
                    [result-regs (append (get-argument-int-registers (list result-cat))
                                         (get-argument-fp-registers (list result-cat)))])
-                (let ([saved-reg-bytes (fx+ (fx* isaved 8) (fx* fpsaved 8))]
-                      [pad-bytes (if (fxeven? (fx+ isaved fpsaved))
-                                     (if adjust-active? 16 0)
-                                     8)]
-                      [int-reg-bytes (fx* (length arg-regs) 8)]
-                      [float-reg-bytes (fx* (length arg-fp-regs) 8)]
+                (let ([int-reg-bytes (fx* (align 2 (length arg-regs)) 8)]
+                      [float-reg-bytes (fx* (align 2 (length arg-fp-regs)) 8)]
+                      [active-state-bytes (if adjust-active? 16 0)]
                       [return-bytes (if synthesize-first? 16 0)]
                       [callee-save-bytes (fx* 8
                                               (fx+ (align 2 (length callee-save-regs+lr))
                                                    (align 2 (length callee-save-fpregs))))])
                   (let* ([return-offset callee-save-bytes]
                          [active-state-offset (fx+ return-offset return-bytes)]
-                         [arg-fpregs-offset (fx+ active-state-offset pad-bytes)]
+                         [arg-fpregs-offset (fx+ active-state-offset active-state-bytes)]
                          [arg-regs-offset (fx+ arg-fpregs-offset float-reg-bytes)]
                          [args-offset (fx+ arg-regs-offset int-reg-bytes)])
                     (values
@@ -3297,9 +3294,8 @@
                         ;; across possible calls to C while setting up the tc and allocating memory
                         ,(if (null? arg-regs) `(nop) `(inline ,(make-info-kill*-live* '() arg-regs) ,%push-multiple))
                         ,(if (null? arg-fp-regs) `(nop) `(inline ,(make-info-kill*-live* '() arg-fp-regs) ,%push-fpmultiple))
-                        ;; pad if necessary to force 16-byte boundary, make room for active state, or
-                        ;; make room for return bytes
-                        ,(let ([len (+ pad-bytes return-bytes)])
+                        ;; make room for active state and/or return bytes
+                        ,(let ([len (+ active-state-bytes return-bytes)])
                            (if (fx= len 0) `(nop) `(set! ,%sp ,(%inline - ,%sp (immediate ,len)))))
                         ;; save the callee save registers & return address
                         (inline ,(make-info-kill*-live* '() callee-save-regs+lr) ,%push-multiple)
@@ -3341,7 +3337,7 @@
                          (inline ,(make-info-kill* callee-save-fpregs) ,%pop-fpmultiple)
                          (inline ,(make-info-kill* callee-save-regs+lr) ,%pop-multiple)
                          ;; deallocate space for pad & arg reg values
-                         (set! ,%sp ,(%inline + ,%sp (immediate ,(fx+ active-state-offset))))
+                         (set! ,%sp ,(%inline + ,%sp (immediate ,(fx+ active-state-bytes float-reg-bytes int-reg-bytes))))
                          ;; done
                          (asm-c-return ,null-info ,callee-save-regs+lr ... ,callee-save-fpregs ... ,result-regs ...)))))))))))))
 )
