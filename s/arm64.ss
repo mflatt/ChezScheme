@@ -452,7 +452,7 @@
        (seq
          `(set! ,(make-live-info) ,u (asm ,null-info ,asm-smulh ,x ,y))
          `(set! ,(make-live-info) ,z (asm ,null-info ,asm-mul ,x ,y))
-         `(asm ,null-info ,asm-cmp ,u (immediate 0))))])
+         `(asm ,null-info ,asm-cmp/asr63 ,u ,z)))])
 
   (define-instruction value (/)
     [(op (z ur) (x ur) (y ur))
@@ -861,7 +861,7 @@
 (module asm-module (; required exports
                      asm-move asm-move/extend asm-load asm-store asm-swap asm-library-call asm-library-call! asm-library-jump
                      asm-mul asm-smulh asm-div asm-add asm-sub asm-logand asm-logor asm-logxor
-                     asm-pop-multiple asm-shiftop asm-logand asm-lognot asm-cmp
+                     asm-pop-multiple asm-shiftop asm-logand asm-lognot asm-cmp/asr63
                      asm-logtest asm-fp-relop asm-relop asm-push-multiple asm-push-fpmultiple asm-pop-fpmultiple
                      asm-indirect-jump asm-literal-jump
                      asm-direct-jump asm-return-address asm-jump asm-conditional-jump asm-data-label
@@ -958,8 +958,9 @@
   (define-op orr   logical-op  #b01)
   (define-op eor   logical-op  #b10)
 
-  (define-op cmp   cmp-op  #b1101011)
-  (define-op tst   cmp-op  #b1101010)
+  (define-op cmp        cmp-op  #b1101011 #b00 0)
+  (define-op tst        cmp-op  #b1101010 #b00 0)
+  (define-op cmp/asr63  cmp-op  #b1101011 #b10 63)
   
   (define-op cmpi  cmp-imm-op #b1) ; selector is at bit 30 (op)
   (define-op cmni  cmp-imm-op #b0)
@@ -1191,14 +1192,14 @@
         [0  (ax-ea-reg-code dest)])))
 
   (define cmp-op
-    (lambda (op opcode src0 src1 code*)
+    (lambda (op opcode shift-type shift-amt src0 src1 code*)
       (emit-code (op src0 src1 code*)
         [31 #b1]
         [24 opcode]
-        [22 #b00] ; shift type (applied to src1)
+        [22 shift-type] ; applied to src1
         [21 #b0]
         [16 (ax-ea-reg-code src1)]
-        [10 #b000000] ; shift amount
+        [10 shift-amt]
         [5  (ax-ea-reg-code src0)]
         [0  #b11111])))
 
@@ -1815,12 +1816,10 @@
       (Trivit (dest src0 src1)
         (emit smulh dest src0 src1 code*))))
 
-  (define-who asm-cmp
-    (lambda (code* src imm)
-      (Trivit (src imm)
-        (record-case imm
-          [(imm) (n) (emit cmpi src n code*)]
-          [else (sorry! who "bad immediate ~s" imm)]))))
+  (define-who asm-cmp/asr63
+    (lambda (code* src0 src1)
+      (Trivit (src0 src1)
+        (emit cmp/asr63 src0 src1 code*))))
 
   (define-who asm-fl-cvt
     (lambda (op)
