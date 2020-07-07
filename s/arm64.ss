@@ -973,8 +973,8 @@
   (define-op lsri  shifti-op #b10 'r) 
   (define-op asri  shifti-op #b00 'r)
 
-  (define-op lsl  shift-op #b01) ; selector is at bit 10 (op2)
-  (define-op lsr  shift-op #b00) 
+  (define-op lsl  shift-op #b00) ; selector is at bit 10 (op2)
+  (define-op lsr  shift-op #b01) 
   (define-op asr  shift-op #b10)
 
   (define-op sxtb extend-op  #b100 #b000111) ; selectors are at bits 19 (sfc+opc) and 10 (imms)
@@ -1126,7 +1126,7 @@
             [immr (cadr n+immr+imms)]
             [imms (caddr n+immr+imms)])
         (emit-code (op dest imm n+immr+imms code*)
-          [23 #b10100100]
+          [23 #b101100100]
           [22 n]
           [16 immr]
           [10 imms]
@@ -1226,13 +1226,15 @@
   (define shifti-op
     (lambda (op opcode dir dest src imm code*)
       (emit-code (op dest src imm code*)
-        [30 #b1]
+        [31 #b1]
         [29 opcode]
         [22 #b1001101]
-        [16 imm]
+        [16 (if (eq? dir 'l)
+                (fx- 64 imm)
+                imm)]
         [10 (if (eq? dir 'l)
-                (fx+ imm 1)
-                #x111111)]
+                (fx- 63 imm)
+                63)]
         [5  (ax-ea-reg-code src)]
         [0  (ax-ea-reg-code dest)])))
 
@@ -1351,7 +1353,7 @@
     (lambda (op mode dest2 dest src code*)
       (emit-code (op dest2 dest src code*)
         [30 #b11]
-        [32 #b0010000]
+        [23 #b0010000]
         [22 mode]
         [21 0]
         [16 (ax-ea-reg-code dest2)]
@@ -1450,9 +1452,9 @@
       (emit-code (op dest src code*)
         [31 sf]
         [24 #b0011110]
-        [22 #b10] ; type
+        [22 #b01] ; type
         [21 #b1]
-        [20 0]
+        [19 #b00]
         [16 opcode]
         [15 #b0]
         [14 opsel]
@@ -1554,8 +1556,17 @@
                   (if t (cons t ls) ls)))))
       (syntax-case x ()
         [(_ (op opnd ... ?code*) chunk ...)
-         (build-maybe-cons* #'((build long (byte-fields chunk ...)))
-           #'(aop-cons* `(asm ,op ,opnd ...) ?code*))])))
+         (let ([safe-check (lambda (e)
+                             (if (fx= (debug-level) 0)
+                                 e
+                                 #`(let ([code #,e])
+                                     (unless (<= 0 code (sub1 (expt 2 32)))
+                                       (sorry! 'emit-code "bad result ~s for ~s"
+                                               code
+                                               (list op opnd ...)))
+                                     code)))])
+           (build-maybe-cons* #`((build long #,(safe-check #`(byte-fields chunk ...))))
+             #'(aop-cons* `(asm ,op ,opnd ...) ?code*)))])))
 
   (define-syntax build
     (syntax-rules ()
@@ -1566,7 +1577,7 @@
          (quote (x . e)))]
       [(_ x e)
        (memq (datum x) '(byte word long))
-       (cons 'x e #;(let ([x e]) (safe-assert (fixnum? x)) x))]))
+       (cons 'x #;e (let ([x e]) (safe-assert (not (eqv? x #xd3800084))) x))]))
 
   (define-syntax byte-fields
     ; NB: make more efficient for fixnums
@@ -1595,13 +1606,15 @@
     (lambda (imm)
       ;; encode as `(list N immr imms)`, based on the LLVM implementation.
       (cond
-        [(eqv? imm 0) #f]
-        [(<= imm (- (expt 2 63))) #f]
-        [(> imm (sub1 (expt 2 63))) #f]
+        [(eqv? imm 0) #f]  ; can't do all 0s
+        [(eqv? imm -1) #f] ; can't do all 1s
+        [(>= imm (sub1 (expt 2 63))) #f]  ; can't do all 1s or more
+        [(<= imm (- (expt 2 63))) #f] ; can't less than most negative
         [else
          ;; Immediate is representable in 64 bits without being 0 or -1.
          ;; First, find the smallest width that can be replicated to match `imm`:
-         (let ([width (let loop ([width 32])
+         (let* ([imm (bitwise-and imm (sub1 (expt 2 64)))] ; view as positive
+                [width (let loop ([width 32])
                         (let ([mask (sub1 (bitwise-arithmetic-shift-left 1 width))])
                           (if (= (bitwise-and imm mask)
                                  (bitwise-and (bitwise-arithmetic-shift-right imm width) mask))
@@ -1694,18 +1707,26 @@
         [(funkymask n) =>
          (lambda (n+immr+imms)
            (emit movi dest n n+immr+imms code*))]
+        [(unsigned12? n)
+         (emit movzi dest 0 0
+           (emit addi #f dest dest n code*))]
+        [(unsigned12? (- n))
+         (emit movzi dest 0 0
+           (emit subi #f dest dest (- n) code*))]
         [else
-         (let loop ([n n] [shift 0])
+         (let loop ([n n] [shift 0] [init? #t])
            (cond
              [(or (eqv? n 0) (fx= shift 4)) code*]
              [else
               (let ([m (logand n #xFFFF)])
                 (cond
                   [(eqv? m 0)
-                   (loop (bitwise-arithmetic-shift-right n 16) (fx+ shift 1))]
+                   (loop (bitwise-arithmetic-shift-right n 16) (fx+ shift 1) init?)]
                   [else
-                   (emit movzi dest m shift
-                      (loop (bitwise-arithmetic-shift-right n 16) (fx+ shift 1)))]))]))])))
+                   (let ([code* (loop (bitwise-arithmetic-shift-right n 16) (fx+ shift 1) #f)])
+                     (if init?
+                         (emit movzi dest m shift code*)
+                         (emit movki dest m shift code*)))]))]))])))
 
   (define-who asm-move
     (lambda (code* dest src)
@@ -1725,11 +1746,11 @@
                 (asm-helper-relocation code* (cons 'arm64-abs stuff)))]
              [(disp) (n breg)
               (cond
-                [(signed9? n)
-                 (emit lduri dest `(reg . ,breg) n code*)]
+                [(aligned-offset? n)
+                 (emit ldri dest `(reg . ,breg) n code*)]
                 [else
-                 (assert (aligned-offset? n))
-                 (emit ldri dest `(reg . ,breg) n code*)])]
+                 (assert (signed9? n))
+                 (emit lduri dest `(reg . ,breg) n code*)])]
              [(index) (n ireg breg)
               (safe-assert (eqv? n 0))
               (emit ldr dest `(reg . ,breg) `(reg . ,ireg) code*)]
@@ -1738,11 +1759,11 @@
            (record-case dest
              [(disp) (n breg)
               (cond
-                [(signed9? n)
-                 (emit sturi src `(reg . ,breg) n code*)]
+                [(aligned-offset? n)
+                 (emit stri src `(reg . ,breg) n code*)]
                 [else
-                 (assert (aligned-offset? n))
-                 (emit stri src `(reg . ,breg) n code*)])]
+                 (assert (signed9? n))
+                 (emit sturi src `(reg . ,breg) n code*)])]
              [(index) (n ireg breg)
               (safe-assert (eqv? n 0))
               (emit str src `(reg . ,breg) `(reg . ,ireg) code*)]
@@ -2625,7 +2646,7 @@
                    [(fx= ints 0)
                     (cons '#(stack 8 #f) (loop (cdr types) ints 0))]
                    [else
-                    (cons '#(fp 1 #f) (loop (cdr types) (fx- ints 1) fps))])])))))
+                    (cons '#(int 1 #f) (loop (cdr types) (fx- ints 1) fps))])])))))
     (define memory-to-reg
       (lambda (ireg x from-offset size)
         (with-output-language (L13 Effect)
