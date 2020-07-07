@@ -631,7 +631,7 @@
     (define (mem->mem mem new-type)
       (nanopass-case (L15d Triv) mem
         [(mref ,x0 ,x1 ,imm ,type)
-         (with-output-language (L15d Lvalue) `(mref ,x0 ,x1 0 ,new-type))]))
+         (with-output-language (L15d Lvalue) `(mref ,x0 ,x1 ,imm ,new-type))]))
 
     (define-instruction value (fpcastto)
       [(op (x mem) (y fpur)) `(set! ,(make-live-info) ,(mem->mem x 'fp) ,y)]
@@ -1019,7 +1019,7 @@
 
   (define-op ldursbi  load-unscaled-imm-op  #b00 #b0 #b10)
   (define-op ldurshi  load-unscaled-imm-op  #b01 #b0 #b01)
-  (define-op ldurswi  load-unscaled-imm-op  #b10 #b0 #b11)
+  (define-op ldurswi  load-unscaled-imm-op  #b10 #b0 #b10)
 
   (define-op sturi    load-unscaled-imm-op  #b11 #b0 #b00)
   (define-op sturbi   load-unscaled-imm-op  #b00 #b0 #b00)
@@ -1047,9 +1047,9 @@
   (define-op strfs   load-op     #b10 #b1 #b00)
 
   (define-op ldr/postidx  load-idx-op  #b01 #b0 #b01) ; selectors are at bits 22 (opc), 26, and 10
-  (define-op str/preidx   load-idx-op  #b00 #b1 #b11)
+  (define-op str/preidx   load-idx-op  #b00 #b0 #b11)
 
-  (define-op ldrf/postidx load-idx-op  #b11 #b0 #b01)
+  (define-op ldrf/postidx load-idx-op  #b11 #b1 #b01)
   (define-op strf/preidx  load-idx-op  #b11 #b1 #b00)
 
   (define-op ldrp/postidx loadp-idx-op  #b10 #b0 #b001 #b1) ; selectors are at bits 31 (opc), 26, 23, and 22 (L)
@@ -1064,6 +1064,7 @@
   (define-op dmbst  dmb-op #b1110)
 
   (define-op bnei  branch-imm-op       (ax-cond 'ne))
+  (define-op beqi  branch-imm-op       (ax-cond 'eq))
   (define-op brai  branch-imm-op       (ax-cond 'al))
 
   (define-op br    branch-reg-op       #b00)
@@ -1136,7 +1137,7 @@
 
   (define add-imm-op
     (lambda (op opcode set-cc? dest src imm code*)
-      (emit-code (op set-cc? dest src imm code*)
+      (emit-code (op dest src imm (and set-cc? #t) code*)
         [31 #b1]
         [30 opcode]
         [29 (if set-cc? #b1 #b0)]
@@ -1148,12 +1149,12 @@
 
   (define logical-imm-op
     (lambda (op opcode set-cc? dest src imm code*)
-      (safe-assert (not set-cc?))
+      (safe-assert (not set-cc?)) ; but opcode may imply setting condition codes
       (let ([n+immr+imms (funkymask imm)])
         (let ([n (car n+immr+imms)]
               [immr (cadr n+immr+imms)]
               [imms (caddr n+immr+imms)])
-          (emit-code (op set-cc? dest src imm n+immr+imms code*)
+          (emit-code (op dest src imm code*)
             [31 #b1]
             [29 opcode]
             [23 #b100100]
@@ -1165,7 +1166,7 @@
 
   (define binary-op
     (lambda (op opcode set-cc? dest src0 src1 code*)
-      (emit-code (op set-cc? dest src0 src1 code*)
+      (emit-code (op dest src0 src1 (and set-cc? #t) code*)
         [31 #b1]
         [30 opcode]
         [29 (if set-cc? #b1 #b0)]
@@ -1180,7 +1181,7 @@
   (define logical-op
     (lambda (op opcode set-cc? dest src0 src1 code*)
       (safe-assert (not set-cc?))
-      (emit-code (op set-cc? dest src0 src1 code*)
+      (emit-code (op dest src0 src1 code*)
         [31 #b1]
         [29 opcode]
         [24 #b01010]
@@ -1220,6 +1221,7 @@
       (emit-code (op dest src code*)
         [31 sz]
         [22 #b010101000]
+        [21 neg]
         [16 (ax-ea-reg-code src)]
         [5  #b11111]
         [0  (ax-ea-reg-code dest)])))
@@ -1578,7 +1580,7 @@
          (quote (x . e)))]
       [(_ x e)
        (memq (datum x) '(byte word long))
-       (cons 'x #;e (let ([x e]) (safe-assert (not (eqv? x #xd3800084))) x))]))
+       (cons 'x e #;(let ([x e]) (safe-assert (not (eqv? x #xb8c0a03e))) x))]))
 
   (define-syntax byte-fields
     ; NB: make more efficient for fixnums
@@ -1696,7 +1698,7 @@
       (emit movzi dest (logand n #xffff) 0
         (emit movki dest (logand (bitwise-arithmetic-shift-right n 16) #xffff) 1
           (emit movki dest (logand (bitwise-arithmetic-shift-right n 32) #xffff) 2
-            (emit movki dest (logand (bitwise-arithmetic-shift-right n 32) #xffff) 3
+            (emit movki dest (logand (bitwise-arithmetic-shift-right n 48) #xffff) 3
                code*))))))
 
   (define ax-movi
@@ -2007,7 +2009,7 @@
   (define asm-fpcastto
     (lambda (code* dest src)
       (Trivit (dest src)
-        (emit fmov.f->g src dest code*))))  
+        (emit fmov.f->g dest src code*))))  
 
   (define asm-fpcastfrom
     (lambda (code* dest src)
@@ -2035,7 +2037,7 @@
     ;  tmp = 1 # in case load result is not 0
     ;  tmp2 = ldxr src
     ;  cmp tmp2, 0
-    ;  bne L1 (+2)
+    ;  bne L1
     ;  tmp2 = 1
     ;  tmp = stxr tmp2, src
     ;L1:
@@ -2044,7 +2046,7 @@
         (emit movzi tmp 1 0
           (emit ldxr tmp2 src
             (emit cmpi tmp2 0
-              (emit bnei 1
+              (emit bnei 12
                 (emit movzi tmp2 1 0
                   (emit stxr tmp tmp2 src code*)))))))))
 
@@ -2054,7 +2056,7 @@
     ;   tmp1 = tmp1 +/- 1
     ;   tmp2 = stxr tmp1, src
     ;   cmp tmp2, 0
-    ;   bne L (-6)
+    ;   bne L
     ;   cmp tmp1, 0
     (lambda (op)
       (lambda (code* src tmp1 tmp2)
@@ -2062,7 +2064,7 @@
           (emit ldxr tmp1 src
             (let ([code* (emit stxr tmp2 tmp1 src
                            (emit cmpi tmp2 0
-                             (emit bnei -6
+                             (emit bnei -32
                                (emit cmpi tmp1 0 code*))))])
               (case op
                 [(locked-incr!) (emit addi #f tmp1 tmp1 1 code*)]
@@ -2072,7 +2074,7 @@
   (define-who asm-cas
     ;   tmp = ldxr src
     ;   cmp tmp, old
-    ;   bne L (+2)
+    ;   bne L
     ;   tmp2 = stxr new, src
     ;   cmp tmp2, 0
     ; L:
@@ -2080,7 +2082,7 @@
       (Trivit (src old new tmp1 tmp2)
         (emit ldxr tmp1 src
           (emit cmp tmp1 old
-            (emit bnei 1
+            (emit bnei 12
               (emit stxr tmp2 new src
                 (emit cmpi tmp2 0
                    code*))))))))
