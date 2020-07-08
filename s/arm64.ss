@@ -1507,7 +1507,7 @@
   (define rev-op
     (lambda (op opc dest src code*)
       (emit-code (op dest src code*)
-        [29 #b100]
+        [29 #b110]
         [21 #b11010110]
         [16 #b00000]
         [12 #b0000]
