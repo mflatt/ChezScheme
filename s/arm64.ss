@@ -1071,7 +1071,8 @@
   (define-op br    branch-reg-op       #b00)
   (define-op blr   branch-reg-op       #b01)
 
-  (define-op b     branch-label-op     (ax-cond 'al))
+  (define-op b     branch-always-label-op)
+
   (define-op beq   branch-label-op     (ax-cond 'eq))
   (define-op bne   branch-label-op     (ax-cond 'ne))
   (define-op blt   branch-label-op     (ax-cond 'lt))
@@ -1379,6 +1380,7 @@
 
   (define branch-imm-op
     (lambda (op cond-bits imm code*)
+      (safe-assert (branch-disp? imm))
       (emit-code (op imm code*)
         [24 #b01010100]
         [5  (fxand (fxsra imm 2) (fx- (fxsll 1 19) 1))]
@@ -1397,15 +1399,28 @@
         [5  (ax-ea-reg-code reg)]
         [0  #b00000])))
 
-  (define-who branch-label-op
-    (lambda (op cond-bits dest code*)
+  (define-who branch-always-label-op
+    (lambda (op dest code*)
       (record-case dest
         [(label) (offset l)
+         (safe-assert (uncond-branch-disp? (+ offset 4)))
          (emit-code (op dest code*)
-           [24 #b01010100]
-           [5  (fxand (fxsra (fx+ offset 4) 2) (fx- (fxsll 1 19) 1))]
-           [4  #b0]
-           [0  cond-bits])]
+           [26 #b000101]
+           [0  (fxand (fxsra (fx+ offset 4) 2) (fx- (fxsll 1 26) 1))])]
+        [else (sorry! who "unexpected dest ~s" dest)])))
+
+  (define-who branch-label-op
+    (lambda (op cond-bits dest code*)
+      (define (emit-branch offset)
+	(safe-assert (branch-disp? (+ offset 4)))
+	(emit-code (op dest code*)
+          [24 #b01010100]
+	  [5  (fxand (fxsra (fx+ offset 4) 2) (fx- (fxsll 1 19) 1))]
+	  [4  #b0]
+	  [0  cond-bits]))
+      (record-case dest
+        [(label) (offset l) (emit-branch offset)]
+	[(imm) (n) (emit-branch n)] ; generated for long branches
         [else (sorry! who "unexpected dest ~s" dest)])))
 
   (define adr-op
@@ -1679,13 +1694,13 @@
   (define branch-disp?
     (lambda (x)
       (and (fixnum? x) 
-           (fx<= (- (expt 2 20)) (fx+ x 4) (- (expt 2 20) 1))
+           (fx<= (- (expt 2 20)) x (- (expt 2 20) 1))
            (not (fxlogtest x #b11)))))
 
   (define uncond-branch-disp?
     (lambda (x)
       (and (fixnum? x) 
-           (fx<= (- (expt 2 26)) (fx+ x 4) (- (expt 2 20) 1))
+           (fx<= (- (expt 2 26)) x (- (expt 2 20) 1))
            (not (fxlogtest x #b11)))))
   
   (define asm-size
@@ -2319,7 +2334,6 @@
                 [(local-label-offset l) =>
                  (lambda (offset)
                    (let ([disp (fx- next-addr offset)])
-                     (unless (branch-disp? disp) (sorry! who "no support for code objects > 1MB in length"))
                      (values disp `(label ,disp ,l))))]
                 [else (values 0 `(label 0 ,l))])
               (sorry! who "unexpected label ~s" l))))
@@ -2329,10 +2343,12 @@
           (let ()
             (define-syntax pred-case
               (lambda (x)
+                (define b-asm-size 4)
                 (define build-bop-seq
                   (lambda (bop opnd1 opnd2 l2 body)
                     #`(let ([code* (emit #,bop #,opnd1 code*)])
-                        (let-values ([(ignore #,opnd2) (get-disp-opnd (fx+ next-addr (asm-size* code*)) #,l2)])
+			(safe-assert (= (asm-size* code*) #,b-asm-size))
+                        (let-values ([(ignore #,opnd2) (get-disp-opnd (fx+ next-addr #,b-asm-size) #,l2)])
                           #,body))))
                 (define ops->code
                   (lambda (bop opnd)
@@ -2347,14 +2363,23 @@
                     (syntax-case e (i?)
                       [(i? c1 c2)
                        #`(cond
-                           [(fx= disp1 0) #,(handle-reverse #'c1 #'opnd2 #'l2)]
-                           [(fx= disp2 0) #,(handle-reverse #'c2 #'opnd1 #'l1)]
-                           [else #,(build-bop-seq #'b #'opnd2 #'opnd1 #'l1
-                                     (handle-reverse #'c2 #'opnd1 #'l1))])]
-                      [_ #`(cond
-                             [(fx= disp1 0) #,(handle-reverse e #'opnd2 #'l2)]
-                             [else #,(build-bop-seq #'b #'opnd1 #'opnd2 #'l2
-                                       (handle-reverse e #'opnd2 #'l2))])])))
+                           [(and (fx= disp1 0)
+                                 (branch-disp? (fx+ disp2 #,b-asm-size)))
+                            #,(handle-reverse #'c1 #'opnd2 #'l2)]
+                           [(and (fx= disp2 0)
+                                 (branch-disp? (fx+ disp1 #,b-asm-size)))
+                            #,(handle-reverse #'c2 #'opnd1 #'l1)]
+                           [(branch-disp? (fx+ disp1 (fx* 2 #,b-asm-size)))
+                            #,(build-bop-seq #'b #'opnd2 #'opnd1 #'l1
+                                (handle-reverse #'c2 #'opnd1 #'l1))]
+                           [(branch-disp? (fx+ disp2 (fx* 2 #,b-asm-size)))
+                            #,(build-bop-seq #'b #'opnd1 #'opnd2 #'l2
+                                (handle-reverse #'c1 #'opnd2 #'l2))]
+                           [else
+                            (let ([code* #,(build-bop-seq #'b #'opnd1 #'opnd2 #'l2
+					      #'(emit b opnd2 code*))])
+			      #,(handle-reverse #'c2 #``(imm #,b-asm-size) #'step))])]
+                      [_ ($oops 'handle-inverse "expected an inverse in ~s" e)])))
                 (syntax-case x ()
                   [(_ [(pred ...) cl-body] ...)
                    (with-syntax ([(cl-body ...) (map handle-inverse #'(cl-body ...))])
