@@ -2470,12 +2470,14 @@
         (Trivit (dest src0 src1)
           (record-case src1
             [(imm) (n)
-             (safe-assert (<= 0 n 63))
-             (case op
-               [(sll) (emit lsli dest src0 n code*)]
-               [(srl) (emit lsri dest src0 n code*)]
-               [(sra) (emit asri dest src0 n code*)]
-               [else (sorry! 'shiftop "unrecognized ~s" op)])]
+             ;; When `n` fits in a fixnum, the compiler may generate
+             ;; a bad shift that is under a guard, so force it to 63 bits
+             (let ([n (fxand n 63)])
+               (case op
+                 [(sll) (emit lsli dest src0 n code*)]
+                 [(srl) (emit lsri dest src0 n code*)]
+                 [(sra) (emit asri dest src0 n code*)]
+                 [else (sorry! 'shiftop "unrecognized ~s" op)]))]
             [else
              (case op
                [(sll) (emit lsl dest src0 src1 code*)]
