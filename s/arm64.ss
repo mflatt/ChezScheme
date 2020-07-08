@@ -43,6 +43,7 @@
   )
   (machine-dependent
     [%jmptmp %argtmp            #f 10 uptr]
+    [%argtmp2                   #f 11 uptr]
     [%sp %real-zero             #t 31 uptr]
     [%Cfparg1 %Cfpretval      %v0   #f  0 fp]
     [%Cfparg2                 %v1   #f  1 fp]
@@ -1005,8 +1006,8 @@
   (define-op strbi   load-imm-op  0 #b00 #b0 #b00)
   (define-op strhi   load-imm-op  1 #b01 #b0 #b00)
   (define-op strwi   load-imm-op  2 #b10 #b0 #b00)
-  (define-op strfi   load-imm-op  3 #b11 #b1 #b01)
-  (define-op strfsi  load-imm-op  2 #b10 #b1 #b01) ; single-precision
+  (define-op strfi   load-imm-op  3 #b11 #b1 #b00)
+  (define-op strfsi  load-imm-op  2 #b10 #b1 #b00) ; single-precision
 
   ;; unscaled variants (offset must be signed9):
   (define-op lduri    load-unscaled-imm-op  #b11 #b0 #b01) ; selectors are at bits 30 (size), 26, and 22 (opc)
@@ -1017,7 +1018,7 @@
   (define-op ldurfsi  load-unscaled-imm-op  #b10 #b1 #b01) ; single-precision
 
   (define-op ldursbi  load-unscaled-imm-op  #b00 #b0 #b10)
-  (define-op ldurshi  load-unscaled-imm-op  #b01 #b0 #b01)
+  (define-op ldurshi  load-unscaled-imm-op  #b01 #b0 #b10)
   (define-op ldurswi  load-unscaled-imm-op  #b10 #b0 #b10)
 
   (define-op sturi    load-unscaled-imm-op  #b11 #b0 #b00)
@@ -1025,7 +1026,7 @@
   (define-op sturhi   load-unscaled-imm-op  #b01 #b0 #b00)
   (define-op sturwi   load-unscaled-imm-op  #b10 #b0 #b00)
   (define-op sturfi   load-unscaled-imm-op  #b11 #b1 #b00)
-  (define-op sturfsi  load-unscaled-imm-op  #b10 #b1 #b01) ; single-precision
+  (define-op sturfsi  load-unscaled-imm-op  #b10 #b1 #b00) ; single-precision
   
   (define-op ldr     load-op     #b11 #b0 #b01)  ; selectors are at bits 30 (size), 26, and 22 (opc)
   (define-op ldrw    load-op     #b10 #b0 #b01)
@@ -1841,8 +1842,9 @@
           (let ([n (nanopass-case (L16 Triv) offset
                      [(immediate ,imm) imm]
                      [else (sorry! who "unexpected non-immediate offset ~s" offset)])])
-            ;; Assuming that `n` is aligned and in range (fits
-            ;; unsigned in 12 bits after shifting by type bits)
+            ;; Assuming that `n` is either aligned and in range (fits
+            ;; unsigned in 12 bits after shifting by type bits) or unaligned
+            ;; and small (fits in 9 bits)
             (Trivit (dest base)
               (cond
                 [(eq? index %zero)
@@ -1961,17 +1963,17 @@
           [(disp) (imm reg)
            (if double?
                (cond
-                 [(signed9? imm)
-                  (emit sturfi src (cons 'reg reg) imm code*)]
+                 [(aligned-offset? imm)
+                  (emit strfi src (cons 'reg reg) imm code*)]
                  [else
-                  (safe-assert (aligned-offset? imm))
-                  (emit strfi src (cons 'reg reg) imm code*)])
+                  (safe-assert (signed9? imm))
+                  (emit sturfi src (cons 'reg reg) imm code*)])
                (cond
-                 [(signed9? imm)
-                  (emit sturfsi src (cons 'reg reg) imm code*)]
+                 [(aligned-offset? imm 2)
+                  (emit strfsi src (cons 'reg reg) imm code*)]
                  [else
-                  (safe-assert (aligned-offset? imm 2))
-                  (emit strfsi src (cons 'reg reg) imm code*)]))]
+                  (safe-assert (signed9? imm))
+                  (emit sturfsi src (cons 'reg reg) imm code*)]))]
           [(index) (n ireg breg)
            (cond
              [(fx= n 0)
@@ -1985,17 +1987,17 @@
              [(disp) (imm reg)
               (if double?
                   (cond
-                    [(signed9? imm)
-                     (emit ldurfi dest (cons 'reg reg) imm code*)]
+                    [(aligned-offset? imm)
+                     (emit ldrfi dest (cons 'reg reg) imm code*)]
                     [else
-                     (safe-assert (aligned-offset? imm))
-                     (emit ldrfi dest (cons 'reg reg) imm code*)])
+                     (safe-assert (signed9? imm))
+                     (emit ldurfi dest (cons 'reg reg) imm code*)])
                   (cond
-                    [(signed9? imm)
-                     (emit ldurfsi dest (cons 'reg reg) imm code*)]
+                    [(aligned-offset? imm 2)
+                     (emit ldrfsi dest (cons 'reg reg) imm code*)]
                     [else
-                     (safe-assert (aligned-offset? imm 2))
-                     (emit ldrfsi dest (cons 'reg reg) imm code*)]))]
+                     (safe-assert (signed9? imm))
+                     (emit ldurfsi dest (cons 'reg reg) imm code*)]))]
              [(index) (n ireg breg)
               (cond
                 [(fx= n 0)
@@ -2649,49 +2651,51 @@
                    [else
                     (cons '#(int 1 #f) (loop (cdr types) (fx- ints 1) fps))])])))))
     (define memory-to-reg
-      (lambda (ireg x from-offset size)
+      (lambda (ireg x from-offset size unsigned?)
         (with-output-language (L13 Effect)
-          (let loop ([ireg ireg] [from-offset from-offset] [size size])
+          ;; Loop to handle weird sizes, but beware that `ireg` and `x` might be the same
+          (let loop ([ireg ireg] [from-offset from-offset] [size size] [unsigned? unsigned?])
             (case size
               [(8) `(set! ,ireg ,(%mref ,x ,from-offset))]
               [(7 6 5)
-               (let ([tmp %argtmp])
+               (let ([tmp %argtmp2]) ; must be different than the reg for 3 bytes
                  (%seq
-                  ,(loop ireg from-offset 4) ; clears high 4 bytes, right?
-                  ,(loop tmp (fx+ from-offset 4) (fx- size 4))
+                  ,(loop tmp (fx+ from-offset 4) (fx- size 4) #t)
+                  ,(loop ireg from-offset 4 #t) ; unsigned => clears high 4 bytes
                   (set! ,tmp ,(%inline sll ,tmp (immediate 32)))
                   (set! ,ireg ,(%inline + ,ireg ,tmp))))]
               [(3)
                (let ([tmp %argtmp])
                  (%seq
-                  (set! ,ireg (inline ,(make-info-load 'integer-16 #f) ,%load ,x ,%zero (immediate ,from-offset)))
-                  (set! ,tmp (inline ,(make-info-load 'integer-8 #f) ,%load ,x ,%zero (immediate ,(fx+ from-offset 2))))
+                  ,(loop tmp (fx+ from-offset 2) 1 #t)
+                  ,(loop ireg from-offset 2 #t)
                   (set! ,tmp ,(%inline sll ,tmp (immediate 16)))
                   (set! ,ireg ,(%inline + ,ireg ,tmp))))]
               [else
                `(set! ,ireg ,(case size
-                               [(1) `(inline ,(make-info-load 'integer-8 #f) ,%load ,x ,%zero (immediate ,from-offset))]
-                               [(2) `(inline ,(make-info-load 'integer-16 #f) ,%load ,x ,%zero (immediate ,from-offset))]
-                               [(4) (%mref ,x ,from-offset)]))])))))
-
+                               [(1) `(inline ,(make-info-load (if unsigned? 'unsigned-8 'integer-8) #f) ,%load ,x ,%zero (immediate ,from-offset))]
+                               [(2) `(inline ,(make-info-load (if unsigned? 'unsigned-16 'integer-16) #f) ,%load ,x ,%zero (immediate ,from-offset))]
+                               [(4) `(inline ,(make-info-load (if unsigned? 'unsigned-32 'integer-32) #f) ,%load ,x ,%zero (immediate ,from-offset))]))])))))
     (define reg-to-memory
-      (lambda (dest-x offset size from-reg) ; can change `from-reg` content
-        (let loop ([offset offset] [size size])
+      (lambda (dest-x offset size from-reg)
+        (let loop ([from-reg from-reg] [offset offset] [size size])
           (with-output-language (L13 Effect)
             (case size
               [(1) `(inline ,(make-info-load 'integer-8 #f) ,%store ,dest-x ,%zero (immediate ,offset) ,from-reg)]
               [(2) `(inline ,(make-info-load 'integer-16 #f) ,%store ,dest-x ,%zero (immediate ,offset) ,from-reg)]
-              [(3) (%seq
-                    (inline ,(make-info-load 'integer-16 #f) ,%store ,dest-x ,%zero (immediate ,offset) ,from-reg)
-                    (set! ,from-reg ,(%inline srl ,from-reg (immediate 16)))
-                    (inline ,(make-info-load 'integer-8 #f) ,%store ,dest-x ,%zero (immediate ,(fx+ offset 2)) ,from-reg))]
+              [(3) (let ([tmp %argtmp])
+                     (%seq
+                      ,(loop from-reg offset 2)
+                      (set! ,tmp ,(%inline srl ,from-reg (immediate 16)))
+                      ,(loop tmp (fx+ offset 2) 1)))]
               [(4) `(inline ,(make-info-load 'integer-32 #f) ,%store ,dest-x ,%zero (immediate ,offset) ,from-reg)]
               [(8) `(set! ,(%mref ,dest-x ,offset) ,from-reg)]
-              [(7 6 5) (%seq
-                        ,(loop offset 4)
-                        (set! ,from-reg ,(%inline srl ,from-reg (immediate 32)))
-                        ,(loop (fx+ offset 4) (fx- size 4)))])))))
-        
+              [(7 6 5) (let ([tmp %argtmp]) ; can be the same as the reg for 3 bytes
+                         (%seq
+                          ,(loop from-reg offset 4)
+                          (set! ,tmp ,(%inline srl ,from-reg (immediate 32)))
+                          ,(loop tmp (fx+ offset 4) (fx- size 4))))])))))
+
     (define-who asm-foreign-call
       (with-output-language (L13 Effect)
         (letrec ([load-double-stack
@@ -2725,7 +2729,7 @@
                            `(set! ,(%mref ,%sp ,offset) ,(case size
                                                            [(1) `(inline ,(make-info-load 'integer-8 #f) ,%load ,x ,%zero (immediate ,from-offset))]
                                                            [(2) `(inline ,(make-info-load 'integer-16 #f) ,%load ,x ,%zero (immediate ,from-offset))]
-                                                           [(4) (%mref ,x ,from-offset)]))]
+                                                           [(4) `(inline ,(make-info-load 'integer-32 #f) ,%load ,x ,%zero (immediate ,from-offset))]))]
                           [else
                            (%seq
                             ,(loop 8 offset from-offset)
@@ -2744,8 +2748,8 @@
                       `(set! ,fpreg ,(%mref ,x ,%zero ,fp-disp fp))))]
                  [load-boxed-single-reg
                   (lambda (fpreg fp-disp)
-                    (lambda (x) ; address (always a var) of a flonum
-                      `(set! ,fpreg ,(%inline double->single ,(%mref ,x ,%zero ,fp-disp fp)))))]
+                    (lambda (x) ; address (always a var) of a float
+                      `(set! ,fpreg ,(%inline load-single ,(%mref ,x ,%zero ,fp-disp fp)))))]
                  [load-int-reg
                   (lambda (ireg)
                     (lambda (x)
@@ -2753,7 +2757,7 @@
                  [load-int-indirect-reg
                   (lambda (ireg from-offset size)
                     (lambda (x)
-                      (memory-to-reg ireg x from-offset size)))]
+                      (memory-to-reg ireg x from-offset size #t)))]
                  [compute-stack-argument-space
                   ;; We'll save indirect arguments on the stack, too, but they have to be beyond any
                   ;; arguments that the callee expects. So, calculate how much the callee shoudl expect.
@@ -3189,32 +3193,31 @@
                    [(int)
                     (if synthesize-first?
                         (lambda ()
-                          (memory-to-reg %Cretval %sp return-stack-offset ($ftd-size ftd)))
+                          (memory-to-reg %Cretval %sp return-stack-offset ($ftd-size ftd) ($ftd-unsigned? ftd)))
                         (lambda (x)
                           (let loop ([int* (int-regs)] [n (cat-count result-cat)] [offset 0] [size ($ftd-size ftd)])
                             (cond
                               [(fx= n 0) `(nop)]
                               [else
                                (%seq ,(loop (cdr int*) (fx- n 1) (fx+ offset 8) (fx- size 8))
-                                     ,(memory-to-reg (car int*) x offset size))]))))]
+                                     ,(memory-to-reg (car int*) x offset size #t))]))))]
                    [(fp)
-                    (lambda ()
-                      (let* ([double? (double-member? (car ($ftd->members ftd)))])
-                        (if synthesize-first?
-                            (lambda ()
-                              (if double?
-                                  `(set! ,%Cfpretval ,(%mref ,%sp ,%zero ,return-stack-offset fp))
-                                  `(set! ,%Cfpretval ,(%inline load-single ,(%mref ,%sp ,%zero ,return-stack-offset fp)))))
-                            (lambda (x)
-                              (let loop ([fp* (fp-regs)] [n (cat-count result-cat)] [offset 0])
-                                (cond
-                                  [(fx= n 0) `(nop)]
-                                  [double?
-                                   (%seq ,(loop (cdr fp*) (fx- n 1) (fx+ offset 8))
-                                         (set! ,(car fp*) ,(%mref ,x ,%zero ,offset fp)))]
-                                  [else
-                                   (%seq ,(loop (cdr fp*) (fx- n 1) (fx+ offset 4))
-                                         (set! ,(car fp*) ,(%inline load-single ,(%mref ,x ,%zero ,offset fp))))]))))))]
+                    (let* ([double? (double-member? (car ($ftd->members ftd)))])
+                      (if synthesize-first?
+                          (lambda ()
+                            (if double?
+                                `(set! ,%Cfpretval ,(%mref ,%sp ,%zero ,return-stack-offset fp))
+                                `(set! ,%Cfpretval ,(%inline load-single ,(%mref ,%sp ,%zero ,return-stack-offset fp)))))
+                          (lambda (x)
+                            (let loop ([fp* (fp-regs)] [n (cat-count result-cat)] [offset 0])
+                              (cond
+                                [(fx= n 0) `(nop)]
+                                [double?
+                                 (%seq ,(loop (cdr fp*) (fx- n 1) (fx+ offset 8))
+                                       (set! ,(car fp*) ,(%mref ,x ,%zero ,offset fp)))]
+                                [else
+                                 (%seq ,(loop (cdr fp*) (fx- n 1) (fx+ offset 4))
+                                       (set! ,(car fp*) ,(%inline load-single ,(%mref ,x ,%zero ,offset fp))))])))))]
                    [else
                     ;; we passed the pointer to be filled, so nothing more to do here
                     `(nop)])]
@@ -3337,7 +3340,7 @@
                          (inline ,(make-info-kill* callee-save-fpregs) ,%pop-fpmultiple)
                          (inline ,(make-info-kill* callee-save-regs+lr) ,%pop-multiple)
                          ;; deallocate space for pad & arg reg values
-                         (set! ,%sp ,(%inline + ,%sp (immediate ,(fx+ active-state-bytes float-reg-bytes int-reg-bytes))))
+                         (set! ,%sp ,(%inline + ,%sp (immediate ,(fx+ active-state-bytes return-bytes float-reg-bytes int-reg-bytes))))
                          ;; done
                          (asm-c-return ,null-info ,callee-save-regs+lr ... ,callee-save-fpregs ... ,result-regs ...)))))))))))))
 )
