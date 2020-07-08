@@ -657,10 +657,11 @@
 
   (define-instruction effect (inc-cc-counter)
     [(op (x ur) (w unsigned12) (z ur unsigned12))
-     (let ([u (make-tmp 'u)])
+     (let ([u1 (make-tmp 'u1)] [u2 (make-tmp 'u2)])
        (seq
-        `(set! ,(make-live-info) ,u (asm ,null-info ,asm-kill))
-        `(asm ,null-info ,asm-inc-cc-counter ,x ,w ,z ,u)))])
+        `(set! ,(make-live-info) ,u1 (asm ,null-info ,(asm-add #f) ,x ,w))
+        `(set! ,(make-live-info) ,u2 (asm ,null-info ,asm-kill))
+        `(asm ,null-info ,asm-inc-cc-counter ,u1 ,z ,u2)))])
 
   (define-instruction effect (inc-profile-counter)
     [(op (x mem) (y unsigned12))
@@ -2505,8 +2506,8 @@
               [else (emit add #t tmp tmp val code*)])))
         (do-ldr 0
           do-add/cc
-          (emit bnei 2
-            (do-ldr 4
+          (emit bnei 16
+            (do-ldr 8
               (lambda (code*)
                 (emit addi #f tmp tmp 1 code*))
               code*))))))
