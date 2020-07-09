@@ -3293,7 +3293,11 @@
                                                                 (eq? type (reg-type reg)))
                                                            (cons reg (loop (fx+ i 1)))
                                                            (loop (fx+ i 1))))]))))
-            (define callee-save-regs+lr (cons %lr (get-callee-save-regs 'uptr)))
+            (define callee-save-regs+lr (cons* %lr
+					       ;; reserved:
+					       %tc %sfp %ap %trap
+					       ;; allocable:
+					       (get-callee-save-regs 'uptr)))
             (define callee-save-fpregs  (get-callee-save-regs 'fp))
             (define isaved (length callee-save-regs+lr))
             (define fpsaved (length callee-save-fpregs))
