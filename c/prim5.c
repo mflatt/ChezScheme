@@ -266,7 +266,7 @@ static ptr sorted_chunk_list(void) {
 
   for (i = PARTIAL_CHUNK_POOLS; i >= -1; i -= 1) {
     for (chunk = (i == -1) ? S_chunks_full : S_chunks[i]; chunk != NULL; chunk = chunk->next) {
-      ls = Scons(chunk, ls);
+      ls = Scons((ptr)chunk, ls);
       n += 1;
     }
   }
@@ -347,7 +347,7 @@ static void s_show_chunks(FILE *out, ptr sorted_chunks) {
   ptr ls;
 
   for (ls = sorted_chunks; ls != Snil; ls = Scdr(ls)) {
-    chunk = Scar(ls);
+    chunk = (chunkinfo *)Scar(ls);
     max_addr = chunk->addr;
     if (chunk->segs > max_segs) max_segs = chunk->segs;
     if ((void *)chunk > max_header_addr) max_header_addr = (void *)chunk;
@@ -367,7 +367,7 @@ static void s_show_chunks(FILE *out, ptr sorted_chunks) {
   snprintf(fmtbuf, FMTBUFSIZE, "%%#0%dtx %%#0%dtx (+ %%#0%dtx bytes @ %%#0%dtx) %%%dtd of %%%dtd\n",
       addrwidth, byteswidth, headerbyteswidth, headeraddrwidth, segswidth, segswidth);
   for (ls = sorted_chunks; ls != Snil; ls = Scdr(ls)) {
-    chunk = Scar(ls);
+    chunk = (chunkinfo *)Scar(ls);
     fprintf(out, fmtbuf, (ptrdiff_t)chunk->addr, (ptrdiff_t)chunk->bytes,
         (ptrdiff_t)(sizeof(chunkinfo) + sizeof(seginfo) * chunk->segs),
         (ptrdiff_t)chunk, (ptrdiff_t)chunk->nused_segs, (ptrdiff_t)chunk->segs);
@@ -529,7 +529,7 @@ static void s_showalloc(IBOOL show_dump, const char *outfn) {
 
     for (ls = sorted_chunks; ls != Snil; ls = Scdr(ls)) {
       iptr last_seg;
-      chunk = Scar(ls);
+      chunk = (chunkinfo *)Scar(ls);
       last_seg = chunk->base + chunk->segs;
       if (last_seg > max_seg) max_seg = last_seg;
     }
@@ -544,7 +544,7 @@ static void s_showalloc(IBOOL show_dump, const char *outfn) {
     for (ls = sorted_chunks; ls != Snil; ls = Scdr(ls)) {
       seginfo *si;
 
-      chunk = Scar(ls);
+      chunk = (chunkinfo *)Scar(ls);
 
       if (chunk->base != next_base && segsprinted != 0) {
         for (;;) {
@@ -1535,16 +1535,17 @@ static ptr s_profile_release_counters(void) {
 void S_dump_tc(ptr tc) {
   INT i;
 
-  printf("AC0=%p AC1=%p SFP=%p CP=%p\n", AC0(tc), AC1(tc), SFP(tc), CP(tc));
-  printf("ESP=%p AP=%p EAP=%p\n", ESP(tc), AP(tc), EAP(tc));
-  printf("TRAP=%p XP=%p YP=%p REAL_EAP=%p\n", TRAP(tc), XP(tc), YP(tc), REAL_EAP(tc));
-  printf("CCHAIN=%p RANDOMSEED=%ld SCHEMESTACK=%p STACKCACHE=%p\n", CCHAIN(tc), (long)RANDOMSEED(tc), SCHEMESTACK(tc), STACKCACHE(tc));
-  printf("STACKLINK=%p SCHEMESTACKSIZE=%ld WINDERS=%p U=%p\n", STACKLINK(tc), (long)SCHEMESTACKSIZE(tc), WINDERS(tc), U(tc));
-  printf("V=%p W=%p X=%p Y=%p\n", V(tc), W(tc), X(tc), Y(tc));
-  printf("SOMETHING=%p KBDPEND=%p SIGPEND=%p TIMERTICKS=%p\n", SOMETHINGPENDING(tc), KEYBOARDINTERRUPTPENDING(tc), SIGNALINTERRUPTPENDING(tc), TIMERTICKS(tc));
-  printf("DISABLECOUNT=%p PARAMETERS=%p\n", DISABLECOUNT(tc), PARAMETERS(tc));
+  printf("AC0=%p AC1=%p SFP=%p CP=%p\n", (void*)AC0(tc), (void*)AC1(tc), (void*)SFP(tc), (void*)CP(tc));
+  printf("ESP=%p AP=%p EAP=%p\n", (void*)ESP(tc), (void*)AP(tc), (void*)EAP(tc));
+  printf("TRAP=%p XP=%p YP=%p REAL_EAP=%p\n", (void*)TRAP(tc), (void*)XP(tc), (void*)YP(tc), (void*)REAL_EAP(tc));
+  printf("CCHAIN=%p RANDOMSEED=%ld SCHEMESTACK=%p STACKCACHE=%p\n", (void*)CCHAIN(tc), (long)RANDOMSEED(tc), (void*)SCHEMESTACK(tc), (void*)STACKCACHE(tc));
+  printf("STACKLINK=%p SCHEMESTACKSIZE=%ld WINDERS=%p U=%p\n", (void*)STACKLINK(tc), (long)SCHEMESTACKSIZE(tc), (void*)WINDERS(tc), (void*)U(tc));
+  printf("V=%p W=%p X=%p Y=%p\n", (void*)V(tc), (void*)W(tc), (void*)X(tc), (void*)Y(tc));
+  printf("SOMETHING=%p KBDPEND=%p SIGPEND=%p TIMERTICKS=%p\n", (void*)SOMETHINGPENDING(tc), (void*)KEYBOARDINTERRUPTPENDING(tc),
+         (void*)SIGNALINTERRUPTPENDING(tc), (void*)TIMERTICKS(tc));
+  printf("DISABLECOUNT=%p PARAMETERS=%p\n", (void*)DISABLECOUNT(tc), (void*)PARAMETERS(tc));
   for (i = 0 ; i < virtual_register_count ; i += 1) {
-    printf("VIRTREG[%d]=%p", i, VIRTREG(tc, i));
+    printf("VIRTREG[%d]=%p", i, (void*)VIRTREG(tc, i));
     if ((i & 0x11) == 0x11 || i == virtual_register_count - 1) printf("\n");
   }
   fflush(stdout);

@@ -232,6 +232,10 @@ static void faslin PROTO((ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f));
 static void fasl_record PROTO((ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f, uptr size));
 static IBOOL rtd_equiv PROTO((ptr x, ptr y));
 static IBOOL equalp PROTO((ptr x, ptr y));
+#ifdef PORTABLE_BYTECODE
+static void pb_set_abs PROTO((void *address, uptr item));
+static uptr pb_get_abs PROTO((void *address));
+#endif /* AARCH64 */
 #ifdef ARMV6
 static void arm32_set_abs PROTO((void *address, uptr item));
 static uptr arm32_get_abs PROTO((void *address));
@@ -556,7 +560,7 @@ static ptr bv_fasl_entry(ptr tc, ptr bv, int ty, uptr offset, uptr len, unbufFas
   struct faslFileObj ffo;
 
   if (ty == fasl_type_vfasl) {
-    x = S_vfasl(bv, (ptr)0, offset, len);
+    x = S_vfasl(bv, NULL, offset, len);
   } else if (ty == fasl_type_fasl) {
     ffo.size = len;
     ffo.next = ffo.buf = &BVIT(bv, offset);
@@ -1324,6 +1328,12 @@ void S_set_code_obj(who, typ, p, n, x, o) char *who; IFASLCODE typ; iptr n, o; p
         case reloc_abs:
             *(uptr *)address = item;
             break;
+#ifdef PORTABLE_BYTECODE
+        case reloc_pb_abs:
+        case reloc_pb_proc:
+            pb_set_abs(address, item);
+            break;
+#endif /* AARCH64 */
 #ifdef ARMV6
         case reloc_arm32_abs:
             arm32_set_abs(address, item);
@@ -1411,6 +1421,12 @@ ptr S_get_code_obj(typ, p, n, o) IFASLCODE typ; iptr n, o; ptr p; {
         case reloc_abs:
             item = *(uptr *)address;
             break;
+#ifdef PORTABLE_BYTECODE
+        case reloc_pb_abs:
+        case reloc_pb_proc:
+            item = pb_get_abs(address);
+            break;
+#endif /* AARCH64 */
 #ifdef ARMV6
         case reloc_arm32_abs:
             item = arm32_get_abs(address);
@@ -1478,6 +1494,28 @@ ptr S_get_code_obj(typ, p, n, o) IFASLCODE typ; iptr n, o; ptr p; {
     return (ptr)(item - o);
 }
 
+
+#ifdef PORTABLE_BYTECODE
+
+/* Address pieces in a movz,movk,movk,movk sequence are upper 16 bits */
+#define ADDRESS_BITS_SHIFT 16
+#define ADDRESS_BITS_MASK  ((U32)0xffff0000)
+
+static void pb_set_abs(void *address, uptr item) {
+  ((U32 *)address)[0] = ((((U32 *)address)[0] & ~ADDRESS_BITS_MASK) | ((item & 0xFFFF) << ADDRESS_BITS_SHIFT));
+  ((U32 *)address)[1] = ((((U32 *)address)[1] & ~ADDRESS_BITS_MASK) | (((item >> 16) & 0xFFFF) << ADDRESS_BITS_SHIFT));
+  ((U32 *)address)[2] = ((((U32 *)address)[2] & ~ADDRESS_BITS_MASK) | (((item >> 32) & 0xFFFF) << ADDRESS_BITS_SHIFT));
+  ((U32 *)address)[3] = ((((U32 *)address)[3] & ~ADDRESS_BITS_MASK) | (((item >> 48) & 0xFFFF) << ADDRESS_BITS_SHIFT));
+}
+
+static uptr pb_get_abs(void *address) {
+  return ((uptr)((((U32 *)address)[0] & ADDRESS_BITS_MASK) >> ADDRESS_BITS_SHIFT)
+          | ((uptr)((((U32 *)address)[1] & ADDRESS_BITS_MASK) >> ADDRESS_BITS_SHIFT) << 16)
+          | ((uptr)((((U32 *)address)[2] & ADDRESS_BITS_MASK) >> ADDRESS_BITS_SHIFT) << 32)
+          | ((uptr)((((U32 *)address)[3] & ADDRESS_BITS_MASK) >> ADDRESS_BITS_SHIFT) << 48));
+}
+
+#endif /* AARCH64 */
 
 #ifdef ARMV6
 static void arm32_set_abs(void *address, uptr item) {

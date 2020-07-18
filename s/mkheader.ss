@@ -186,7 +186,11 @@
   
         (nl)
         (comment "Warning: Some macros may evaluate arguments more than once.")
-       
+        
+        (constant-case architecture
+          [(pb) (nl) (pr "#include <stdint.h>\n")]
+          [else (void)])
+
         (nl) (comment "Enable function prototypes by default.")
         (pr "#ifndef PROTO~%#define PROTO(x) x~%#endif~%")
   
@@ -228,6 +232,7 @@
         (pr "typedef ~a ptr;~%" (constant typedef-ptr))
         (pr "typedef ~a iptr;~%" (constant typedef-iptr))
         (pr "typedef ~a uptr;~%" (constant typedef-uptr))
+        (pr "typedef ptr xptr;~%")
 
         (nl)
         (comment "String elements are 32-bit tagged char objects")
@@ -421,6 +426,39 @@
         (for-each
           (lambda (x) (pr "#define FEATURE_~@:(~a~)~%" (sanitize x)))
           (feature-list))
+
+        (constant-case architecture
+          [(pb)
+           (nl) (comment "C call prototypes.")
+           (pr "#include <stdint.h>\n")
+           (for-each
+            (lambda (proto+id)
+              (let ([proto (car proto+id)])
+                (define (sym->type s)
+                  (case s
+                    [(int8) 'int8_t]
+                    [(int16) 'int16_t]
+                    [(int32) 'int32_t]
+                    [(uint32) 'uint32_t]
+                    [else s]))
+                (define (clean-type s)
+                  (case s
+                    [(void*) 'voids]
+                    [else s]))
+                (pr "typedef ~a (*pb_~a_t)(~a);~%"
+                    (sym->type (car proto))
+                    (apply string-append
+                           (symbol->string (clean-type (car proto)))
+                           (map (lambda (s) (format "_~a" (clean-type s)))
+                                (cdr proto)))
+                    (if (null? (cdr proto))
+                        ""
+                        (apply string-append
+                               (symbol->string (sym->type (cadr proto)))
+                               (map (lambda (s) (format ", ~a" (sym->type s)))
+                                    (cddr proto)))))))
+            (reverse (constant pb-prototype-table)))]
+          [else (void)])
 
         (nl) (comment "Locking macros.")
         (constant-case architecture
@@ -775,6 +813,12 @@
             (pr "                        : \"=&r\" (ret)\\~%")
             (pr "                        : \"r\" (addr)\\~%")
             (pr "                        : \"cc\", \"memory\", \"x12\", \"x7\")~%")]
+          [(pb)
+           (pr "#define INITLOCK(addr) (*((long *) addr) = 0)~%")
+           (pr "#define SPINLOCK(addr) (*((long *) addr) = 1)~%")
+           (pr "#define UNLOCK(addr) (*((long *) addr) = 0)~%")
+           (pr "#define LOCKED_INCR(addr, res) (res = ((*(uptr*)addr)-- == 1))~%")
+           (pr "#define LOCKED_DECR(addr, res) (res = ((*(uptr*)addr)-- == 1))~%")]
           [else
             ($oops who "asm locking code is not yet defined for ~s" (constant architecture))]))))
 

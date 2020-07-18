@@ -38,9 +38,10 @@ void S_intern_init() {
 }
 
 static void oblist_insert(ptr sym, iptr idx, IGEN g) {
-  bucket *b, *oldb, **pb;
+  ptr bp; bucket *b, *oldb, **pb;
 
-  find_room(g == 0 ? space_new : space_data, g, typemod, sizeof(bucket), b);
+  find_room(g == 0 ? space_new : space_data, g, typemod, ptr_align(sizeof(bucket)), bp);
+  b = (bucket *)bp;
   b->sym = sym;
   if (g == 0) {
     b->next = S_G.oblist[idx];
@@ -53,7 +54,8 @@ static void oblist_insert(ptr sym, iptr idx, IGEN g) {
 
   if (g != static_generation) {
     bucket_list *bl;
-    find_room(g == 0 ? space_new : space_data, g, typemod, sizeof(bucket_list), bl);
+    find_room(g == 0 ? space_new : space_data, g, typemod, ptr_align(sizeof(bucket_list)), bp);
+    bl = (bucket_list *)bp;
     bl->car = b;
     bl->cdr = S_G.buckets_of_generation[g];
     S_G.buckets_of_generation[g] = bl;

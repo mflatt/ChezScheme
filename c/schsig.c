@@ -325,7 +325,7 @@ static void reset_scheme() {
     tc_mutex_acquire()
    /* eap should always be up-to-date now that we write-through to the tc
       when making any changes to eap when eap is a real register */
-    S_scan_dirty((ptr **)EAP(tc), (ptr **)REAL_EAP(tc));
+    S_scan_dirty((ptr *)EAP(tc), (ptr *)REAL_EAP(tc));
     S_reset_allocation_pointer(tc);
     S_reset_scheme_stack(tc, stack_slop);
     FRAME(tc,0) = (ptr)DOUNDERFLOW;
@@ -399,7 +399,7 @@ static void do_error(type, who, s, args) iptr type; const char *who, *s; ptr arg
     AC0(tc) = (ptr)1;
     CP(tc) = S_symbol_value(S_G.error_id);
     S_put_scheme_arg(tc, 1, args);
-    LONGJMP(CAAR(CCHAIN(tc)), -1);
+    LONGJMP((void*)CAAR(CCHAIN(tc)), -1);
 }
 
 static void handle_call_error(tc, type, x) ptr tc; iptr type; ptr x; {
@@ -686,7 +686,7 @@ static void handle_signal(INT sig, UNUSED siginfo_t *si, UNUSED void *data) {
             ptr tc = get_thread_context();
            /* disable keyboard interrupts in subordinate threads until we think
              of something more clever to do with them */
-            if (tc == S_G.thread_context) {
+            if (tc == (ptr)S_G.thread_context) {
               if (!S_pants_down && Sboolean_value(KEYBOARDINTERRUPTPENDING(tc))) {
                /* this is a no-no, but the only other options are to ignore
                   the signal or to kill the process */

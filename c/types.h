@@ -139,7 +139,10 @@ typedef struct _seginfo {
   unsigned char has_triggers : 1;           /* set if trigger_ephemerons or trigger_guardians is set */
   unsigned char must_mark : 2;              /* a form of locking, where 3 counts as "infinite" */
   octet min_dirty_byte;                     /* dirty byte for full segment, effectively min(dirty_bytes) */
-  octet *list_bits;                         /* for `$list-bits-ref` and `$list-bits-set!` */
+#ifdef PORTABLE_BYTECODE
+  int to_align_list_bits;
+#endif
+  ptr list_bits;                            /* for `$list-bits-ref` and `$list-bits-set!` */
   uptr number;                              /* the segment number */
   struct _chunkinfo *chunk;                 /* the chunk this segment belongs to */
   struct _seginfo *next;                    /* pointer to the next seginfo (used in occupied_segments and unused_segs */

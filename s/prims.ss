@@ -59,7 +59,10 @@
     scheme-object))
 
 (define weak-pair?
-  (lambda (p) (weak-pair? p)))
+  (constant-case architecture
+    [(pb)
+     (foreign-procedure "(cs)s_weak_pairp" (scheme-object) scheme-object)]
+    [else (lambda (p) (weak-pair? p))]))
 
 (define ephemeron-cons
   (foreign-procedure "(cs)s_ephemeron_cons"
@@ -67,7 +70,11 @@
     scheme-object))
 
 (define ephemeron-pair?
-  (lambda (p) (ephemeron-pair? p)))
+  (constant-case architecture
+    [(pb)
+     (foreign-procedure "(cs)s_ephemeron_pairp" (scheme-object) scheme-object)]
+    [else
+     (lambda (p) (ephemeron-pair? p))]))
 
 (define $split-continuation
   (foreign-procedure "(cs)single_continuation"
@@ -2040,28 +2047,44 @@
   (define-tlc-parameter $tlc-next $set-tlc-next!)
 )
 
-
-(define $generation
-  (lambda (x)
-    ($generation x)))
-(define $maybe-seginfo
-  (lambda (x)
-    ($maybe-seginfo x)))
-(define $seginfo
-  (lambda (x)
-    ($seginfo x)))
-(define $seginfo-generation
-  (lambda (x)
-    ($seginfo-generation x)))
-(define $seginfo-space
-  (lambda (x)
-    ($seginfo-space x)))
-(define-who $list-bits-ref
-  (lambda (x)
-    (unless (pair? x) ($oops who "~s is not a pair" x))
-    ($list-bits-ref x)))
-(define-who $list-bits-set!
-  (foreign-procedure "(cs)list_bits_set" (ptr iptr) void))
+(constant-case architecture
+  [(pb)
+   (define-who $generation
+     (lambda (x) ($oops who "unsupported for pb")))
+   (define-who $maybe-seginfo
+     (lambda (x) ($oops who "unsupported for pb")))
+   (define-who $seginfo
+     (lambda (x) ($oops who "unsupported for pb")))
+   (define-who $seginfo-generation
+     (lambda (x) ($oops who "unsupported for pb")))
+   (define-who $seginfo-space
+     (lambda (x) ($oops who "unsupported for pb")))
+   (define-who $list-bits-ref
+     (lambda (x) ($oops who "unsupported for pb")))
+   (define-who $list-bits-set!
+     (lambda (x) ($oops who "unsupported for pb")))]
+  [else
+   (define $generation
+     (lambda (x)
+       ($generation x)))
+   (define $maybe-seginfo
+     (lambda (x)
+       ($maybe-seginfo x)))
+   (define $seginfo
+     (lambda (x)
+       ($seginfo x)))
+   (define $seginfo-generation
+     (lambda (x)
+       ($seginfo-generation x)))
+   (define $seginfo-space
+     (lambda (x)
+       ($seginfo-space x)))
+   (define-who $list-bits-ref
+     (lambda (x)
+       (unless (pair? x) ($oops who "~s is not a pair" x))
+       ($list-bits-ref x)))
+   (define-who $list-bits-set!
+     (foreign-procedure "(cs)list_bits_set" (ptr iptr) void))])
 
 (let ()
   (define $phantom-bytevector-adjust!

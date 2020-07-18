@@ -240,6 +240,9 @@ ptr S_find_more_room(s, g, n, old) ISPC s; IGEN g; iptr n; ptr old; {
  /* base address of current block of segments to track amount of allocation */
   S_G.base_loc[s][g] = new;
 
+  if (n & (sizeof(ptr)-1))
+    abort();
+
   S_G.next_loc[s][g] = (ptr)((uptr)new + n);
   S_G.bytes_left[s][g] = (nsegs * bytes_per_segment - n) - 2 * ptr_bytes;
 
@@ -326,13 +329,13 @@ void S_dirty_set(ptr *loc, ptr x) {
 }
 
 /* scan remembered set from P to ENDP, transfering to dirty vector */
-void S_scan_dirty(ptr **p, ptr **endp) {
+void S_scan_dirty(ptr *p, ptr *endp) {
   uptr this, last;
  
   last = 0;
 
   while (p < endp) {
-    ptr *loc = *p;
+    ptr *loc = (ptr *)*p;
    /* whether building s directory or running UXLB code, the most
       common situations are that *loc is a fixnum, this == last, or loc
       is in generation 0. the generated code no longer adds elements
@@ -369,7 +372,7 @@ void S_scan_remembered_set() {
   eap = (uptr)EAP(tc);
   real_eap = (uptr)REAL_EAP(tc);
 
-  S_scan_dirty((ptr **)eap, (ptr **)real_eap);
+  S_scan_dirty((ptr *)eap, (ptr *)real_eap);
   eap = real_eap;
 
   if (eap - ap > alloc_waste_maximum) {
@@ -410,7 +413,7 @@ ptr S_get_more_room_help(ptr tc, uptr ap, uptr type, uptr size) {
 
   tc_mutex_acquire()
 
-  S_scan_dirty((ptr **)eap, (ptr **)real_eap);
+  S_scan_dirty((ptr *)eap, (ptr *)real_eap);
   eap = real_eap;
 
   if (eap - ap >= size) {
@@ -449,7 +452,7 @@ ptr S_list_bits_ref(p) ptr p; {
 
   if (si->list_bits) {
     int bit_pos = (segment_bitmap_index(p) & 0x7);
-    return FIX((si->list_bits[segment_bitmap_byte(p)] >> bit_pos) & list_bits_mask);
+    return FIX((((octet *)si->list_bits)[segment_bitmap_byte(p)] >> bit_pos) & list_bits_mask);
   } else
     return FIX(0);
 }
@@ -473,7 +476,7 @@ void S_list_bits_set(p, bits) ptr p; iptr bits; {
       tc_mutex_release()
     }
 
-    memset(list_bits, 0, segment_bitmap_bytes);
+    memset((void *)list_bits, 0, segment_bitmap_bytes);
 
     /* FIXME: A write fence is needed here to make sure `list_bits` is
        zeroed for everyone who sees it. On x86, TSO takes care of that
@@ -484,7 +487,7 @@ void S_list_bits_set(p, bits) ptr p; iptr bits; {
   }
 
   /* beware: racy read+write here */
-  si->list_bits[segment_bitmap_byte(p)] |= segment_bitmap_bits(p, bits);
+  ((octet *)si->list_bits)[segment_bitmap_byte(p)] |= segment_bitmap_bits(p, bits);
 }
 
 /* S_cons_in is always called with mutex */
@@ -514,8 +517,8 @@ ptr S_ephemeron_cons_in(gen, car, cdr) IGEN gen; ptr car, cdr; {
   find_room(space_ephemeron, gen, type_pair, size_ephemeron, p);
   INITCAR(p) = car;
   INITCDR(p) = cdr;
-  EPHEMERONPREVREF(p) = NULL;
-  EPHEMERONNEXT(p) = NULL;
+  EPHEMERONPREVREF(p) = (ptr)0;
+  EPHEMERONNEXT(p) = (ptr)0;
 
   return p;
 }

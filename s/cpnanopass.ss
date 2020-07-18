@@ -1260,7 +1260,7 @@
         (syntax-case x ()
           [(k field) #'(k ,%tc field)]
           [(k e-tc field)
-           (if (memq (field-type 'tc (datum field)) '(ptr void* uptr iptr))
+           (if (memq (field-type 'tc (datum field)) '(ptr xptr uptr iptr))
                (with-implicit (k %mref)
                  #`(%mref e-tc
                      #,(lookup-constant
@@ -5897,120 +5897,126 @@
           (inline-accessor port-name port-name-disp)
           (inline-accessor $thread-tc thread-tc-disp)
           )
-        (let ()
-          (define (build-seginfo maybe? e)
-            (let ([ptr (make-assigned-tmp 'ptr)]
-                  [seginfo (make-assigned-tmp 'seginfo)])
-              (define (build-level-3 seginfo k)
-                (constant-case segment-table-levels
-                  [(3)
-                   (let ([s3 (make-assigned-tmp 's3)])
-                     `(let ([,s3 ,(%mref ,seginfo
-                                         ,(%inline sll ,(%inline srl ,ptr (immediate ,(+ (constant segment-t1-bits)
-                                                                                         (constant segment-t2-bits))))
-                                                   (immediate ,(constant log2-ptr-bytes)))
-                                         ,0)])
-                        ,(if maybe?
-                             `(if ,(%inline eq? ,s3 (immediate 0))
-                                  (immediate 0)
-                                  ,(k s3))
-                             (k s3))))]
-                  [else (k seginfo)]))
-              (define (build-level-2 s3 k)
-                (constant-case segment-table-levels
-                  [(2 3)
-                   (let ([s2 (make-assigned-tmp 's2)])
-                     `(let ([,s2 ,(%mref ,s3 ,(%inline logand
-                                                       ,(%inline srl ,ptr (immediate ,(fx- (constant segment-t1-bits)
-                                                                                           (constant log2-ptr-bytes))))
-                                                       (immediate ,(fxsll (fx- (fxsll 1 (constant segment-t2-bits)) 1)
-                                                                          (constant log2-ptr-bytes))))
-                                         0)])
-                        ,(if maybe?
-                             `(if ,(%inline eq? ,s2 (immediate 0))
-                                  (immediate 0)
-                                  ,(k s2))
-                             (k s2))))]
-                  [else (k s3)]))
-              `(let ([,ptr ,(%inline srl ,(%inline + ,e (immediate ,(fx- (constant typemod) 1)))
-                                     (immediate ,(constant segment-offset-bits)))])
-                 (let ([,seginfo (literal ,(make-info-literal #f 'entry (lookup-c-entry segment-info) 0))])
-                   ,(build-level-3 seginfo
-                      (lambda (s3)
-                        (build-level-2 s3
-                          (lambda (s2)
-                            (%mref ,s2 ,(%inline sll ,(%inline logand ,ptr
-                                                               (immediate ,(fx- (fxsll 1 (constant segment-t1-bits)) 1)))
-                                                 (immediate ,(constant log2-ptr-bytes)))
-                                   0)))))))))
-          (define (build-space-test e space)
-            `(if ,(%type-check mask-fixnum type-fixnum ,e)
-                 ,(%constant sfalse)
-                 (if ,(%type-check mask-immediate type-immediate ,e)
-                     ,(%constant sfalse)
-                     ,(let ([s-e (build-seginfo #T e)]
-                            [si (make-assigned-tmp 'si)])
-                        `(let ([,si ,s-e])
-                           (if ,(%inline eq? ,si (immediate 0))
-                               ,(%constant sfalse)
-                               ,(let ([s `(inline ,(make-info-load 'unsigned-8 #f) ,%load ,si ,%zero (immediate 0))])
-                                  (%inline eq? (immediate ,space) ,s))))))))
-
-          (define-inline 2 $maybe-seginfo
-            [(e)
-             (bind #t (e)
+        (constant-case architecture
+          [(pb)
+           ;; Don't try to inline seginfo access, because the C pointer size used
+           ;; in the table may not match the 64-bit `ptr` size
+           (void)]
+          [else
+           (let ()
+             (define (build-seginfo maybe? e)
+               (let ([ptr (make-assigned-tmp 'ptr)]
+                     [seginfo (make-assigned-tmp 'seginfo)])
+                 (define (build-level-3 seginfo k)
+                   (constant-case segment-table-levels
+                     [(3)
+                      (let ([s3 (make-assigned-tmp 's3)])
+                        `(let ([,s3 ,(%mref ,seginfo
+                                            ,(%inline sll ,(%inline srl ,ptr (immediate ,(+ (constant segment-t1-bits)
+                                                                                            (constant segment-t2-bits))))
+                                                      (immediate ,(constant log2-ptr-bytes)))
+                                            ,0)])
+                           ,(if maybe?
+                                `(if ,(%inline eq? ,s3 (immediate 0))
+                                     (immediate 0)
+                                     ,(k s3))
+                                (k s3))))]
+                     [else (k seginfo)]))
+                 (define (build-level-2 s3 k)
+                   (constant-case segment-table-levels
+                     [(2 3)
+                      (let ([s2 (make-assigned-tmp 's2)])
+                        `(let ([,s2 ,(%mref ,s3 ,(%inline logand
+                                                          ,(%inline srl ,ptr (immediate ,(fx- (constant segment-t1-bits)
+                                                                                              (constant log2-ptr-bytes))))
+                                                          (immediate ,(fxsll (fx- (fxsll 1 (constant segment-t2-bits)) 1)
+                                                                             (constant log2-ptr-bytes))))
+                                            0)])
+                           ,(if maybe?
+                                `(if ,(%inline eq? ,s2 (immediate 0))
+                                     (immediate 0)
+                                     ,(k s2))
+                                (k s2))))]
+                     [else (k s3)]))
+                 `(let ([,ptr ,(%inline srl ,(%inline + ,e (immediate ,(fx- (constant typemod) 1)))
+                                        (immediate ,(constant segment-offset-bits)))])
+                    (let ([,seginfo (literal ,(make-info-literal #f 'entry (lookup-c-entry segment-info) 0))])
+                      ,(build-level-3 seginfo
+                         (lambda (s3)
+                           (build-level-2 s3
+                             (lambda (s2)
+                               (%mref ,s2 ,(%inline sll ,(%inline logand ,ptr
+                                                                  (immediate ,(fx- (fxsll 1 (constant segment-t1-bits)) 1)))
+                                                    (immediate ,(constant log2-ptr-bytes)))
+                                      0)))))))))
+             (define (build-space-test e space)
                `(if ,(%type-check mask-fixnum type-fixnum ,e)
                     ,(%constant sfalse)
                     (if ,(%type-check mask-immediate type-immediate ,e)
                         ,(%constant sfalse)
-                        ,(let ([s-e (build-seginfo #t e)]
+                        ,(let ([s-e (build-seginfo #T e)]
                                [si (make-assigned-tmp 'si)])
                            `(let ([,si ,s-e])
                               (if ,(%inline eq? ,si (immediate 0))
                                   ,(%constant sfalse)
-                                  ,si))))))])
-          (define-inline 2 $seginfo
-            [(e)
-             (bind #t (e) (build-seginfo #f e))])
-          (define-inline 2 $seginfo-generation
-            [(e)
-             (bind #f (e) (build-object-ref #f 'unsigned-8 e %zero (constant seginfo-generation-disp)))])
-          (define-inline 2 $seginfo-space
-            [(e)
-             (bind #f (e)
-                   (build-object-ref #f 'unsigned-8 e %zero (constant seginfo-space-disp)))])
-          (define-inline 2 $list-bits-ref
-            [(e)
-             (bind #t (e)
-                   (let ([si (make-assigned-tmp 'si)]
-                         [list-bits (make-assigned-tmp 'list-bits)]
-                         [offset (make-assigned-tmp 'offset)]
-                         [byte (make-assigned-tmp 'byte)])
-                     `(let ([,si ,(build-seginfo #f e)])
-                        (let ([,list-bits ,(%mref ,si ,(constant seginfo-list-bits-disp))])
-                          (if ,(%inline eq? ,list-bits (immediate 0))
-                              (immediate 0)
-                              (let ([,offset ,(%inline srl ,(%inline logand ,(%inline + ,e (immediate ,(fx- (constant typemod) 1)))
-                                                                     (immediate ,(fx- (constant bytes-per-segment) 1)))
-                                                       (immediate ,(constant log2-ptr-bytes)))])
-                                (let ([,byte (inline ,(make-info-load 'unsigned-8 #f) ,%load ,list-bits ,%zero ,(%inline srl ,offset (immediate 3)))])
-                                  ,(build-fix (%inline logand ,(%inline srl ,byte ,(%inline logand ,offset (immediate 7)))
-                                                       (immediate ,(constant list-bits-mask)))))))))))])
-          (define-inline 2 $generation
-            [(e)
-             (bind #t (e)
-               `(if ,(%type-check mask-fixnum type-fixnum ,e)
-                    ,(%constant sfalse)
-                    ,(let ([s-e (build-seginfo #t e)]
-                           [si (make-assigned-tmp 'si)])
-                       `(let ([,si ,s-e])
-                          (if ,(%inline eq? ,si (immediate 0))
-                              ,(%constant sfalse)
-                              ,(build-object-ref #f 'unsigned-8 si %zero 1))))))])
-          (define-inline 2 weak-pair?
-            [(e) (bind #t (e) (build-space-test e (constant space-weakpair)))])
-          (define-inline 2 ephemeron-pair?
-            [(e) (bind #t (e) (build-space-test e (constant space-ephemeron)))]))
+                                  ,(let ([s `(inline ,(make-info-load 'unsigned-8 #f) ,%load ,si ,%zero (immediate 0))])
+                                     (%inline eq? (immediate ,space) ,s))))))))
+   
+             (define-inline 2 $maybe-seginfo
+               [(e)
+                (bind #t (e)
+                  `(if ,(%type-check mask-fixnum type-fixnum ,e)
+                       ,(%constant sfalse)
+                       (if ,(%type-check mask-immediate type-immediate ,e)
+                           ,(%constant sfalse)
+                           ,(let ([s-e (build-seginfo #t e)]
+                                  [si (make-assigned-tmp 'si)])
+                              `(let ([,si ,s-e])
+                                 (if ,(%inline eq? ,si (immediate 0))
+                                     ,(%constant sfalse)
+                                     ,si))))))])
+             (define-inline 2 $seginfo
+               [(e)
+                (bind #t (e) (build-seginfo #f e))])
+             (define-inline 2 $seginfo-generation
+               [(e)
+                (bind #f (e) (build-object-ref #f 'unsigned-8 e %zero (constant seginfo-generation-disp)))])
+             (define-inline 2 $seginfo-space
+               [(e)
+                (bind #f (e)
+                      (build-object-ref #f 'unsigned-8 e %zero (constant seginfo-space-disp)))])
+             (define-inline 2 $list-bits-ref
+               [(e)
+                (bind #t (e)
+                      (let ([si (make-assigned-tmp 'si)]
+                            [list-bits (make-assigned-tmp 'list-bits)]
+                            [offset (make-assigned-tmp 'offset)]
+                            [byte (make-assigned-tmp 'byte)])
+                        `(let ([,si ,(build-seginfo #f e)])
+                           (let ([,list-bits ,(%mref ,si ,(constant seginfo-list-bits-disp))])
+                             (if ,(%inline eq? ,list-bits (immediate 0))
+                                 (immediate 0)
+                                 (let ([,offset ,(%inline srl ,(%inline logand ,(%inline + ,e (immediate ,(fx- (constant typemod) 1)))
+                                                                        (immediate ,(fx- (constant bytes-per-segment) 1)))
+                                                          (immediate ,(constant log2-ptr-bytes)))])
+                                   (let ([,byte (inline ,(make-info-load 'unsigned-8 #f) ,%load ,list-bits ,%zero ,(%inline srl ,offset (immediate 3)))])
+                                     ,(build-fix (%inline logand ,(%inline srl ,byte ,(%inline logand ,offset (immediate 7)))
+                                                          (immediate ,(constant list-bits-mask)))))))))))])
+             (define-inline 2 $generation
+               [(e)
+                (bind #t (e)
+                  `(if ,(%type-check mask-fixnum type-fixnum ,e)
+                       ,(%constant sfalse)
+                       ,(let ([s-e (build-seginfo #t e)]
+                              [si (make-assigned-tmp 'si)])
+                          `(let ([,si ,s-e])
+                             (if ,(%inline eq? ,si (immediate 0))
+                                 ,(%constant sfalse)
+                                 ,(build-object-ref #f 'unsigned-8 si %zero 1))))))])
+             (define-inline 2 weak-pair?
+               [(e) (bind #t (e) (build-space-test e (constant space-weakpair)))])
+             (define-inline 2 ephemeron-pair?
+               [(e) (bind #t (e) (build-space-test e (constant space-ephemeron)))]))])
 
         (define-inline 2 unbox
           [(e)
@@ -7657,7 +7663,7 @@
           (define-inline 3 flsqrt
             [(e)
              (constant-case architecture
-               [(x86 x86_64 arm32 arm64) (build-fp-op-1 %fpsqrt e)]
+               [(x86 x86_64 arm32 arm64 pb) (build-fp-op-1 %fpsqrt e)]
                [(ppc32) (build-fl-call (lookup-c-entry flsqrt) e)])])
 
           (define-inline 3 flabs
@@ -8001,7 +8007,7 @@
              (build-checked-fp-op e
                (lambda (e)
                  (constant-case architecture
-                   [(x86 x86_64 arm32 arm64) (build-fp-op-1 %fpsqrt e)]
+                   [(x86 x86_64 arm32 arm64 pb) (build-fp-op-1 %fpsqrt e)]
                    [(ppc32) (build-fl-call (lookup-c-entry flsqrt) e)]))
                (lambda (e)
                  (build-libcall #t src sexpr flsqrt e)))])
@@ -10659,7 +10665,7 @@
                    (%inline logor ,(%inline sll ,%rdx (immediate 32)) ,%rax)
                    64))]
              [(arm32) (unsigned->ptr (%inline read-time-stamp-counter) 32)]
-             [(arm64) (unsigned->ptr (%inline read-time-stamp-counter) 64)]
+             [(arm64 pb) (unsigned->ptr (%inline read-time-stamp-counter) 64)]
              [(ppc32)
               (let ([t-hi (make-tmp 't-hi)])
                 `(let ([,t-hi (inline ,(make-info-kill* (reg-list %real-zero))
@@ -10680,7 +10686,7 @@
                    (%inline logor ,(%inline sll ,%rdx (immediate 32)) ,%rax)
                    64))]
              [(arm32 ppc32) (unsigned->ptr (%inline read-performance-monitoring-counter ,(build-unfix e)) 32)]
-             [(arm64) (unsigned->ptr (%inline read-performance-monitoring-counter ,(build-unfix e)) 64)])])
+             [(arm64 pb) (unsigned->ptr (%inline read-performance-monitoring-counter ,(build-unfix e)) 64)])])
 
     )) ; expand-primitives module
 
