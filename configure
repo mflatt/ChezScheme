@@ -25,6 +25,7 @@ machs=$machs$sep2$last
 
 m=""
 w=""
+pb=no
 threads=yes
 nothreads=no
 temproot=""
@@ -186,6 +187,9 @@ while [ $# != 0 ] ; do
     --32)
       bits=32
       ;;
+    --pb)
+      pb=yes
+      ;;
     --installprefix=*)
       installprefix=`echo $1 | sed -e 's/^--installprefix=//'`
       ;;
@@ -320,10 +324,15 @@ if [ "$threads" = "" ] ; then
 fi
 
 if [ "$m" = "" ] ; then
-  if [ $bits = 64 ] ; then
-    if [ $threads = yes ] ; then m=$tm64 ; else m=$m64 ; fi
-  else
-    if [ $threads = yes ] ; then m=$tm32 ; else m=$m32 ; fi
+  if [ $pb = yes ] ; then
+     m=pb
+     if [ $bits = 64 ] ; then mpbhost=$m64 ; else mpbhost=$m32 ; fi
+  else      
+    if [ $bits = 64 ] ; then
+      if [ $threads = yes ] ; then m=$tm64 ; else m=$m64 ; fi
+    else
+      if [ $threads = yes ] ; then m=$tm32 ; else m=$m32 ; fi
+    fi
   fi
 fi
 
@@ -447,7 +456,7 @@ else
   fi
 fi
 
-./workarea $m $w
+./workarea $m $w $mpbhost
 
 sed -e 's/$(m)/'$m'/g'\
     -e 's/$(workarea)/'$w'/g'\
@@ -501,6 +510,9 @@ if [ "$disablecurses" = "yes" ]; then
   ncursesLib=
 fi
 
+warningFlags="-Wpointer-arith -Wall -Wextra -Werror -Wno-implicit-fallthrough"
+optFlags=-O2
+
 cat > $w/c/Mf-config << END
 CC=$CC
 CPPFLAGS=$CPPFLAGS
@@ -521,6 +533,9 @@ zlibLib=$zlibLib
 LZ4Lib=$LZ4Lib
 zlibHeaderDep=$zlibHeaderDep
 LZ4HeaderDep=$LZ4HeaderDep
+warningFlags=$warningFlags
+optFlags=$optFlags
+KernelCFlags=$KernelCFlags
 Kernel=\${${Kernel}}
 KernelLinkDeps=\${${Kernel}LinkDeps}
 KernelLinkLibs=\${${Kernel}LinkLibs}

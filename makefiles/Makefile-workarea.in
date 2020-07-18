@@ -45,6 +45,15 @@ coverage:
 bootfiles: build
 	$(MAKE) -f Mf-boot
 
+.PHONY: reset
+reset:
+	(cd s && $(MAKE) reset)
+
+# <machine>.boot to build boot files for <machine>
+%.boot:
+	mkdir -p boot/$*
+	$(MAKE) -f Mf-boot $*.boot
+
 .PHONY: bintar
 bintar: build
 	(cd bintar && $(MAKE))
