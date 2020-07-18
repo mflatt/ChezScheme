@@ -384,6 +384,7 @@
   arm32le   tarm32le
   ppc32le   tppc32le
   arm64le   tarm64le
+  pb
 )
 
 (include "machine.def")
@@ -552,7 +553,8 @@
   (x86_64 reloc-x86_64-call reloc-x86_64-jump reloc-x86_64-popcount)
   (arm32 reloc-arm32-abs reloc-arm32-call reloc-arm32-jump)
   (arm64 reloc-arm64-abs reloc-arm64-call reloc-arm64-jump)
-  (ppc32 reloc-ppc32-abs reloc-ppc32-call reloc-ppc32-jump))
+  (ppc32 reloc-ppc32-abs reloc-ppc32-call reloc-ppc32-jump)
+  (pb reloc-pb-abs reloc-pb-proc))
 
 (constant-case ptr-bits
   [(64)
@@ -2939,3 +2941,159 @@
      flexpt
      flsqrt))
 )
+
+
+;; ---------------------------------------------------------------------
+;; Portable bytecode
+
+(define-syntax define-pb-enum
+  (let ([gen (lambda (id scale all-enums)
+               (let loop ([enums all-enums] [i 0])
+                 (cond
+                   [(null? enums)
+                    #`(define-constant #,id '#,all-enums)]
+                   [else
+                    #`(begin
+                        (define-constant #,(car enums) '#,i)
+                        #,(loop (cdr enums) (fx+ i scale)))])))])
+    (lambda (stx)
+      (syntax-case stx (<<)
+        [(_ id << scale-id
+            enum ...)
+         (gen #'id
+              (length (lookup-constant (datum scale-id)))
+              #'(enum ...))]
+        [(_ id enum ...)
+         (gen #'id
+              1
+              #'(enum ...))]))))
+
+(define-syntax define-pb-opcode
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_ clause ...)
+       (let c-loop ([clause* #'(clause ...)] [i 0])
+         (cond
+           [(null? clause*)
+            (unless (fx< i 256)
+              (error 'define-pb-opcode "too many combinations: ~a" i))
+            #'(begin)]
+           [else
+            (syntax-case (car clause*) ()
+              [[id field-id ...]
+               (let ([defns
+                       (let loop ([id #'id] [field-id* #'(field-id ...)] [i i])
+                         (cond
+                           [(null? field-id*)
+                            (list #`(define-constant #,id '#,i))]
+                           [else
+                            (let f-loop ([fields (lookup-constant (syntax->datum (car field-id*)))] [i i])
+                              (cond
+                                [(null? fields)
+                                 '()]
+                                [else
+                                 (let ([defns (loop (datum->syntax id
+                                                                   (string->symbol (format "~a-~a" (syntax->datum id) (car fields))))
+                                                    (cdr field-id*)
+                                                    i)])
+                                   (append
+                                    defns
+                                    (f-loop (cdr fields) (fx+ i (length defns)))))]))]))])
+                 #`(begin
+                     (define-constant id '#,i)
+                     #,@defns
+                     #,(c-loop (cdr clause*) (fx+ i (length defns)))))])]))])))
+
+(define-pb-enum pb-argument-types
+  pb-register
+  pb-immediate)
+
+(define-pb-enum pb-sizes << pb-argument-types
+  pb-int8
+  pb-uint8
+  pb-int16
+  pb-uint16
+  pb-int32
+  pb-uint32
+  pb-int64
+  pb-uint64
+  pb-single
+  pb-double)
+  
+(define-pb-enum pb-move-types
+  pb-i->i
+  pb-d->d
+  pb-i->d
+  pb-d->i
+  pb-s->d
+  pb-d->s)
+
+(define-pb-enum pb-binaries << pb-argument-types
+  pb-add
+  pb-sub
+  pb-mul
+  pb-div
+  pb-and
+  pb-ior
+  pb-xor
+  pb-lsl
+  pb-lsr
+  pb-asr)
+
+(define-pb-enum pb-signals << pb-binaries
+  pb-no-signal
+  pb-signal)
+
+(define-pb-enum pb-unaries << pb-argument-types
+  pb-not
+  pb-sqrt)
+
+(define-pb-enum pb-compares << pb-argument-types
+  pb-eq
+  pb-lt
+  pb-gt
+  pb-le
+  pb-ge
+  pb-ab
+  pb-bl
+  pb-cs
+  pb-cc)
+
+(define-pb-enum pb-branches << pb-argument-types
+  pb-fals
+  pb-true
+  pb-always)
+
+(define-pb-enum pb-binary-locks
+  pb-lock
+  pb-lock-incr
+  pb-lock-decr
+  pb-cas)
+
+(define-pb-enum pb-shifts
+  pb-shift0
+  pb-shift1
+  pb-shift2
+  pb-shift3)
+
+(define-pb-enum pk-keeps
+  pb-zero-bits
+  pb-keep-bits)
+
+(define-pb-opcode
+  [pb-mov16 pk-keeps pb-shifts]
+  [pb-mov pb-move-types]
+  [pb-bin-op pb-signals pb-binaries pb-argument-types]
+  [pb-cmp-op pb-compares pb-argument-types]
+  [pb-fp-bin-op pb-binaries pb-argument-types]
+  [pb-un-op pb-unaries pb-argument-types]
+  [pb-fp-un-op pb-unaries pb-argument-types]
+  [pb-fp-cmp-op pb-compares pb-argument-types]
+  [pb-rev-op pb-sizes]
+  [pb-ld-op pb-sizes pb-argument-types]
+  [pb-st-op pb-sizes pb-argument-types]
+  [pb-b-op pb-branches pb-argument-types]
+  [pb-b*-op pb-argument-types]
+  [pb-call]
+  [pb-return]
+  [pb-adr])

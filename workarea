@@ -66,6 +66,7 @@ case "$M" in
   ti3qnx) ;;
   ti3s2) ;;
   tppc32le) ;;
+  pb) ;;
   *) echo "Unrecognized machine name $M"; exit 1 ;;
 esac
 
