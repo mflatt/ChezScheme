@@ -3,8 +3,8 @@
 m = pb
 Cpu = PORTABLE_BYTECODE
 
-mdclib = -liconv -lm ${ncursesLib}
-C = ${CC} ${CPPFLAGS} -Wpointer-arith -Wall -Wextra -Wno-implicit-fallthrough -Werror -O2 -I/opt/X11/include/ ${CFLAGS}
+mdclib = -lm
+C = ${CC} ${CPPFLAGS} -Wpointer-arith -Wall -Wextra -Wno-implicit-fallthrough -Werror -g ${CFLAGS}
 o = o
 mdsrc = pb.c
 mdobj = pb.o

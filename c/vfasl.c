@@ -1101,6 +1101,8 @@ static IFASLCODE abs_reloc_variant(IFASLCODE type) {
     return reloc_ppc32_abs;
   else
     return reloc_abs;
+#elif defined(PORTABLE_BYTECODE)
+  return reloc_pb_abs;
 #else
   >> need to fill in for this platform <<
 #endif

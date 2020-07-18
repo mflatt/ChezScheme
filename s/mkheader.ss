@@ -422,6 +422,35 @@
           (lambda (x) (pr "#define FEATURE_~@:(~a~)~%" (sanitize x)))
           (feature-list))
 
+        (constant-case architecture
+          [(pb)
+           (nl) (comment "C call prototypes.")
+           (pr "#include <stdint.h>\n")
+           (for-each
+            (lambda (proto+id)
+              (let ([proto (car proto+id)])
+                (define (sym->type s)
+                  (case s
+                    [(int8) 'int8_t]
+                    [(int16) 'int16_t]
+                    [(int32) 'int32_t]
+                    [(uint32) 'uint32_t]
+                    [else s]))
+                (pr "typedef ~a (*pb_~a_t)(~a);~%"
+                    (sym->type (car proto))
+                    (apply string-append
+                           (symbol->string (car proto))
+                           (map (lambda (s) (format "_~a" s))
+                                (cdr proto)))
+                    (if (null? (cdr proto))
+                        ""
+                        (apply string-append
+                               (symbol->string (sym->type (cadr proto)))
+                               (map (lambda (s) (format ", ~a" (sym->type s)))
+                                    (cddr proto)))))))
+            (reverse (constant pb-prototype-table)))]
+          [else (void)])
+
         (nl) (comment "Locking macros.")
         (constant-case architecture
           [(x86)
@@ -775,6 +804,8 @@
             (pr "                        : \"=&r\" (ret)\\~%")
             (pr "                        : \"r\" (addr)\\~%")
             (pr "                        : \"cc\", \"memory\", \"x12\", \"x7\")~%")]
+          [(pb)
+           (pr "#define LOCKED_DECR(addr, res) (res = ((*(uptr*)addr)-- == 1))~%")]
           [else
             ($oops who "asm locking code is not yet defined for ~s" (constant architecture))]))))
 

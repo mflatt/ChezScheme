@@ -657,6 +657,14 @@
 (define-constant ERROR_VALUES 7)
 (define-constant ERROR_MVLET 8)
 
+(define-constant open-fd-no-create   #b0000001)
+(define-constant open-fd-no-fail     #b0000010)
+(define-constant open-fd-no-truncate #b0000100)
+(define-constant open-fd-append      #b0001000)
+(define-constant open-fd-lock        #b0010000)
+(define-constant open-fd-replace     #b0100000)
+(define-constant open-fd-compressed  #b1000000)
+
 ;; ---------------------------------------------------------------------
 ;; GC constants
 
@@ -2948,7 +2956,7 @@
 
 (define-syntax define-pb-enum
   (let ([gen (lambda (id scale all-enums)
-               (let loop ([enums all-enums] [i 0])
+               (let loop ([enums (cdr all-enums)] [i 0])
                  (cond
                    [(null? enums)
                     #`(define-constant #,id '#,all-enums)]
@@ -2961,12 +2969,12 @@
         [(_ id << scale-id
             enum ...)
          (gen #'id
-              (length (lookup-constant (datum scale-id)))
-              #'(enum ...))]
+              (length (cdr (lookup-constant (datum scale-id))))
+              #'(scale-id enum ...))]
         [(_ id enum ...)
          (gen #'id
               1
-              #'(enum ...))]))))
+              #'(#f enum ...))]))))
 
 (define-syntax define-pb-opcode
   (lambda (stx)
@@ -2987,18 +2995,25 @@
                            [(null? field-id*)
                             (list #`(define-constant #,id '#,i))]
                            [else
-                            (let f-loop ([fields (lookup-constant (syntax->datum (car field-id*)))] [i i])
-                              (cond
-                                [(null? fields)
-                                 '()]
-                                [else
-                                 (let ([defns (loop (datum->syntax id
-                                                                   (string->symbol (format "~a-~a" (syntax->datum id) (car fields))))
-                                                    (cdr field-id*)
-                                                    i)])
-                                   (append
-                                    defns
-                                    (f-loop (cdr fields) (fx+ i (length defns)))))]))]))])
+                            (let* ([parent+fields (lookup-constant (syntax->datum (car field-id*)))]
+                                   [parent (car parent+fields)])
+                              (unless (if parent
+                                          (and (pair? (cdr field-id*))
+                                               (eq? parent (syntax->datum (cadr field-id*))))
+                                          (null? (cdr field-id*)))
+                                (syntax-error (car field-id*) "misuse use of field"))
+                              (let f-loop ([fields (cdr parent+fields)] [i i])
+                                (cond
+                                  [(null? fields)
+                                   '()]
+                                  [else
+                                   (let ([defns (loop (datum->syntax id
+                                                                     (string->symbol (format "~a-~a" (syntax->datum id) (car fields))))
+                                                      (cdr field-id*)
+                                                      i)])
+                                     (append
+                                      defns
+                                      (f-loop (cdr fields) (fx+ i (length defns)))))])))]))])
                  #`(begin
                      (define-constant id '#,i)
                      #,@defns
@@ -3076,7 +3091,7 @@
   pb-shift2
   pb-shift3)
 
-(define-pb-enum pk-keeps
+(define-pb-enum pk-keeps << pb-shifts
   pb-zero-bits
   pb-keep-bits)
 
@@ -3089,7 +3104,7 @@
   [pb-un-op pb-unaries pb-argument-types]
   [pb-fp-un-op pb-unaries pb-argument-types]
   [pb-fp-cmp-op pb-compares pb-argument-types]
-  [pb-rev-op pb-sizes]
+  [pb-rev-op pb-sizes pb-argument-types]
   [pb-ld-op pb-sizes pb-argument-types]
   [pb-st-op pb-sizes pb-argument-types]
   [pb-b-op pb-branches pb-argument-types]
@@ -3097,3 +3112,64 @@
   [pb-call]
   [pb-return]
   [pb-adr])
+
+(define-syntax define-pb-prototypes
+  (lambda (stx)
+    (syntax-case stx ()
+      [(moi proto ...)
+       (let loop ([proto* #'(proto ...)] [i 0] [table '()])
+         (cond
+           [(null? proto*)
+            #`(define-constant pb-prototype-table '#,(datum->syntax #'moi table))]
+           [else
+            (let* ([proto (syntax->datum (car proto*))]
+                   [name (datum->syntax
+                          #'moi
+                          (string->symbol
+                           (apply string-append "pb-call" (map (lambda (t)
+                                                                 (string-append "-" (symbol->string t)))
+                                                               proto))))])
+              #`(begin
+                  (define-constant #,name '#,i)
+                  #,(loop (cdr proto*) (fx+ i 1) (cons (cons proto i) table))))]))])))
+
+(define-pb-prototypes
+  [void]
+  [void uptr]
+  [void int32]
+  [void uint32]
+  [void uptr uint32]
+  [void int32 uptr]
+  [void int32 int32]
+  [void uptr uptr]
+  [void uptr uptr uptr]
+  [void uptr uptr uptr uptr uptr]
+  [int32]
+  [int32 uptr]
+  [int32 uptr int32]
+  [int32 uptr uptr]
+  [int32 int32 int32]
+  [int32 double double double double double double]
+  [uint32]
+  [double double]
+  [double uptr]
+  [double double double]
+  [int32 int32]
+  [int32 int32 uptr]
+  [int32 uptr uptr uptr uptr uptr]
+  [uptr]
+  [uptr uptr]
+  [uptr int32]
+  [uptr uptr uptr]
+  [uptr uptr int32]
+  [uptr int32 uptr]
+  [uptr uptr int32 int32]
+  [uptr uptr uptr int32]
+  [uptr uptr uptr uptr]
+  [uptr int32 int32 uptr]
+  [uptr int32 uptr uptr uptr]
+  [uptr uptr uptr uptr uptr int32]
+  [uptr uptr uptr uptr uptr uptr]
+  [uptr uptr int32 uptr uptr uptr uptr]
+  [uptr uptr uptr uptr uptr uptr uptr int32]
+  [uptr uptr uptr uptr uptr uptr uptr uptr])

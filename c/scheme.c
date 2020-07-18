@@ -372,7 +372,9 @@ static void check_ap(tc) ptr tc; {
 }
 
 void S_generic_invoke(tc, code) ptr tc; ptr code; {
-#if defined(PPCAIX)
+#if defined(PORTABLE_BYTECODE)
+  S_pb_interp(tc, (void *)&CODEIT(code,0));
+#elif defined(PPCAIX)
     struct {caddr_t entry, toc, static_link;} hdr;
     hdr.entry = (caddr_t)&CODEIT(code,0);
     hdr.toc = (caddr_t)0;

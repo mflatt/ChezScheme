@@ -16,6 +16,24 @@
 
 #include "config.h"
 
+#if (machine_type == machine_type_pb)
+#define IEEE_DOUBLE
+#define LITTLE_ENDIAN_IEEE_DOUBLE
+#define UNUSED __attribute__((__unused__))
+#define DIRMARKERP(c) ((c) == '/')
+#define NOBLOCK O_NONBLOCK
+#define MAKE_NAN(x) { x = 0.0; x = x / x; }
+#define SECATIME(sb) (sb).st_atimespec.tv_sec
+#define SECCTIME(sb) (sb).st_ctimespec.tv_sec
+#define SECMTIME(sb) (sb).st_mtimespec.tv_sec
+#define NSECATIME(sb) (sb).st_atimespec.tv_nsec
+#define NSECCTIME(sb) (sb).st_ctimespec.tv_nsec
+#define NSECMTIME(sb) (sb).st_mtimespec.tv_nsec
+#define GETWD(x) getcwd((x),PATH_MAX)
+#define GETPAGESIZE() getpagesize()
+#define USE_MMAP
+#endif
+
 #if (machine_type == machine_type_arm32le || machine_type == machine_type_tarm32le || machine_type == machine_type_arm64le || machine_type == machine_type_tarm64le)
 #if (machine_type == machine_type_tarm32le || machine_type == machine_type_tarm64le)
 #define PTHREADS
