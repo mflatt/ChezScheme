@@ -805,6 +805,10 @@
             (pr "                        : \"r\" (addr)\\~%")
             (pr "                        : \"cc\", \"memory\", \"x12\", \"x7\")~%")]
           [(pb)
+           (pr "#define INITLOCK(addr) (*((long *) addr) = 0)~%")
+           (pr "#define SPINLOCK(addr) (*((long *) addr) = 1)~%")
+           (pr "#define UNLOCK(addr) (*((long *) addr) = 0)~%")
+           (pr "#define LOCKED_INCR(addr, res) (res = ((*(uptr*)addr)-- == 1))~%")
            (pr "#define LOCKED_DECR(addr, res) (res = ((*(uptr*)addr)-- == 1))~%")]
           [else
             ($oops who "asm locking code is not yet defined for ~s" (constant architecture))]))))

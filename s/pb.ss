@@ -288,26 +288,10 @@
                  `(asm ,null-info ,(asm-store type) ,x ,y ,z)))))]))
 
   (define-instruction value (load-single->double)
-    [(op (x fpur) (y fpmem))
-     (let ([u (make-tmp 'u 'fp)])
-       (seq
-        `(set! ,(make-live-info) ,u (asm ,null-info ,asm-fpmove-single ,y))
-        `(set! ,(make-live-info) ,x (asm ,info ,(asm-fl-cvt 'single->double) ,u))))])
+    [(op (x fpur) (y fpmem)) `(set! ,(make-live-info) ,x (asm ,null-info ,asm-fpmove-single ,y))])
 
   (define-instruction effect (store-double->single)
-    [(op (x fpmem) (y fpur))
-     (let ([u (make-tmp 'u 'fp)])
-       (seq
-        `(set! ,(make-live-info) ,u (asm ,null-info ,(asm-fl-cvt 'double->single) ,y))
-        `(asm ,info ,asm-fpmove-single ,x ,u)))])
-
-  (define-instruction effect (store-single)
-    [(op (x fpmem) (y fpur))
-     `(asm ,info ,asm-fpmove-single ,x ,y)])
-
-  (define-instruction value (load-single)
-    [(op (x fpur) (y fpmem fpur))
-     `(set! ,(make-live-info) ,x (asm ,info ,asm-fpmove-single ,y))])
+    [(op (x fpmem) (y fpur)) `(asm ,info ,asm-fpmove-single ,x ,y)])
 
   (define-instruction value (single->double double->single)
     [(op (x fpur) (y fpur))
@@ -361,7 +345,7 @@
         `(set! ,(make-live-info) (mref ,x ,%zero ,w uptr) ,u)))])
 
   (define-instruction effect (inc-profile-counter)
-    [(op (x mem) (y unsigned12))
+    [(op (x mem) (y signed16))
      (let ([u (make-tmp 'u)])
        (seq
          `(set! ,(make-live-info) ,u ,x)
@@ -1361,10 +1345,6 @@
                   (lambda (fpreg)
                     (lambda (x) ; unboxed
                       `(set! ,fpreg ,x)))]
-                 [load-single-reg
-                  (lambda (fpreg)
-                    (lambda (x) ; unboxed
-                      `(set! ,fpreg ,(%inline double->single ,x))))]
                  [load-int-reg
                   (lambda (ireg)
                     (lambda (x)
@@ -1386,7 +1366,7 @@
                               [(fp-single-float)
                                (when (null? fp*) (sorry! who "too many floating-point arguments"))
                                (loop types
-                                     (cons (load-single-reg (car fp*)) locs)
+                                     (cons (load-double-reg (car fp*)) locs)
                                      (cons (car fp*) live*)
                                      int* (cdr fp*))]
                               [(fp-ftd& ,ftd)
