@@ -3046,7 +3046,9 @@
   pb-i->d
   pb-d->i
   pb-s->d
-  pb-d->s)
+  pb-d->s
+  pb-i-bits->d-bits
+  pb-d-bits->i-bits)
 
 (define-pb-enum pb-binaries << pb-argument-types
   pb-add

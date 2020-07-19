@@ -590,6 +590,8 @@
   (define-op mov.d->s mov-op (constant pb-d->s))
   (define-op mov.i->d mov-op (constant pb-i->d))
   (define-op mov.d->i mov-op (constant pb-d->i))
+  (define-op mov.i*>d mov-op (constant pb-i-bits->d-bits))
+  (define-op mov.d*>i mov-op (constant pb-d-bits->i-bits))
 
   (define-op btrue branch-op (constant pb-true))
   (define-op bfals branch-op (constant pb-fals))
@@ -1106,12 +1108,12 @@
   (define asm-fpcastto
     (lambda (code* dest src)
       (Trivit (dest src)
-        (emit mov.d->i dest src code*))))  
+        (emit mov.d*>i dest src code*))))  
 
   (define asm-fpcastfrom
     (lambda (code* dest src)
       (Trivit (dest src)
-        (emit mov.i->d dest src code*))))
+        (emit mov.i*>d dest src code*))))
 
   (define-who asm-swap
     (lambda (type)

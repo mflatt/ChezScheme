@@ -105,9 +105,15 @@ void S_pb_interp(ptr tc, void *bytecode) {
       fpregs[INSTR_dr_dest(instr)] = fpregs[INSTR_dr_reg(instr)];
       break;
     case pb_mov_pb_i_d:
-      memcpy(&fpregs[INSTR_dr_dest(instr)], &regs[INSTR_dr_reg(instr)], sizeof(double));
+      fpregs[INSTR_dr_dest(instr)] = (double)(iptr)regs[INSTR_dr_reg(instr)];
       break;
     case pb_mov_pb_d_i:
+      regs[INSTR_dr_dest(instr)] = (iptr)fpregs[INSTR_dr_reg(instr)];
+      break;
+    case pb_mov_pb_i_bits_d_bits:
+      memcpy(&fpregs[INSTR_dr_dest(instr)], &regs[INSTR_dr_reg(instr)], sizeof(double));
+      break;
+    case pb_mov_pb_d_bits_i_bits:
       memcpy(&regs[INSTR_dr_dest(instr)], &fpregs[INSTR_dr_reg(instr)], sizeof(double));
       break;
     case pb_mov_pb_s_d:
@@ -643,7 +649,7 @@ void S_pb_interp(ptr tc, void *bytecode) {
       }
       break;
     default:
-      S_error_abort("unrecognized pb instruction");
+      S_error_abort("illegal pb instruction");
       break;
     }
     ip = next_ip;
