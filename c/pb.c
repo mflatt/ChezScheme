@@ -2,26 +2,28 @@
 #include <string.h>
 #include <math.h>
 
-typedef int32_t instruction_t;
+typedef uint32_t instruction_t;
 
-#define INSTR_op(instr) (((unsigned char *)(instr))[0])
+#define INSTR_op(instr)       ((instr) & 0xFF)
 
-#define INSTR_dr_dest(instr) (((unsigned char *)(instr))[1])
-#define INSTR_dr_reg(instr) (((unsigned short *)(instr))[1])
+#define INSTR_d_dest(instr)   (((instr) >> 8) & 0xF)
 
-#define INSTR_di_dest(instr) (((unsigned char *)(instr))[1])
-#define INSTR_di_imm(instr) (((signed short *)(instr))[1])
-#define INSTR_di_imm_unsigned(instr) (((unsigned short *)(instr))[1])
+#define INSTR_dr_dest(instr)  INSTR_d_dest(instr)
+#define INSTR_dr_reg(instr)   (((instr) >> 16) & 0xF)
 
-#define INSTR_drr_dest(instr) ((((unsigned char *)(instr))[1])&0xf)
-#define INSTR_drr_reg1(instr) ((((unsigned char *)(instr))[1])>>4)
-#define INSTR_drr_reg2(instr) (((unsigned short *)(instr))[1])
+#define INSTR_di_dest(instr)  INSTR_d_dest(instr)
+#define INSTR_di_imm(instr)   (((int32_t)(instr)) >> 16)
+#define INSTR_di_imm_unsigned(instr) ((instr) >> 16)
 
-#define INSTR_dri_dest(instr) ((((unsigned char *)(instr))[1])&0xf)
-#define INSTR_dri_reg(instr) ((((unsigned char *)(instr))[1])>>4)
-#define INSTR_dri_imm(instr) (((signed short *)(instr))[1])
+#define INSTR_drr_dest(instr) INSTR_d_dest(instr)
+#define INSTR_drr_reg1(instr) (((instr) >> 12) & 0xF)
+#define INSTR_drr_reg2(instr) (((instr) >> 16) & 0xF)
 
-#define INSTR_i_imm(instr) ((*(int32_t *)(instr)) >> 8)
+#define INSTR_dri_dest(instr) INSTR_d_dest(instr)
+#define INSTR_dri_reg(instr)  (((instr) >> 12) & 0xF)
+#define INSTR_dri_imm(instr)  (((int32_t)(instr)) >> 16)
+
+#define INSTR_i_imm(instr)    (((int32_t)(instr)) >> 8)
 
 static uptr regs[16];
 static double fpregs[8];
@@ -49,14 +51,27 @@ enum {
 
 void S_machine_init() {}
 
+int counter = 0;
+
+#if 0
+# define TRACE(x) x
+#else
+# define TRACE(x)
+#endif
+
 void S_pb_interp(ptr tc, void *bytecode) {
-  instruction_t *instr = (instruction_t *)bytecode, *next_instr;
+  instruction_t *ip = (instruction_t *)bytecode, *next_ip, instr;
   int flag = 0;
 
   regs[0] = (uptr)tc;
 
+  TRACE(printf("enter %p\n", ip));
+
   while (1) {
-    next_instr = instr + 1;
+    instr = *ip;
+    next_ip = ip + 1;
+
+    counter++;
 
     switch(INSTR_op(instr)) {
     case pb_mov16_pb_zero_bits_pb_shift0:
@@ -303,7 +318,7 @@ void S_pb_interp(ptr tc, void *bytecode) {
       regs[INSTR_dr_dest(instr)] = ~(regs[INSTR_dr_reg(instr)]);
       break;
     case pb_un_op_pb_not_pb_immediate:
-      regs[INSTR_di_dest(instr)] = ~((uptr)INSTR_di_imm(instr));
+      regs[INSTR_di_dest(instr)] = ~((uptr)(iptr)INSTR_di_imm(instr));
       break;
     case pb_fp_un_op_pb_sqrt_pb_register:
       fpregs[INSTR_dr_dest(instr)] = sqrt(fpregs[INSTR_dr_reg(instr)]);
@@ -390,16 +405,16 @@ void S_pb_interp(ptr tc, void *bytecode) {
       regs[INSTR_dri_dest(instr)] = *(uptr *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
       break;
     case pb_ld_op_pb_double_pb_register:
-      memcpy(&fpregs[INSTR_drr_dest(instr)], (double *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]), sizeof(double));
+      fpregs[INSTR_drr_dest(instr)] = *(double *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
       break;
     case pb_ld_op_pb_double_pb_immediate:
-      memcpy(&fpregs[INSTR_dri_dest(instr)], (double *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr)), sizeof(double));
+      fpregs[INSTR_dri_dest(instr)] = *(double *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
       break;
     case pb_ld_op_pb_single_pb_register:
-      memcpy(&fpregs[INSTR_drr_dest(instr)], (float *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]), sizeof(float)); /* little endian */
+      fpregs[INSTR_drr_dest(instr)] =  *(float *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
       break;
     case pb_ld_op_pb_single_pb_immediate:
-      memcpy(&fpregs[INSTR_dri_dest(instr)], (float *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr)), sizeof(float)); /* little endian */
+      fpregs[INSTR_dri_dest(instr)] = *(float *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
       break;
     case pb_st_op_pb_int8_pb_register:
       *(char *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]) = (char)regs[INSTR_drr_dest(instr)];
@@ -425,42 +440,74 @@ void S_pb_interp(ptr tc, void *bytecode) {
     case pb_st_op_pb_int64_pb_immediate:
       *(uptr *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr)) = regs[INSTR_dri_dest(instr)];
       break;
+    case pb_st_op_pb_double_pb_register:
+      *(double *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]) = fpregs[INSTR_drr_dest(instr)];
+      break;
+    case pb_st_op_pb_double_pb_immediate:
+      *(double *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr)) = fpregs[INSTR_dri_dest(instr)];
+      break;
+    case pb_st_op_pb_single_pb_register:
+      *(float *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]) = fpregs[INSTR_drr_dest(instr)];
+      break;
+    case pb_st_op_pb_single_pb_immediate:
+      *(float *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr)) = fpregs[INSTR_dri_dest(instr)];
+      break;
     case pb_b_op_pb_fals_pb_register:
-      if (!flag)
-        next_instr = (instruction_t *)regs[INSTR_dr_reg(instr)];
+      if (!flag) {
+        next_ip = (instruction_t *)regs[INSTR_dr_reg(instr)];
+        TRACE(printf("branch %p -> %p\n", ip, next_ip));
+      }
       break;
     case pb_b_op_pb_fals_pb_immediate:
-      if (!flag)
-        next_instr = (instruction_t *)((char *)next_instr + INSTR_i_imm(instr));
+      if (!flag) {
+        next_ip = (instruction_t *)((char *)next_ip + INSTR_i_imm(instr));
+        TRACE(printf("branch %p -> %p\n", ip, next_ip));
+      }
       break;
     case pb_b_op_pb_true_pb_register:
-      if (flag)
-        next_instr = (instruction_t *)regs[INSTR_dr_reg(instr)];
+      if (flag) {
+        next_ip = (instruction_t *)regs[INSTR_dr_reg(instr)];
+        TRACE(printf("branch %p -> %p\n", ip, next_ip));
+      }
       break;
     case pb_b_op_pb_true_pb_immediate:
-      if (flag)
-        next_instr = (instruction_t *)((char *)next_instr + INSTR_i_imm(instr));
+      if (flag) {
+        next_ip = (instruction_t *)((char *)next_ip + INSTR_i_imm(instr));
+        TRACE(printf("branch %p -> %p\n", ip, next_ip));
+      }
       break;
     case pb_b_op_pb_always_pb_register:
-      next_instr = (instruction_t *)regs[INSTR_dr_reg(instr)];
+      next_ip = (instruction_t *)regs[INSTR_dr_reg(instr)];
+      TRACE(printf("jump %p -> %p\n", ip, next_ip));
       break;
     case pb_b_op_pb_always_pb_immediate:
-      next_instr = (instruction_t *)((char *)next_instr + INSTR_i_imm(instr));
+      next_ip = (instruction_t *)((char *)next_ip + INSTR_i_imm(instr));
+      TRACE(printf("jump %p -> %p\n", ip, next_ip));
       break;
     case pb_bs_op_pb_register:
-      next_instr = *(instruction_t **)(regs[INSTR_dr_dest(instr)] + regs[INSTR_dr_reg(instr)]);
+      next_ip = *(instruction_t **)(regs[INSTR_dr_dest(instr)] + regs[INSTR_dr_reg(instr)]);
+      TRACE(printf("jump %p -> %p\n", ip, next_ip));
       break;
     case pb_bs_op_pb_immediate:
-      next_instr = *(instruction_t **)(regs[INSTR_di_dest(instr)] + INSTR_di_imm(instr));
+      next_ip = *(instruction_t **)(regs[INSTR_di_dest(instr)] + INSTR_di_imm(instr));
+      TRACE(printf("jump %p -> %p\n", ip, next_ip));
       break;
     case pb_return:
       return; /* <--- not break */
     case pb_adr:
-      regs[INSTR_di_dest(instr)] = (uptr)next_instr + INSTR_di_imm(instr);
+      regs[INSTR_di_dest(instr)] = (uptr)next_ip + INSTR_di_imm(instr);
+      break;
+    case pb_interp:
+      {
+        void *code = (void *)regs[INSTR_d_dest(instr)];
+        TRACE(printf("interp %p -> %p\n", ip, code));
+        S_pb_interp((ptr)regs[0], code);
+      }
       break;
     case pb_call:
       {
         void *proc = (void *)regs[INSTR_dri_dest(instr)];
+        TRACE(printf("call %p -> %p %x\n", ip, proc, INSTR_dri_imm(instr)));
         switch (INSTR_dri_imm(instr)) {
         case pb_call_void:
           ((pb_void_t)proc)();
@@ -597,6 +644,6 @@ void S_pb_interp(ptr tc, void *bytecode) {
       S_error_abort("unrecognized pb instruction");
       break;
     }
-    instr = next_instr;
+    ip = next_ip;
   }
 }

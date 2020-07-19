@@ -62,10 +62,12 @@
                    [(and (eq? x1 %zero) (signed16? imm))
                     (return x0 %zero imm type)]
                    [(and (not (eq? x1 %zero)) (signed16? imm))
-                    (let ([u (make-tmp 'u)])
-                      (seq
-                       (build-set! ,u (asm ,null-info ,(asm-add #f) ,x1 (immediate ,imm)))
-                       (return x0 u 0 type)))]
+                    (if (eqv? imm 0)
+                        (return x0 x1 0 type)
+                        (let ([u (make-tmp 'u)])
+                          (seq
+                           (build-set! ,u (asm ,null-info ,(asm-add #f) ,x1 (immediate ,imm)))
+                           (return x0 u 0 type))))]
                    [else
                     (let ([u (make-tmp 'u)])
                       (seq
@@ -246,6 +248,13 @@
                   [(and (eq? y %zero) (signed16? n))
                    (let ([w (in-context Triv `(immediate ,n))])
                      (k x w))]
+                  [(eqv? n 0)
+                   (k x y)]
+                  [(signed16? n)
+                   (let ([u (make-tmp 'u)])
+                     (seq
+                      `(set! ,(make-live-info) ,u (asm ,null-info ,(asm-add #f) ,x (immediate ,n)))
+                      (k u y)))]
                   [else 
                    (let ([u (make-tmp 'u)])
                      (seq
@@ -398,7 +407,7 @@
     [(op) (values '() `(asm ,info ,(asm-condition-code info)))])
 
   (define-instruction pred (type-check?)
-    [(op (x ur) (mask funkymask ur) (type signed16 ur))
+    [(op (x ur) (mask signed16 ur) (type signed16 ur))
      (let ([tmp (make-tmp 'u)])
        (values
          (with-output-language (L15d Effect)
@@ -593,9 +602,10 @@
   (define-op lock- bin-op  (constant pb-lock-decr))
   (define-op cas+  bin-op  (constant pb-cas))
 
-  (define-op call  call-op)
-  (define-op ret   ret-op)
-  (define-op adr   adr-op)
+  (define-op call   call-op)
+  (define-op interp interp-op)
+  (define-op ret    ret-op)
+  (define-op adr    adr-op)
 
   (define movi-op
     (lambda (op keep? dest imm shift code*)
@@ -686,7 +696,8 @@
     (lambda (op size dest src code*)
       (emit-code (op dest src code*)
         (fx+ (constant pb-rev-op)
-             size)
+             size
+             (constant pb-register))
         (ax-ea-reg-code dest)
         (ax-ea-reg-code src))))
 
@@ -831,6 +842,13 @@
         (ax-ea-reg-code dest)
         (ax-imm-data proto))))
 
+  (define interp-op
+    (lambda (op dest code*)
+      (emit-code (op dest code*)
+        (constant pb-interp)
+        (ax-ea-reg-code dest)
+        0)))
+
   (define adr-op
     (lambda (op dest offset code*)
       (emit-code (op dest offset code*)
@@ -840,13 +858,6 @@
 
   (define-syntax emit-code
     (lambda (x)
-      ; NB: probably won't need emit-code to weed out #f
-      (define build-maybe-cons*
-        (lambda (e* e-ls)
-          (if (null? e*)
-              e-ls
-              #`(let ([t #,(car e*)] [ls #,(build-maybe-cons* (cdr e*) e-ls)])
-                  (if t (cons t ls) ls)))))
       (syntax-case x ()
         [(_ (op opnd ... ?code*) chunk ...)
          (let ([safe-check (lambda (e)
@@ -858,8 +869,8 @@
                                                code
                                                (list op opnd ...)))
                                      code)))])
-           (build-maybe-cons* #`((build long #,(safe-check #`(byte-fields chunk ...))))
-             #'(aop-cons* `(asm ,op ,opnd ...) ?code*)))])))
+           #`(cons (build long #,(safe-check #`(byte-fields chunk ...)))
+                   (aop-cons* `(asm ,op ,opnd ...) ?code*)))])))
 
   (define-syntax build
     (syntax-rules ()
@@ -914,7 +925,11 @@
     (lambda (dest n code*) 
       (let loop ([n n] [shift 0] [init? #t])
         (cond
-          [(or (eqv? n 0) (fx= shift 4)) code*]
+          [(or (eqv? n 0) (fx= shift 4))
+           (if init?
+               ;; make sure 0 is installed
+               (emit movzi dest 0 0 code*)
+               code*)]
           [else
            (let ([m (logand n #xFFFF)])
              (cond
@@ -1184,19 +1199,19 @@
     (lambda (libspec)
       (let ([target `(pb-proc ,(constant code-data-disp) (library-code ,libspec))])
         (lambda (code* dest jmptmp . ignore)
-          (asm-helper-call code* jmptmp target)))))
+          (asm-helper-call code* jmptmp #t target)))))
 
   (define asm-library-call!
     (lambda (libspec)
       (let ([target `(pb-proc ,(constant code-data-disp) (library-code ,libspec))])
         (lambda (code* jmptmp . ignore)
-          (asm-helper-call code* jmptmp target)))))
+          (asm-helper-call code* jmptmp #t target)))))
 
   (define asm-c-simple-call
     (lambda (entry)
       (let ([target `(pb-proc 0 (entry ,entry))])
         (lambda (code* jmptmp . ignore)
-          (asm-helper-call code* jmptmp target)))))
+          (asm-helper-call code* jmptmp #f target)))))
     
   (define-who asm-indirect-call
     (lambda (code* dest proto . ignore)
@@ -1281,7 +1296,7 @@
               [(fx= disp2 0)
                (emit btrue opnd1 '())]
               [else
-               (let-values ([(disp2 opnd2) (get-disp-opnd (fx+ next-addr 4) l2)])
+               (let-values ([(disp1 opnd1) (get-disp-opnd (fx+ next-addr 4) l1)])
                  (emit btrue opnd1 (emit b opnd2 '())))]))))))
 
   (define asm-helper-jump
@@ -1292,10 +1307,12 @@
             (asm-helper-relocation code* reloc))))))
 
   (define asm-helper-call
-    (lambda (code* jmptmp reloc)
+    (lambda (code* jmptmp interp? reloc)
       (ax-mov64 `(reg . ,jmptmp) 0
-        (emit call `(reg . ,jmptmp) `(imm ,(constant pb-call-void))
-          (asm-helper-relocation code* reloc)))))
+        (let ([code* (asm-helper-relocation code* reloc)])
+          (if interp?
+              (emit interp `(reg . ,jmptmp) code*)
+              (emit call `(reg . ,jmptmp) `(imm ,(constant pb-call-void)) code*))))))
 
   (define asm-helper-relocation
     (lambda (code* reloc)

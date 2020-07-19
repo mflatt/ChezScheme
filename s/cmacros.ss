@@ -2969,7 +2969,12 @@
         [(_ id << scale-id
             enum ...)
          (gen #'id
-              (length (cdr (lookup-constant (datum scale-id))))
+              (let loop ([scale-sym (datum scale-id)])
+                (if scale-sym
+                    (let ([desc (lookup-constant scale-sym)])
+                      (fx* (length (cdr desc))
+                           (loop (car desc))))
+                    1))
               #'(scale-id enum ...))]
         [(_ id enum ...)
          (gen #'id
@@ -3111,6 +3116,7 @@
   [pb-b*-op pb-argument-types]
   [pb-call]
   [pb-return]
+  [pb-interp]
   [pb-adr])
 
 (define-syntax define-pb-prototypes
