@@ -230,8 +230,9 @@ void S_pb_interp(ptr tc, void *bytecode) {
           if (b == (uptr)-1)
             flag = (a != r * (uptr)-1);
           else
-            flag = (a != r / b);
-        }
+            flag = ((iptr)a != (iptr)r / (iptr)b);
+        } else
+          flag = 0;
       }
       break;
     case pb_bin_op_pb_signal_pb_mul_pb_immediate:
@@ -244,8 +245,9 @@ void S_pb_interp(ptr tc, void *bytecode) {
           if (b == (uptr)-1)
             flag = (a != r * (uptr)-1);
           else
-            flag = (a != r / b);
-        }
+            flag = ((iptr)a != (iptr)r / (iptr)b);
+        } else
+          flag = 0;
       }
       break;
     case pb_cmp_op_pb_eq_pb_register:
