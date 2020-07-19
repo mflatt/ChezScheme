@@ -1156,7 +1156,7 @@
 
   (define asm-lock-incr!
     (lambda (code* dest base index)
-      (Trivit (dest base index)
+      (Trivit (dest< base index)
         (emit lock+ dest base index code*))))
 
   (define asm-lock-decr!

@@ -3086,7 +3086,7 @@
   pb-true
   pb-always)
 
-(define-pb-enum pb-binary-locks
+(define-pb-enum pb-binary-locks << pb-argument-types
   pb-lock
   pb-lock-incr
   pb-lock-decr
@@ -3119,7 +3119,8 @@
   [pb-call]
   [pb-return]
   [pb-interp]
-  [pb-adr])
+  [pb-adr]
+  [pb-lock-op pb-binary-locks pb-argument-types])
 
 (define-syntax define-pb-prototypes
   (lambda (stx)

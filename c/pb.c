@@ -51,6 +51,9 @@ enum {
 
 void S_machine_init() {}
 
+#define SIGN_FLIP(r, a, b) ((~((a ^ b) | (r ^ ~b))) >> (ptr_bits-1))
+#define USE_OVERFLOW_INTRINSICS 1
+
 int counter = 0;
 
 #if 0
@@ -192,42 +195,81 @@ void S_pb_interp(ptr tc, void *bytecode) {
       break;
     case pb_bin_op_pb_signal_pb_add_pb_register:
       {
+#if USE_OVERFLOW_INTRINSICS
+        iptr a = (iptr)regs[INSTR_drr_reg1(instr)];
+        iptr b = (iptr)regs[INSTR_drr_reg2(instr)];
+        iptr r;
+        flag = __builtin_add_overflow(a, b, &r);
+        regs[INSTR_drr_dest(instr)] = (uptr)r;
+#else
         uptr a = regs[INSTR_drr_reg1(instr)];
         uptr b = regs[INSTR_drr_reg2(instr)];
         uptr r = a + b;
         regs[INSTR_drr_dest(instr)] = r;
-        flag = (b != r - a);
+        flag = SIGN_FLIP(r, a, b);
+#endif
       }
       break;
     case pb_bin_op_pb_signal_pb_add_pb_immediate:
       {
+#if USE_OVERFLOW_INTRINSICS
+        iptr a = (iptr)regs[INSTR_drr_reg1(instr)];
+        iptr b = INSTR_dri_imm(instr);
+        iptr r;
+        flag = __builtin_add_overflow(a, b, &r);
+        regs[INSTR_drr_dest(instr)] = (uptr)r;
+#else
         uptr a = regs[INSTR_dri_reg(instr)];
         uptr b = (uptr)INSTR_dri_imm(instr);
         uptr r = a + b;
         regs[INSTR_dri_dest(instr)] = r;
-        flag = (b != r - a);
+        flag = SIGN_FLIP(r, a, b);
+#endif
       }
       break;
     case pb_bin_op_pb_signal_pb_sub_pb_register:
       {
+#if USE_OVERFLOW_INTRINSICS
+        iptr a = (iptr)regs[INSTR_drr_reg1(instr)];
+        iptr b = (iptr)regs[INSTR_drr_reg2(instr)];
+        iptr r;
+        flag = __builtin_sub_overflow(a, b, &r);
+        regs[INSTR_drr_dest(instr)] = (uptr)r;
+#else
         uptr a = regs[INSTR_drr_reg1(instr)];
         uptr b = regs[INSTR_drr_reg2(instr)];
         uptr r = a - b;
         regs[INSTR_drr_dest(instr)] = r;
-        flag = (a != r + b);
+        flag = SIGN_FLIP(r, a, ~b);
+#endif
       }
       break;
     case pb_bin_op_pb_signal_pb_sub_pb_immediate:
       {
+#if USE_OVERFLOW_INTRINSICS
+        iptr a = (iptr)regs[INSTR_drr_reg1(instr)];
+        iptr b = INSTR_dri_imm(instr);
+        iptr r;
+        flag = __builtin_sub_overflow(a, b, &r);
+        regs[INSTR_drr_dest(instr)] = (uptr)r;
+#else
         uptr a = regs[INSTR_dri_reg(instr)];
         uptr b = (uptr)INSTR_dri_imm(instr);
         uptr r = a - b;
         regs[INSTR_dri_dest(instr)] = r;
-        flag = (a != r + b);
+        flag = SIGN_FLIP(r, a, ~b);
+#endif
       }
       break;
     case pb_bin_op_pb_signal_pb_mul_pb_register:
       {
+#if USE_OVERFLOW_INTRINSICS
+        iptr a = (iptr)regs[INSTR_drr_reg1(instr)];
+        iptr b = (iptr)regs[INSTR_drr_reg2(instr)];
+        iptr r;
+        flag = __builtin_mul_overflow(a, b, &r);
+        regs[INSTR_drr_dest(instr)] = (uptr)r;
+#else
         uptr a = regs[INSTR_drr_reg1(instr)];
         uptr b = regs[INSTR_drr_reg2(instr)];
         uptr r = a * b;
@@ -239,10 +281,18 @@ void S_pb_interp(ptr tc, void *bytecode) {
             flag = ((iptr)a != (iptr)r / (iptr)b);
         } else
           flag = 0;
+#endif
       }
       break;
     case pb_bin_op_pb_signal_pb_mul_pb_immediate:
       {
+#if USE_OVERFLOW_INTRINSICS
+        iptr a = (iptr)regs[INSTR_drr_reg1(instr)];
+        iptr b = INSTR_dri_imm(instr);
+        iptr r;
+        flag = __builtin_mul_overflow(a, b, &r);
+        regs[INSTR_drr_dest(instr)] = (uptr)r;
+#else
         uptr a = regs[INSTR_dri_reg(instr)];
         uptr b = (uptr)INSTR_dri_imm(instr);
         uptr r = a * b;
@@ -254,6 +304,7 @@ void S_pb_interp(ptr tc, void *bytecode) {
             flag = ((iptr)a != (iptr)r / (iptr)b);
         } else
           flag = 0;
+#endif
       }
       break;
     case pb_cmp_op_pb_eq_pb_register:
@@ -646,6 +697,46 @@ void S_pb_interp(ptr tc, void *bytecode) {
                                                                                regs[Carg7]);
           break;
         }
+      }
+      break;
+    case pb_lock_op_pb_lock_pb_register:
+      {
+        uptr *l = (uptr *)(regs[INSTR_dri_dest(instr)]
+                           + regs[INSTR_dri_reg(instr)]
+                           + INSTR_dri_imm(instr));
+        if (*l == 0) {
+          *l = 1;
+          flag = 1;
+        } else
+          flag = 0;
+      }
+      break;
+    case pb_lock_op_pb_lock_incr_pb_immediate:
+      {
+        uptr *l = (uptr *)(regs[INSTR_dri_dest(instr)]
+                           + regs[INSTR_dri_reg(instr)]
+                           + INSTR_dri_imm(instr));
+        (*l)++;
+      }
+      break;
+    case pb_lock_op_pb_lock_decr_pb_immediate:
+      {
+        uptr *l = (uptr *)(regs[INSTR_dri_dest(instr)]
+                           + regs[INSTR_dri_reg(instr)]
+                           + INSTR_dri_imm(instr));
+        --(*l);
+      }
+      break;
+    case pb_lock_op_pb_cas_pb_register:
+      {
+        uptr *l = (uptr *)regs[INSTR_drr_dest(instr)];
+        uptr old = regs[INSTR_drr_reg1(instr)];
+        uptr new = regs[INSTR_drr_reg2(instr)];
+        if (*l == old) {
+          *l = new;
+          flag = 1;
+        } else
+          flag = 0;
       }
       break;
     default:
