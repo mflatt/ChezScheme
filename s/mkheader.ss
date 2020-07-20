@@ -440,11 +440,15 @@
                     [(int32) 'int32_t]
                     [(uint32) 'uint32_t]
                     [else s]))
+                (define (clean-type s)
+                  (case s
+                    [(void*) 'voids]
+                    [else s]))
                 (pr "typedef ~a (*pb_~a_t)(~a);~%"
                     (sym->type (car proto))
                     (apply string-append
-                           (symbol->string (car proto))
-                           (map (lambda (s) (format "_~a" s))
+                           (symbol->string (clean-type (car proto)))
+                           (map (lambda (s) (format "_~a" (clean-type s)))
                                 (cdr proto)))
                     (if (null? (cdr proto))
                         ""
