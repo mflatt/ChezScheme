@@ -4,7 +4,7 @@ m = pb
 Cpu = PORTABLE_BYTECODE
 
 mdclib = -lm
-C = ${CC} ${CPPFLAGS} -Wpointer-arith -Wall -Wextra -Wno-implicit-fallthrough -Werror -g ${CFLAGS}
+C = ${CC} ${CPPFLAGS} -Wpointer-arith -Wall -Wextra -Wno-implicit-fallthrough -Werror -g -O2 ${CFLAGS}
 o = o
 mdsrc = pb.c
 mdobj = pb.o

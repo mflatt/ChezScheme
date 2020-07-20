@@ -205,7 +205,7 @@ static IBOOL destroy_thread(tc) ptr tc; {
       S_nthreads -= 1;
 
      /* process remembered set before dropping allocation area */
-      S_scan_dirty((ptr **)EAP(tc), (ptr **)REAL_EAP(tc));
+      S_scan_dirty((ptr *)EAP(tc), (ptr *)REAL_EAP(tc));
 
      /* process guardian entries */
       {
