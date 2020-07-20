@@ -8001,7 +8001,7 @@
              (build-checked-fp-op e
                (lambda (e)
                  (constant-case architecture
-                   [(x86 x86_64 arm32 arm64) (build-fp-op-1 %fpsqrt e)]
+                   [(x86 x86_64 arm32 arm64 pb) (build-fp-op-1 %fpsqrt e)]
                    [(ppc32) (build-fl-call (lookup-c-entry flsqrt) e)]))
                (lambda (e)
                  (build-libcall #t src sexpr flsqrt e)))])
