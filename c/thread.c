@@ -127,7 +127,7 @@ ptr S_create_thread_object(who, p_tc) const char *who; ptr p_tc; {
 
   GUARDIANENTRIES(tc) = Snil;
 
-  LZ4OUTBUFFER(tc) = NULL;
+  LZ4OUTBUFFER(tc) = 0;
 
   tc_mutex_release()
 

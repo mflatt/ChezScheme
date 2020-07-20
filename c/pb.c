@@ -422,40 +422,40 @@ void S_pb_interp(ptr tc, void *bytecode) {
                               | ((regs[INSTR_dr_reg(instr)] & (uptr)0xFF00000000000000) >> 56));
       break;
     case pb_ld_op_pb_int8_pb_register:
-      regs[INSTR_drr_dest(instr)] = *(signed char *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
+      regs[INSTR_drr_dest(instr)] = *(int8_t *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
       break;
     case pb_ld_op_pb_int8_pb_immediate:
-      regs[INSTR_dri_dest(instr)] = *(signed char *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
+      regs[INSTR_dri_dest(instr)] = *(int8_t *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
       break;
     case pb_ld_op_pb_uint8_pb_register:
-      regs[INSTR_drr_dest(instr)] = *(unsigned char *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
+      regs[INSTR_drr_dest(instr)] = *(uint8_t *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
       break;
     case pb_ld_op_pb_uint8_pb_immediate:
-      regs[INSTR_dri_dest(instr)] = *(unsigned char *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
+      regs[INSTR_dri_dest(instr)] = *(uint8_t *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
       break;
     case pb_ld_op_pb_int16_pb_register:
-      regs[INSTR_drr_dest(instr)] = *(signed short *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
+      regs[INSTR_drr_dest(instr)] = *(int16_t *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
       break;
     case pb_ld_op_pb_int16_pb_immediate:
-      regs[INSTR_dri_dest(instr)] = *(signed short *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
+      regs[INSTR_dri_dest(instr)] = *(int16_t *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
       break;
     case pb_ld_op_pb_uint16_pb_register:
-      regs[INSTR_drr_dest(instr)] = *(unsigned short *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
+      regs[INSTR_drr_dest(instr)] = *(uint16_t *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
       break;
     case pb_ld_op_pb_uint16_pb_immediate:
-      regs[INSTR_dri_dest(instr)] = *(unsigned short *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
+      regs[INSTR_dri_dest(instr)] = *(uint16_t *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
       break;
     case pb_ld_op_pb_int32_pb_register:
-      regs[INSTR_drr_dest(instr)] = *(signed int *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
+      regs[INSTR_drr_dest(instr)] = *(int32_t *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
       break;
     case pb_ld_op_pb_int32_pb_immediate:
-      regs[INSTR_dri_dest(instr)] = *(signed int *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
+      regs[INSTR_dri_dest(instr)] = *(int32_t *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
       break;
     case pb_ld_op_pb_uint32_pb_register:
-      regs[INSTR_drr_dest(instr)] = *(unsigned int *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
+      regs[INSTR_drr_dest(instr)] = *(uint32_t *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
       break;
     case pb_ld_op_pb_uint32_pb_immediate:
-      regs[INSTR_dri_dest(instr)] = *(unsigned int *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
+      regs[INSTR_dri_dest(instr)] = *(uint32_t *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
       break;
     case pb_ld_op_pb_int64_pb_register:
       regs[INSTR_drr_dest(instr)] = *(uptr *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);

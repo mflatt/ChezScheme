@@ -560,7 +560,7 @@ static ptr bv_fasl_entry(ptr tc, ptr bv, int ty, uptr offset, uptr len, unbufFas
   struct faslFileObj ffo;
 
   if (ty == fasl_type_vfasl) {
-    x = S_vfasl(bv, (ptr)0, offset, len);
+    x = S_vfasl(bv, NULL, offset, len);
   } else if (ty == fasl_type_fasl) {
     ffo.size = len;
     ffo.next = ffo.buf = &BVIT(bv, offset);

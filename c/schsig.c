@@ -399,7 +399,7 @@ static void do_error(type, who, s, args) iptr type; const char *who, *s; ptr arg
     AC0(tc) = (ptr)1;
     CP(tc) = S_symbol_value(S_G.error_id);
     S_put_scheme_arg(tc, 1, args);
-    LONGJMP(CAAR(CCHAIN(tc)), -1);
+    LONGJMP((void*)CAAR(CCHAIN(tc)), -1);
 }
 
 static void handle_call_error(tc, type, x) ptr tc; iptr type; ptr x; {
@@ -686,7 +686,7 @@ static void handle_signal(INT sig, UNUSED siginfo_t *si, UNUSED void *data) {
             ptr tc = get_thread_context();
            /* disable keyboard interrupts in subordinate threads until we think
              of something more clever to do with them */
-            if (tc == S_G.thread_context) {
+            if (tc == (ptr)S_G.thread_context) {
               if (!S_pants_down && Sboolean_value(KEYBOARDINTERRUPTPENDING(tc))) {
                /* this is a no-no, but the only other options are to ignore
                   the signal or to kill the process */

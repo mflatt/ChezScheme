@@ -266,7 +266,9 @@ uptr list_length(ptr ls) {
 #endif
 
 #define init_mask(dest, tg, init) {                                     \
-    find_room(space_data, tg, typemod, ptr_align(segment_bitmap_bytes), dest); \
+    ptr dp;                                                             \
+    find_room(space_data, tg, typemod, ptr_align(segment_bitmap_bytes), dp); \
+    dest = (octet *)dp;                                                  \
     memset(dest, init, segment_bitmap_bytes);                           \
   }
 
@@ -380,11 +382,11 @@ FORCEINLINE void check_triggers(seginfo *si) {
   if (si->has_triggers) {
     if (si->trigger_ephemerons) {
       add_trigger_ephemerons_to_pending(si->trigger_ephemerons);
-      si->trigger_ephemerons = NULL;
+      si->trigger_ephemerons = 0;
     }
     if (si->trigger_guardians) {
       add_trigger_guardians_to_recheck(si->trigger_guardians);
-      si->trigger_guardians = NULL;
+      si->trigger_guardians = 0;
     }
     si->has_triggers = 0;
   }
@@ -461,7 +463,7 @@ static ptr copy_stack(old, length, clength) ptr old; iptr *length, clength; {
   find_room(space_data, target_generation, typemod, n, new);
   n = ptr_align(clength);
  /* warning: stack may have been left non-double-aligned by split_and_resize */
-  memcpy_aligned(new, old, n);
+  memcpy_aligned((void*)new, (void*)old, n);
 
  /* also returning possibly updated value in *length */
   return new;
@@ -645,10 +647,11 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
 #ifdef ENABLE_OBJECT_COUNTS
   /* set flag on count_roots objects so they get copied to space_count_root */
      if (count_roots_ls != Sfalse) {
-       iptr i;
+       iptr i; ptr crp;
 
        count_roots_len = list_length(count_roots_ls);
-       find_room(space_data, 0, typemod, ptr_align(count_roots_len*sizeof(count_root_t)), count_roots);
+       find_room(space_data, 0, typemod, ptr_align(count_roots_len*sizeof(count_root_t)), crp);
+       count_roots = (count_root_t *)crp;
 
        for (ls = count_roots_ls, i = 0; ls != Snil; ls = Scdr(ls), i++) {
          ptr p = Scar(ls);
@@ -678,7 +681,7 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
 #ifdef ENABLE_OBJECT_COUNTS
   /* sweep count_roots in order and accumulate counts */
      if (count_roots_len > 0) {
-       ptr prev = NULL; uptr prev_total = total_size_so_far();
+       ptr prev = 0; uptr prev_total = total_size_so_far();
        iptr i;
 
 # ifdef ENABLE_MEASURE
@@ -717,7 +720,7 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
 
          total = total_size_so_far();
          p = S_cons_in(space_new, 0, FIX(total-prev_total), Snil);
-         if (prev != NULL)
+         if (prev != 0)
            Scdr(prev) = p;
          else
            count_roots_counts = p;
@@ -899,7 +902,7 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
                   rep = GUARDIANOBJ(ls);
                   if (FWDMARKER(rep) == forward_marker) rep = FWDADDRESS(rep);
                 /* Caution: Building in assumption about shape of an ftype pointer */
-                  addr = RECORDINSTIT(rep, 0);
+                  addr = (uptr *)RECORDINSTIT(rep, 0);
                   LOCKED_DECR(addr, b);
                   if (!b) continue;
                 }
@@ -1077,7 +1080,9 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
           sym = b->sym;
           si = SegInfo(ptr_get_segment(sym));
           if (marked(si, sym) || (FWDMARKER(sym) == forward_marker && ((sym = FWDADDRESS(sym)) || 1))) {
-            find_room(space_data, tg, typemod, sizeof(bucket), b);
+            ptr bp;
+            find_room(space_data, tg, typemod, sizeof(bucket), bp);
+            b = (bucket *)bp;
 #ifdef ENABLE_OBJECT_COUNTS
             S_G.countof[tg][countof_oblist] += 1;
             S_G.bytesof[tg][countof_oblist] += sizeof(bucket);
@@ -1087,7 +1092,8 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
             pb = &b->next;
             if (tg != static_generation) {
               blnext = bl;
-              find_room(space_data, tg, typemod, sizeof(bucket_list), bl);
+              find_room(space_data, tg, typemod, sizeof(bucket_list), bp);
+              bl = (bucket_list *)bp;
 #ifdef ENABLE_OBJECT_COUNTS
               S_G.countof[tg][countof_oblist] += 1;
               S_G.bytesof[tg][countof_oblist] += sizeof(bucket_list);
@@ -1172,9 +1178,9 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
         si->next = S_G.occupied_segments[s][tg];
         S_G.occupied_segments[s][tg] = si;
         S_G.bytes_of_space[s][tg] += si->marked_count;
-        si->trigger_guardians = NULL;
+        si->trigger_guardians = 0;
 #ifdef PRESERVE_FLONUM_EQ
-        si->forwarded_flonums = NULL;
+        si->forwarded_flonums = 0;
 #endif
       } else {
         chunkinfo *chunk = si->chunk;
@@ -1443,7 +1449,7 @@ void enlarge_sweep_stack() {
   ptr new_sweep_stack;
   find_room(space_data, 0, typemod, ptr_align(new_sz), new_sweep_stack);
   if (sz != 0)
-    memcpy(new_sweep_stack, sweep_stack_start, sz);
+    memcpy((void *)new_sweep_stack, sweep_stack_start, sz);
   sweep_stack_start = (ptr *)new_sweep_stack;
   sweep_stack_limit = (ptr *)((uptr)new_sweep_stack + new_sz);
   sweep_stack = (ptr *)((uptr)new_sweep_stack + sz);
@@ -1539,11 +1545,13 @@ static void sweep_dirty(void) {
 
         min_youngest = 0xff;
         nl = from_g == tg ? (ptr *)orig_next_loc[s] : (ptr *)S_G.next_loc[s][from_g];
-        ppend = build_ptr(seg, 0);
+        ppend = (ptr *)build_ptr(seg, 0);
 
         if (s == space_weakpair) {
+          ptr wsp;
           weakseginfo *next = weaksegments_to_resweep;
-          find_room(space_data, 0, typemod, sizeof(weakseginfo), weaksegments_to_resweep);
+          find_room(space_data, 0, typemod, sizeof(weakseginfo), wsp);
+          weaksegments_to_resweep = (weakseginfo *)wsp;
           weaksegments_to_resweep->si = dirty_si;
           weaksegments_to_resweep->next = next;
         }
@@ -1810,7 +1818,7 @@ static void resweep_dirty_weak_pairs() {
     seginfo *dirty_si = ls->si;
     from_g = dirty_si->generation;
     nl = from_g == tg ? (ptr *)orig_next_loc[space_weakpair] : (ptr *)S_G.next_loc[space_weakpair][from_g];
-    ppend = build_ptr(dirty_si->number, 0);
+    ppend = (ptr *)build_ptr(dirty_si->number, 0);
     min_youngest = 0xff;
     d = 0;
     while (d < cards_per_segment) {
@@ -1876,7 +1884,7 @@ static void add_pending_guardian(ptr gdn, ptr tconc)
 static void add_trigger_guardians_to_recheck(ptr ls)
 {
   ptr last = ls, next = GUARDIANNEXT(ls);
-  while (next != NULL) {
+  while (next != 0) {
     last = next;
     next = GUARDIANNEXT(next);
   }
@@ -1884,7 +1892,7 @@ static void add_trigger_guardians_to_recheck(ptr ls)
   recheck_guardians_ls = ls;
 }
 
-static ptr pending_ephemerons = NULL;
+static ptr pending_ephemerons = 0;
 /* Ephemerons that we haven't looked at, chained through `next`. */
 
 static void ephemeron_remove(ptr pe) {
@@ -1892,13 +1900,13 @@ static void ephemeron_remove(ptr pe) {
   *((ptr *)EPHEMERONPREVREF(pe)) = next;
   if (next)
     EPHEMERONPREVREF(next) = EPHEMERONPREVREF(pe);
-  EPHEMERONPREVREF(pe) = NULL;
-  EPHEMERONNEXT(pe) = NULL;
+  EPHEMERONPREVREF(pe) = 0;
+  EPHEMERONNEXT(pe) = 0;
 }
 
 static void ephemeron_add(ptr *first, ptr pe) {
   ptr last_pe = pe, next_pe = EPHEMERONNEXT(pe), next;
-  while (next_pe != NULL) {
+  while (next_pe != 0) {
     last_pe = next_pe;
     next_pe = EPHEMERONNEXT(next_pe);
   }
@@ -1907,7 +1915,7 @@ static void ephemeron_add(ptr *first, ptr pe) {
   EPHEMERONPREVREF(pe) = (ptr)first;
   EPHEMERONNEXT(last_pe) = next;
   if (next)
-    EPHEMERONPREVREF(next) = &EPHEMERONNEXT(last_pe);
+    EPHEMERONPREVREF(next) = (ptr)&EPHEMERONNEXT(last_pe);
 }
 
 static void add_ephemeron_to_pending(ptr pe) {
@@ -1929,8 +1937,8 @@ static void check_ephemeron(ptr pe) {
   seginfo *si;
   PUSH_BACKREFERENCE(pe);
 
-  EPHEMERONNEXT(pe) = NULL;
-  EPHEMERONPREVREF(pe) = NULL;
+  EPHEMERONNEXT(pe) = 0;
+  EPHEMERONPREVREF(pe) = 0;
 
   p = Scar(pe);
   if (!IMMEDIATE(p) && (si = MaybeSegInfo(ptr_get_segment(p))) != NULL && si->old_space) {
@@ -1955,8 +1963,8 @@ static void check_pending_ephemerons() {
   ptr pe, next_pe;
 
   pe = pending_ephemerons;
-  pending_ephemerons = NULL;
-  while (pe != NULL) {
+  pending_ephemerons = 0;
+  while (pe != 0) {
     next_pe = EPHEMERONNEXT(pe);
     check_ephemeron(pe);
     pe = next_pe;
@@ -2013,20 +2021,20 @@ static int check_dirty_ephemeron(ptr pe, int tg, int youngest) {
 static void finish_pending_ephemerons(seginfo *si) {
   /* Any ephemeron still in a trigger list is an ephemeron
      whose key was not reached. */
-  if (pending_ephemerons != NULL)
+  if (pending_ephemerons != 0)
     S_error_abort("clear_trigger_ephemerons(gc): non-empty pending list");
 
   for (; si != NULL; si = si->next) {
     if (si->trigger_ephemerons) {
       ptr pe, next_pe;
-      for (pe = si->trigger_ephemerons; pe != NULL; pe = next_pe) {
+      for (pe = si->trigger_ephemerons; pe != 0; pe = next_pe) {
         INITCAR(pe) = Sbwp_object;
         INITCDR(pe) = Sbwp_object;
         next_pe = EPHEMERONNEXT(pe);
-        EPHEMERONPREVREF(pe) = NULL;
-        EPHEMERONNEXT(pe) = NULL;
+        EPHEMERONPREVREF(pe) = 0;
+        EPHEMERONNEXT(pe) = 0;
       }
-      si->trigger_ephemerons = NULL;
+      si->trigger_ephemerons = 0;
     }
   }
 }
@@ -2088,8 +2096,10 @@ void copy_and_clear_list_bits(seginfo *oldspacesegments, IGEN tg) {
                 init_mask(bits_si->marked_mask, tg, 0);
               bits_si->marked_mask[segment_bitmap_byte((ptr)si->list_bits)] |= segment_bitmap_bit((ptr)si->list_bits);
             } else {
+              ptr cbp;
               octet *copied_bits;
-              find_room(space_data, tg, typemod, ptr_align(segment_bitmap_bytes), copied_bits);
+              find_room(space_data, tg, typemod, ptr_align(segment_bitmap_bytes), cbp);
+              copied_bits = (octet *)cbp;
               memcpy_aligned(copied_bits, si->list_bits, segment_bitmap_bytes);
               si->list_bits = copied_bits;
             }
@@ -2135,13 +2145,14 @@ void copy_and_clear_list_bits(seginfo *oldspacesegments, IGEN tg) {
 #ifdef ENABLE_MEASURE
 
 static void init_measure(IGEN min_gen, IGEN max_gen) {
-  uptr init_stack_len = 1024;
+  uptr init_stack_len = 1024; ptr msp;
 
   min_measure_generation = min_gen;
   max_measure_generation = max_gen;
   
-  find_room(space_data, 0, typemod, init_stack_len, measure_stack_start);
-  measure_stack = (ptr *)measure_stack_start;
+  find_room(space_data, 0, typemod, init_stack_len, msp);
+  measure_stack_start = (ptr *)msp;
+  measure_stack = measure_stack_start;
   measure_stack_limit = (ptr *)((uptr)measure_stack_start + init_stack_len);
 
   measured_seginfos = Snil;
@@ -2156,12 +2167,12 @@ static void finish_measure() {
     ptr pe, next_pe;
     seginfo *si = (seginfo *)Scar(ls);
     si->measured_mask = NULL;
-    for (pe = si->trigger_ephemerons; pe != NULL; pe = next_pe) {
+    for (pe = si->trigger_ephemerons; pe != 0; pe = next_pe) {
       next_pe = EPHEMERONNEXT(pe);
-      EPHEMERONPREVREF(pe) = NULL;
-      EPHEMERONNEXT(pe) = NULL;
+      EPHEMERONPREVREF(pe) = 0;
+      EPHEMERONNEXT(pe) = 0;
     }
-    si->trigger_ephemerons = NULL;
+    si->trigger_ephemerons = 0;
   }
 
   measure_all_enabled = 0;
@@ -2217,7 +2228,7 @@ static void push_measure(ptr p)
 
   if (si->trigger_ephemerons) {
     add_trigger_ephemerons_to_pending_measure(si->trigger_ephemerons);
-    si->trigger_ephemerons = NULL;
+    si->trigger_ephemerons = 0;
   }
 
   if (measure_stack == measure_stack_limit) {
@@ -2225,7 +2236,7 @@ static void push_measure(ptr p)
     uptr new_sz = 2*sz;
     ptr new_measure_stack;
     find_room(space_data, 0, typemod, ptr_align(new_sz), new_measure_stack);
-    memcpy(new_measure_stack, measure_stack_start, sz);
+    memcpy((void *)new_measure_stack, measure_stack_start, sz);
     measure_stack_start = (ptr *)new_measure_stack;
     measure_stack_limit = (ptr *)((uptr)new_measure_stack + new_sz);
     measure_stack = (ptr *)((uptr)new_measure_stack + sz);
@@ -2266,8 +2277,8 @@ static void check_ephemeron_measure(ptr pe) {
   ptr p;
   seginfo *si;
 
-  EPHEMERONPREVREF(pe) = NULL;
-  EPHEMERONNEXT(pe) = NULL;
+  EPHEMERONPREVREF(pe) = 0;
+  EPHEMERONNEXT(pe) = 0;
 
   p = Scar(pe);
   if (!IMMEDIATE(p) && (si = MaybeSegInfo(ptr_get_segment(p))) != NULL
@@ -2293,8 +2304,8 @@ static void check_pending_measure_ephemerons() {
   ptr pe, next_pe;
 
   pe = pending_measure_ephemerons;
-  pending_measure_ephemerons = NULL;
-  while (pe != NULL) {
+  pending_measure_ephemerons = 0;
+  while (pe != 0) {
     next_pe = EPHEMERONNEXT(pe);
     check_ephemeron_measure(pe);
     pe = next_pe;
@@ -2306,7 +2317,7 @@ void gc_measure_one(ptr p) {
 
   if (si->trigger_ephemerons) {
     add_trigger_ephemerons_to_pending_measure(si->trigger_ephemerons);
-    si->trigger_ephemerons = NULL;
+    si->trigger_ephemerons = 0;
   }
   
   measure(p);
@@ -2332,7 +2343,7 @@ IBOOL flush_measure_stack() {
 }
 
 ptr S_count_size_increments(ptr ls, IGEN generation) {
-  ptr l, totals = Snil, totals_prev = NULL;
+  ptr l, totals = Snil, totals_prev = 0;
 
   tc_mutex_acquire();
 

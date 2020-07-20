@@ -195,8 +195,8 @@ static vfasl_hash_table *make_vfasl_hash_table(IBOOL permanent);
 static void vfasl_hash_table_set(vfasl_hash_table *ht, ptr key, ptr value);
 static ptr vfasl_hash_table_ref(vfasl_hash_table *ht, ptr key);
 
-static ptr vfasl_malloc(uptr sz);
-static ptr vfasl_calloc(uptr sz, uptr n);
+static void *vfasl_malloc(uptr sz);
+static void *vfasl_calloc(uptr sz, uptr n);
 
 static void sort_offsets(vfoff *p, vfoff len);
 
@@ -242,9 +242,9 @@ ptr S_vfasl(ptr bv, void *stream, iptr offset, iptr input_len)
   vspace_offsets[vspaces_count] = header.data_size;
 
   if (bv) {
-    ptr base_addr = &BVIT(bv, sizeof(vfasl_header) + offset);
+    void *base_addr = &BVIT(bv, sizeof(vfasl_header) + offset);
     thread_find_room(tc, typemod, header.data_size, data);
-    memcpy(data, base_addr, header.data_size);
+    memcpy((void*)data, base_addr, header.data_size);
     table = ptr_add(base_addr, header.data_size);
   } else {
     if (S_vfasl_boot_mode > 0) {
@@ -256,7 +256,7 @@ ptr S_vfasl(ptr bv, void *stream, iptr offset, iptr input_len)
           } else {
             find_room(vspace_spaces[s], static_generation, typemod, sz, vspaces[s])
           }
-          if (S_fasl_stream_read(stream, vspaces[s], sz) < 0)
+          if (S_fasl_stream_read(stream, (octet *)vspaces[s], sz) < 0)
             S_error("fasl-read", "input truncated");
         } else
           vspaces[s] = (ptr)0;
@@ -269,12 +269,12 @@ ptr S_vfasl(ptr bv, void *stream, iptr offset, iptr input_len)
       to_static = 1;
     } else {
       thread_find_room(tc, typemod, header.data_size, data)
-      if (S_fasl_stream_read(stream, data, header.data_size) < 0)
+        if (S_fasl_stream_read(stream, (octet *)data, header.data_size) < 0)
         S_error("fasl-read", "input truncated");
     }
 
     thread_find_room(tc, typemod, ptr_align(header.table_size), table)
-    if (S_fasl_stream_read(stream, table, header.table_size) < 0)
+      if (S_fasl_stream_read(stream, (octet *)table, header.table_size) < 0)
       S_error("fasl-read", "input truncated");
   }
 
@@ -284,11 +284,11 @@ ptr S_vfasl(ptr bv, void *stream, iptr offset, iptr input_len)
   } else
     data = vspaces[0];
 
-  symrefs = table;
-  rtdrefs = ptr_add(symrefs, header.symref_count * sizeof(vfoff));
-  singletonrefs = ptr_add(rtdrefs, header.rtdref_count * sizeof(vfoff));
-  bm = ptr_add(singletonrefs, header.singletonref_count * sizeof(vfoff));
-  bm_end = ptr_add(table, header.table_size);
+  symrefs = (vfoff *)table;
+  rtdrefs = (vfoff *)ptr_add(symrefs, header.symref_count * sizeof(vfoff));
+  singletonrefs = (vfoff *)ptr_add(rtdrefs, header.rtdref_count * sizeof(vfoff));
+  bm = (octet *)ptr_add(singletonrefs, header.singletonref_count * sizeof(vfoff));
+  bm_end = (octet *)ptr_add(table, header.table_size);
 
 #if 0
   printf("\n"
@@ -348,7 +348,7 @@ ptr S_vfasl(ptr bv, void *stream, iptr offset, iptr input_len)
       if (m & (1 << i)) {                                               \
         ptr *p3;                                                        \
         INC_SPACE_OFFSET(p_off);                                        \
-        p3 = SPACE_PTR(p_off);                                          \
+        p3 = (ptr *)SPACE_PTR(p_off);                                   \
         *p3 = find_pointer_from_offset((uptr)*p3, vspaces, vspace_offsets); \
       }                                                                 \
       p_off += sizeof(uptr);
@@ -378,7 +378,7 @@ ptr S_vfasl(ptr bv, void *stream, iptr offset, iptr input_len)
       ptr *ref;
       r_off = singletonrefs[i];
       INC_SPACE_OFFSET(r_off);
-      ref = SPACE_PTR(r_off);
+      ref = (ptr *)SPACE_PTR(r_off);
       *ref = lookup_singleton(UNFIX(*ref));
     }
   }
@@ -418,7 +418,7 @@ ptr S_vfasl(ptr bv, void *stream, iptr offset, iptr input_len)
           if (S_vfasl_boot_mode > 0) {
             IGEN gen = SegInfo(ptr_get_segment(isym))->generation;
             if (gen < static_generation) {
-              printf("WARNING: vfasl symbol already interned, but at generation %d: %p ", gen, isym);
+              printf("WARNING: vfasl symbol already interned, but at generation %d: %p ", gen, (void*)isym);
               S_prin1(isym);
               printf("\n");
             }
@@ -451,7 +451,7 @@ ptr S_vfasl(ptr bv, void *stream, iptr offset, iptr input_len)
       sym = TYPE(ptr_add(syms, symbol_pos_to_offset(sym_pos)), type_symbol);
       if ((val = SYMVAL(sym)) != sunbound)
         sym = val;
-      *(ptr **)p2 = sym;
+      *(ptr *)p2 = sym;
     }
   }
   
@@ -505,7 +505,7 @@ ptr S_vfasl(ptr bv, void *stream, iptr offset, iptr input_len)
       ptr *ref, rtd, uid;
       r_off = rtdrefs[i];
       INC_SPACE_OFFSET(r_off);
-      ref = SPACE_PTR(r_off);
+      ref = (ptr *)SPACE_PTR(r_off);
       rtd = *ref;
       uid = RECORDDESCUID(rtd);
       if (!Ssymbolp(uid)) {
@@ -564,7 +564,7 @@ ptr S_vfasl(ptr bv, void *stream, iptr offset, iptr input_len)
 
 ptr S_vfasl_to(ptr bv)
 {
-  return S_vfasl(bv, (ptr)0, 0, Sbytevector_length(bv));
+  return S_vfasl(bv, NULL, 0, Sbytevector_length(bv));
 }
 
 /************************************************************/
@@ -576,14 +576,14 @@ static void vfasl_init(vfasl_info *vfi) {
   vfi->base_addr = (ptr)0;
   vfi->sym_count = 0;
   vfi->symref_count = 0;
-  vfi->symrefs = (ptr)0;
+  vfi->symrefs = NULL;
   vfi->base_rtd = S_G.base_rtd;
   vfi->rtdref_count = 0;
-  vfi->rtdrefs = (ptr)0;
+  vfi->rtdrefs = NULL;
   vfi->singletonref_count = 0;
-  vfi->singletonrefs = (ptr)0;
+  vfi->singletonrefs = NULL;
   vfi->graph = make_vfasl_hash_table(0);
-  vfi->ptr_bitmap = (ptr)0;
+  vfi->ptr_bitmap = NULL;
   vfi->installs_library_entry = 0;
 
   for (s = 0; s < vspaces_count; s++) {
@@ -594,8 +594,8 @@ static void vfasl_init(vfasl_info *vfi) {
     c->length = 0;
     c->used = 0;
     c->swept = 0;
-    c->next = (ptr)0;
-    c->prev = (ptr)0;
+    c->next = NULL;
+    c->prev = NULL;
 
     vfi->spaces[s].first = c;
     vfi->spaces[s].total_bytes = 0;
@@ -663,7 +663,7 @@ ptr S_to_vfasl(ptr v)
   bv = S_bytevector(size);
   memset(&BVIT(bv, 0), 0, size);
 
-  p = &BVIT(bv, 0);
+  p = (ptr)&BVIT(bv, 0);
 
   /* Skip header for now */  
   p = ptr_add(p, sizeof(vfasl_header));
@@ -679,22 +679,22 @@ ptr S_to_vfasl(ptr v)
     c->length = vfi->spaces[s].total_bytes;
     c->used = 0;
     c->swept = 0;
-    c->next = (ptr)0;
-    c->prev = (ptr)0;
+    c->next = NULL;
+    c->prev = NULL;
     vfi->spaces[s].first = c;
 
     p = ptr_add(p, vfi->spaces[s].total_bytes);
     vfi->spaces[s].total_bytes = 0;
   }
 
-  vfi->symrefs = p;
+  vfi->symrefs = (vfoff *)p;
   p = ptr_add(p, sizeof(vfoff) * vfi->symref_count);
 
   vfi->base_rtd = S_G.base_rtd;
-  vfi->rtdrefs = p;
+  vfi->rtdrefs = (vfoff *)p;
   p = ptr_add(p, sizeof(vfoff) * vfi->rtdref_count);
 
-  vfi->singletonrefs = p;
+  vfi->singletonrefs = (vfoff *)p;
   p = ptr_add(p, sizeof(vfoff) * vfi->singletonref_count);
 
   vfi->sym_count = 0;
@@ -704,7 +704,7 @@ ptr S_to_vfasl(ptr v)
 
   vfi->graph = make_vfasl_hash_table(0);
 
-  vfi->ptr_bitmap = p;
+  vfi->ptr_bitmap = (octet *)p;
 
   /* Write data */
 
@@ -714,7 +714,7 @@ ptr S_to_vfasl(ptr v)
 
   /* Make all pointers relative to the start of the data area */
   {
-    ptr *p2 = vfi->base_addr;
+    ptr *p2 = (ptr *)vfi->base_addr;
     uptr base_addr = (uptr)vfi->base_addr;
     octet *bm = vfi->ptr_bitmap;
     octet *bm_end = bm + bitmap_size;
@@ -833,7 +833,7 @@ static ptr vfasl_copy_all(vfasl_info *vfi, ptr v) {
           break;
         case vspace_impure:
           while (pp < pp_end) {
-            vfasl_relocate(vfi, pp);
+            vfasl_relocate(vfi, (ptr *)pp);
             pp = ptr_add(pp, sizeof(ptr));
           }
           break;
@@ -881,7 +881,7 @@ static uptr ptr_base_diff(vfasl_info *vfi, ptr p) {
 
 static void vfasl_register_symbol_reference(vfasl_info *vfi, ptr *pp, ptr p) {
   if (vfi->symrefs)
-    vfi->symrefs[vfi->symref_count] = ptr_base_diff(vfi, pp);
+    vfi->symrefs[vfi->symref_count] = ptr_base_diff(vfi, (ptr)pp);
   vfi->symref_count++;
   *pp = SYMVAL(p); /* replace symbol reference with index of symbol */
 }
@@ -894,7 +894,7 @@ static void vfasl_register_rtd_reference(vfasl_info *vfi, ptr pp) {
 
 static void vfasl_register_singleton_reference(vfasl_info *vfi, ptr *pp, int which) {
   if (vfi->singletonrefs)
-    vfi->singletonrefs[vfi->singletonref_count] = ptr_base_diff(vfi, pp);
+    vfi->singletonrefs[vfi->singletonref_count] = ptr_base_diff(vfi, (ptr)pp);
   vfi->singletonref_count++;
   *pp = FIX(which);
 }
@@ -959,7 +959,7 @@ static ptr vfasl_find_room(vfasl_info *vfi, int s, ITYPE t, iptr n) {
         new_c->used = 0;
         new_c->swept = 0;
 
-        new_c->prev = (ptr)0;
+        new_c->prev = NULL;
         new_c->next = c;        
         c->prev = new_c;
 
@@ -978,7 +978,7 @@ static ptr vfasl_find_room(vfasl_info *vfi, int s, ITYPE t, iptr n) {
     iptr newlen = segment_align(n);
 
     c = vfasl_malloc(sizeof(vfasl_chunk));
-    c->bytes = vfasl_malloc(newlen);
+    c->bytes = (ptr)vfasl_malloc(newlen);
     c->length = newlen;
     c->used = 0;
     c->swept = 0;
@@ -987,7 +987,7 @@ static ptr vfasl_find_room(vfasl_info *vfi, int s, ITYPE t, iptr n) {
     if (old_c->next && !old_c->length)
       old_c = old_c->next; /* drop useless chunk created above */
 
-    c->prev = (ptr)0;
+    c->prev = NULL;
     c->next = old_c;
     old_c->prev = c;
 
@@ -1036,7 +1036,7 @@ static void vfasl_relocate(vfasl_info *vfi, ptr *ppp) {
           if ((TYPEBITS(pp) == type_typed_object)
               && TYPEP((tf = TYPEFIELD(pp)), mask_record, type_record)
               && is_rtd(tf, vfi))
-            vfasl_register_rtd_reference(vfi, ppp);
+            vfasl_register_rtd_reference(vfi, (ptr)ppp);
           vfasl_register_pointer(vfi, ppp);
         }
       }
@@ -1419,15 +1419,15 @@ static ptr vfasl_hash_table_ref(vfasl_hash_table *ht, ptr key) {
 
 /*************************************************************/
 
-static ptr vfasl_malloc(uptr sz) {
+static void *vfasl_malloc(uptr sz) {
   ptr tc = get_thread_context();
   ptr p;
   thread_find_room(tc, typemod, ptr_align(sz), p)
-  return p;
+  return (void *)p;
 }
 
-static ptr vfasl_calloc(uptr sz, uptr n) {
-  ptr p;
+static void *vfasl_calloc(uptr sz, uptr n) {
+  void *p;
   sz *= n;
   p = vfasl_malloc(sz);
   memset(p, 0, sz);

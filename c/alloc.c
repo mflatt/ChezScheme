@@ -473,14 +473,14 @@ void S_list_bits_set(p, bits) ptr p; iptr bits; {
       tc_mutex_release()
     }
 
-    memset(list_bits, 0, segment_bitmap_bytes);
+    memset((void *)list_bits, 0, segment_bitmap_bytes);
 
     /* FIXME: A write fence is needed here to make sure `list_bits` is
        zeroed for everyone who sees it. On x86, TSO takes care of that
        ordering already. */
 
     /* beware: racy write here */
-    si->list_bits = list_bits;
+    si->list_bits = (void *)list_bits;
   }
 
   /* beware: racy read+write here */
@@ -514,8 +514,8 @@ ptr S_ephemeron_cons_in(gen, car, cdr) IGEN gen; ptr car, cdr; {
   find_room(space_ephemeron, gen, type_pair, size_ephemeron, p);
   INITCAR(p) = car;
   INITCDR(p) = cdr;
-  EPHEMERONPREVREF(p) = NULL;
-  EPHEMERONNEXT(p) = NULL;
+  EPHEMERONPREVREF(p) = (ptr)0;
+  EPHEMERONNEXT(p) = (ptr)0;
 
   return p;
 }

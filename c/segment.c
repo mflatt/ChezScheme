@@ -366,7 +366,7 @@ static seginfo *allocate_segments(nreq) uptr nreq; {
   /* if the base of the first segment is the same as the base of the chunk, and
      the last segment isn't the last segment in memory (which could cause 'next' and 'end'
      pointers to wrap), we've actually got nact + 1 usable segments in this chunk */
-  if (build_ptr(base, 0) == addr && base + nact != ((uptr)1 << (ptr_bits - segment_offset_bits)) - 1)
+  if (build_ptr(base, 0) == (ptr)addr && base + nact != ((uptr)1 << (ptr_bits - segment_offset_bits)) - 1)
     nact += 1;
 
   chunk = S_getmem(sizeof(chunkinfo) + sizeof(seginfo) * nact, 0);

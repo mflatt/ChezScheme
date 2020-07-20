@@ -186,7 +186,11 @@
   
         (nl)
         (comment "Warning: Some macros may evaluate arguments more than once.")
-       
+        
+        (constant-case architecture
+          [(pb) (nl) (pr "#include <stdint.h>\n")]
+          [else (void)])
+
         (nl) (comment "Enable function prototypes by default.")
         (pr "#ifndef PROTO~%#define PROTO(x) x~%#endif~%")
   

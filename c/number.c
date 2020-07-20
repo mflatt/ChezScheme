@@ -732,12 +732,12 @@ void S_trunc_rem(tc, origx, y, q, r) ptr tc, origx, y, *q, *r; {
     if (Sfixnump(y)) {
       if (x == FIX(most_negative_fixnum) && y == FIX(-1)) {
         iptr m = most_negative_fixnum /* pull out to avoid bogus Sun C warning */;
-        if (q != (ptr)NULL) *q = Sinteger(-m);
-        if (r != (ptr)NULL) *r = FIX(0);
+        if (q != (ptr)0) *q = Sinteger(-m);
+        if (r != (ptr)0) *r = FIX(0);
         return;
       } else {
-        if (q != (ptr)NULL) *q = FIX((iptr)x / (iptr)y);
-        if (r != (ptr)NULL) *r = (ptr)((iptr)x % (iptr)y);
+        if (q != (ptr)0) *q = FIX((iptr)x / (iptr)y);
+        if (r != (ptr)0) *r = (ptr)((iptr)x % (iptr)y);
         return;
       }
     } else {
