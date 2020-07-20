@@ -57,9 +57,15 @@ void S_machine_init() {}
 int counter = 0;
 
 #if 0
-# define TRACE(x) x
+# define TRACE(print, record) print
+#elif 0
+# define TRACE(print, record) record
+static instruction_t *branch_from, *branch_to;
+static instruction_t *jump_from, *jump_to;
+static instruction_t *interp_from, *interp_to;
+static instruction_t *call_from; static void *call_to;
 #else
-# define TRACE(x)
+# define TRACE(print, record) /* empty */
 #endif
 
 void S_pb_interp(ptr tc, void *bytecode) {
@@ -68,7 +74,7 @@ void S_pb_interp(ptr tc, void *bytecode) {
 
   regs[0] = (uptr)tc;
 
-  TRACE(printf("enter %p\n", ip));
+  TRACE(printf("enter %p\n", ip), );
 
   while (1) {
     instr = *ip;
@@ -514,42 +520,42 @@ void S_pb_interp(ptr tc, void *bytecode) {
     case pb_b_op_pb_fals_pb_register:
       if (!flag) {
         next_ip = (instruction_t *)regs[INSTR_dr_reg(instr)];
-        TRACE(printf("branch %p -> %p\n", ip, next_ip));
+        TRACE(printf("branch %p -> %p\n", ip, next_ip), { branch_from = ip; branch_to = next_ip; });
       }
       break;
     case pb_b_op_pb_fals_pb_immediate:
       if (!flag) {
         next_ip = (instruction_t *)((char *)next_ip + INSTR_i_imm(instr));
-        TRACE(printf("branch %p -> %p\n", ip, next_ip));
+        TRACE(printf("branch %p -> %p\n", ip, next_ip), { branch_from = ip; branch_to = next_ip; });
       }
       break;
     case pb_b_op_pb_true_pb_register:
       if (flag) {
         next_ip = (instruction_t *)regs[INSTR_dr_reg(instr)];
-        TRACE(printf("branch %p -> %p\n", ip, next_ip));
+        TRACE(printf("branch %p -> %p\n", ip, next_ip), { branch_from = ip; branch_to = next_ip; });
       }
       break;
     case pb_b_op_pb_true_pb_immediate:
       if (flag) {
         next_ip = (instruction_t *)((char *)next_ip + INSTR_i_imm(instr));
-        TRACE(printf("branch %p -> %p\n", ip, next_ip));
+        TRACE(printf("branch %p -> %p\n", ip, next_ip), { branch_from = ip; branch_to = next_ip; });
       }
       break;
     case pb_b_op_pb_always_pb_register:
       next_ip = (instruction_t *)regs[INSTR_dr_reg(instr)];
-      TRACE(printf("jump %p -> %p\n", ip, next_ip));
+      TRACE(printf("jump %p -> %p\n", ip, next_ip), { jump_from = ip; jump_to = next_ip; });
       break;
     case pb_b_op_pb_always_pb_immediate:
       next_ip = (instruction_t *)((char *)next_ip + INSTR_i_imm(instr));
-      TRACE(printf("jump %p -> %p\n", ip, next_ip));
+      TRACE(printf("jump %p -> %p\n", ip, next_ip), { jump_from = ip; jump_to = next_ip; });
       break;
     case pb_bs_op_pb_register:
       next_ip = *(instruction_t **)(regs[INSTR_dr_dest(instr)] + regs[INSTR_dr_reg(instr)]);
-      TRACE(printf("jump %p -> %p\n", ip, next_ip));
+      TRACE(printf("jump %p -> %p\n", ip, next_ip), { jump_from = ip; jump_to = next_ip; });
       break;
     case pb_bs_op_pb_immediate:
       next_ip = *(instruction_t **)(regs[INSTR_di_dest(instr)] + INSTR_di_imm(instr));
-      TRACE(printf("jump %p -> %p\n", ip, next_ip));
+      TRACE(printf("jump %p -> %p\n", ip, next_ip), { jump_from = ip; jump_to = next_ip; });
       break;
     case pb_return:
       return; /* <--- not break */
@@ -559,14 +565,14 @@ void S_pb_interp(ptr tc, void *bytecode) {
     case pb_interp:
       {
         void *code = (void *)regs[INSTR_d_dest(instr)];
-        TRACE(printf("interp %p -> %p\n", ip, code));
+        TRACE(printf("interp %p -> %p\n", ip, code), { interp_from = ip; interp_to = (instruction_t *)regs[0]; });
         S_pb_interp((ptr)regs[0], code);
       }
       break;
     case pb_call:
       {
         void *proc = (void *)regs[INSTR_dri_dest(instr)];
-        TRACE(printf("call %p -> %p %x\n", ip, proc, INSTR_dri_imm(instr)));
+        TRACE(printf("call %p -> %p %x\n", ip, proc, INSTR_dri_imm(instr)), { call_from = ip; call_to = proc; });
         switch (INSTR_dri_imm(instr)) {
         case pb_call_void:
           ((pb_void_t)proc)();
