@@ -533,7 +533,7 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
 
     for (ls = S_threads; ls != Snil; ls = Scdr(ls)) {
       ptr tc = (ptr)THREADTC(Scar(ls));
-      S_scan_dirty((ptr **)EAP(tc), (ptr **)REAL_EAP(tc));
+      S_scan_dirty((ptr *)EAP(tc), (ptr *)REAL_EAP(tc));
       EAP(tc) = REAL_EAP(tc) = AP(tc) = (ptr)0;
     }
 
@@ -1081,22 +1081,22 @@ ptr GCENTRY(ptr tc, IGEN mcg, IGEN tg, ptr count_roots_ls) {
           si = SegInfo(ptr_get_segment(sym));
           if (marked(si, sym) || (FWDMARKER(sym) == forward_marker && ((sym = FWDADDRESS(sym)) || 1))) {
             ptr bp;
-            find_room(space_data, tg, typemod, sizeof(bucket), bp);
+            find_room(space_data, tg, typemod, ptr_align(sizeof(bucket)), bp);
             b = (bucket *)bp;
 #ifdef ENABLE_OBJECT_COUNTS
             S_G.countof[tg][countof_oblist] += 1;
-            S_G.bytesof[tg][countof_oblist] += sizeof(bucket);
+            S_G.bytesof[tg][countof_oblist] += ptr_align(sizeof(bucket));
 #endif /* ENABLE_OBJECT_COUNTS */
             b->sym = sym;
             *pb = b;
             pb = &b->next;
             if (tg != static_generation) {
               blnext = bl;
-              find_room(space_data, tg, typemod, sizeof(bucket_list), bp);
+              find_room(space_data, tg, typemod, ptr_align(sizeof(bucket_list)), bp);
               bl = (bucket_list *)bp;
 #ifdef ENABLE_OBJECT_COUNTS
               S_G.countof[tg][countof_oblist] += 1;
-              S_G.bytesof[tg][countof_oblist] += sizeof(bucket_list);
+              S_G.bytesof[tg][countof_oblist] += ptr_align(sizeof(bucket_list));
 #endif /* ENABLE_OBJECT_COUNTS */
               bl->cdr = blnext;
               bl->car = b;
@@ -1550,7 +1550,7 @@ static void sweep_dirty(void) {
         if (s == space_weakpair) {
           ptr wsp;
           weakseginfo *next = weaksegments_to_resweep;
-          find_room(space_data, 0, typemod, sizeof(weakseginfo), wsp);
+          find_room(space_data, 0, typemod, ptr_align(sizeof(weakseginfo)), wsp);
           weaksegments_to_resweep = (weakseginfo *)wsp;
           weaksegments_to_resweep->si = dirty_si;
           weaksegments_to_resweep->next = next;
@@ -2100,14 +2100,14 @@ void copy_and_clear_list_bits(seginfo *oldspacesegments, IGEN tg) {
               octet *copied_bits;
               find_room(space_data, tg, typemod, ptr_align(segment_bitmap_bytes), cbp);
               copied_bits = (octet *)cbp;
-              memcpy_aligned(copied_bits, si->list_bits, segment_bitmap_bytes);
-              si->list_bits = copied_bits;
+              memcpy_aligned(copied_bits, (void *)si->list_bits, segment_bitmap_bytes);
+              si->list_bits = (ptr)copied_bits;
             }
           }
 
           for (i = 0; i < segment_bitmap_bytes; i++) {
             int m = si->marked_mask[i];
-            si->list_bits[i] &= mask_bits_to_list_bits_mask(m);
+            ((octet *)si->list_bits)[i] &= mask_bits_to_list_bits_mask(m);
           }
         }
 
@@ -2116,19 +2116,22 @@ void copy_and_clear_list_bits(seginfo *oldspacesegments, IGEN tg) {
         } else {
           /* For forwarded pointers, copy over list bits */
           for (i = 0; i < segment_bitmap_bytes; i++) {
-            if (si->list_bits[i]) {
+            if (((octet *)si->list_bits)[i]) {
               int bitpos;
               for (bitpos = 0; bitpos < 8; bitpos += ptr_alignment) {
-                int bits = si->list_bits[i] & (list_bits_mask << bitpos);
+                int bits = ((octet *)si->list_bits)[i] & (list_bits_mask << bitpos);
                 if (bits != 0) {
                   ptr p = build_ptr(si->number, ((i << (log2_ptr_bytes+3)) + (bitpos << log2_ptr_bytes)));
                   if (FWDMARKER(p) == forward_marker) {
                     ptr new_p = FWDADDRESS(p);
                     seginfo *new_si = SegInfo(ptr_get_segment(new_p));
-                    if (!new_si->list_bits)
-                      init_mask(new_si->list_bits, tg, 0);
+                    if (!new_si->list_bits) {
+                      void *new_list_bits;
+                      init_mask(new_list_bits, tg, 0);
+                      new_si->list_bits = (ptr)new_list_bits;
+                    }
                     bits >>= bitpos;
-                    new_si->list_bits[segment_bitmap_byte(new_p)] |= segment_bitmap_bits(new_p, bits);
+                    ((octet *)new_si->list_bits)[segment_bitmap_byte(new_p)] |= segment_bitmap_bits(new_p, bits);
                   }
                 }
               }

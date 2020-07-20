@@ -325,7 +325,7 @@ static void reset_scheme() {
     tc_mutex_acquire()
    /* eap should always be up-to-date now that we write-through to the tc
       when making any changes to eap when eap is a real register */
-    S_scan_dirty((ptr **)EAP(tc), (ptr **)REAL_EAP(tc));
+    S_scan_dirty((ptr *)EAP(tc), (ptr *)REAL_EAP(tc));
     S_reset_allocation_pointer(tc);
     S_reset_scheme_stack(tc, stack_slop);
     FRAME(tc,0) = (ptr)DOUNDERFLOW;
