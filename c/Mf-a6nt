@@ -13,8 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-m = a6nt
-Cpu = X86_64
+m ?= a6nt
+Cpu ?= X86_64
 
 clib=
 o = obj

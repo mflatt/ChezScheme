@@ -13,14 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-m = a6ob
-Cpu = X86_64
+m ?= a6ob
+Cpu ?= X86_64
 
 mdinclude = -I/usr/local/include -I/usr/X11R6/include
-mdclib = -L/usr/local/lib -liconv -lm ${ncursesLib} -lossp-uuid
-C = ${CC} ${CPPFLAGS} -Wpointer-arith -Werror -O ${CFLAGS}
+mdclib = -L/usr/local/lib -liconv -lm ${ncursesLib} ${threadLibs} -lossp-uuid
+C = ${CC} ${CPPFLAGS} -Wpointer-arith -Werror -O ${threadFlags} ${CFLAGS}
 o = o
-mdsrc = i3le.c
+mdsrc ?= i3le.c
 mdobj = i3le.o
 
 .SUFFIXES:

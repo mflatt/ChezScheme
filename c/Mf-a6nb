@@ -13,14 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-m = a6nb
-Cpu = X86_64
+m ?= a6nb
+Cpu ?= X86_64
 
 mdinclude = -I/usr/X11R7/include -I/usr/pkg/include -I/usr/pkg/include/ncurses -I/usr/local/include -I/usr/X11R6/include
-mdclib = /usr/lib/i18n/libiconv_std.a -lm /usr/pkg/lib/libncurses.a
-C = ${CC} ${CPPFLAGS} -m64 -Wpointer-arith -Wextra -Werror -O ${CFLAGS}
+mdclib = /usr/lib/i18n/libiconv_std.a -lm /usr/pkg/lib/libncurses.a ${threadLibs}
+C = ${CC} ${CPPFLAGS} -m64 -Wpointer-arith -Wextra -Werror -O ${threadFlags} ${CFLAGS}
 o = o
-mdsrc = i3le.c
+mdsrc ?= i3le.c
 mdobj = i3le.o
 
 .SUFFIXES:

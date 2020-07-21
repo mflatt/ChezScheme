@@ -13,13 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-m = a6le
-Cpu = X86_64
+m ?= a6le
+Cpu ?= X86_64
 
-mdclib = -lm -ldl ${ncursesLib} -lrt -luuid
-C = ${CC} ${CPPFLAGS} -m64 -msse2 -Wpointer-arith -Wall -Wextra -Werror -Wno-implicit-fallthrough -O2 ${CFLAGS}
+mdclib = -lm -ldl ${ncursesLib} ${threadLibs} -lrt -luuid
+C = ${CC} ${CPPFLAGS} -m64 -msse2 -Wpointer-arith -Wall -Wextra -Werror -Wno-implicit-fallthrough -O2 ${threadFlags} ${CFLAGS}
 o = o
-mdsrc = i3le.c
+mdsrc ?= i3le.c
 mdobj = i3le.o
 
 .SUFFIXES:
