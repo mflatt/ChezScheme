@@ -1174,6 +1174,12 @@
                              ,(constant-case ptr-bits
                                 [(32) 'unsigned-32]
                                 [(64) 'unsigned-64]))
+                           ;; `xptr` is the same representation as `ptr`,
+                           ;; but does not refer to a Scheme object:
+                           (xptr .
+                             ,(constant-case ptr-bits
+                                [(32) 'unsigned-32]
+                                [(64) 'unsigned-64]))
                            (void* .
                              ,(constant-case ptr-bits
                                 [(32) 'unsigned-32]
@@ -1476,28 +1482,28 @@
 
 ;;; make sure gc sweeps all ptrs
 (define-primitive-structure-disps tc typemod
-  ([void* arg-regs (constant asm-arg-reg-max)]
-   [void* ac0]
-   [void* ac1]
-   [void* sfp]
-   [void* cp]
-   [void* esp]
-   [void* ap]
-   [void* eap]
-   [void* ret]
-   [void* trap]
-   [void* xp]
-   [void* yp]
-   [void* ts]
-   [void* td]
-   [void* real_eap]
+  ([xptr arg-regs (constant asm-arg-reg-max)]
+   [xptr ac0]
+   [xptr ac1]
+   [xptr sfp]
+   [xptr cp]
+   [xptr esp]
+   [xptr ap]
+   [xptr eap]
+   [xptr ret]
+   [xptr trap]
+   [xptr xp]
+   [xptr yp]
+   [xptr ts]
+   [xptr td]
+   [xptr real_eap]
    [ptr virtual-registers (constant virtual-register-count)]
    [ptr guardian-entries]
    [ptr cchain]
    [ptr code-ranges-to-flush]
    [U32 random-seed]
    [I32 active]
-   [void* scheme-stack]
+   [xptr scheme-stack]
    [ptr stack-cache]
    [ptr stack-link]
    [iptr scheme-stack-size]
@@ -1541,7 +1547,7 @@
    [ptr default-record-hash-procedure]
    [ptr compress-format]
    [ptr compress-level]
-   [void* lz4-out-buffer]
+   [xptr lz4-out-buffer]
    [U64 instr-counter]
    [U64 alloc-counter]
    [ptr parameters]

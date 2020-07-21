@@ -692,7 +692,7 @@ void S_check_heap(aftergc, mcg) IBOOL aftergc; IGEN mcg; {
           if (s == space_impure || s == space_symbol || s == space_weakpair || s == space_ephemeron
               || s == space_immobile_impure || s == space_closure) {
             found_eos = 0;
-            pp2 = pp1 = build_ptr(seg, 0);
+            pp2 = pp1 = TO_VOIDP(build_ptr(seg, 0));
             for (d = 0; d < cards_per_segment; d += 1) {
               if (found_eos) {
                 if (si->dirty_bytes[d] != 0xff) {
@@ -890,25 +890,25 @@ static void check_locked_object(ptr p, IBOOL locked, IGEN g, IBOOL aftergc, IGEN
   seginfo *psi = MaybeSegInfo(ptr_get_segment(p));
   if (!psi) {
     S_checkheap_errors += 1;
-    printf("!!! generation %d %s object has no segment: %p\n", g, what, p);
+    printf("!!! generation %d %s object has no segment: %p\n", g, what, TO_VOIDP(p));
   } else {
     if (psi->generation != g) {
       S_checkheap_errors += 1;
-      printf("!!! generation %d %s object in generation %d segment: %p\n", g, what, psi->generation, p);
+      printf("!!! generation %d %s object in generation %d segment: %p\n", g, what, psi->generation, TO_VOIDP(p));
     }
     if (!psi->must_mark && locked) {
       S_checkheap_errors += 1;
-      printf("!!! generation %d %s object not on must-mark page: %p\n", g, what, p);
+      printf("!!! generation %d %s object not on must-mark page: %p\n", g, what, TO_VOIDP(p));
     }
     if (!psi->marked_mask) {
       if (aftergc && (psi->generation <= mcg)) {
         S_checkheap_errors += 1;
-        printf("!!! %s object not in marked segment: %p\n", what, p);
+        printf("!!! %s object not in marked segment: %p\n", what, TO_VOIDP(p));
         printf(" in: "); segment_tell(psi->number);
       }
     } else if (!(psi->marked_mask[segment_bitmap_byte(p)] & segment_bitmap_bit(p))) {
       S_checkheap_errors += 1;
-      printf("!!! generation %d %s object not marked: %p\n", g, what, p);
+      printf("!!! generation %d %s object not marked: %p\n", g, what, TO_VOIDP(p));
     }
   }
 }

@@ -326,13 +326,13 @@ void S_dirty_set(ptr *loc, ptr x) {
 }
 
 /* scan remembered set from P to ENDP, transfering to dirty vector */
-void S_scan_dirty(ptr **p, ptr **endp) {
+void S_scan_dirty(ptr *p, ptr *endp) {
   uptr this, last;
  
   last = 0;
 
   while (p < endp) {
-    ptr *loc = *p;
+    ptr *loc = TO_VOIDP(*(ptr *)p);
    /* whether building s directory or running UXLB code, the most
       common situations are that *loc is a fixnum, this == last, or loc
       is in generation 0. the generated code no longer adds elements
@@ -369,7 +369,7 @@ void S_scan_remembered_set() {
   eap = (uptr)EAP(tc);
   real_eap = (uptr)REAL_EAP(tc);
 
-  S_scan_dirty((ptr **)eap, (ptr **)real_eap);
+  S_scan_dirty((ptr *)eap, (ptr *)real_eap);
   eap = real_eap;
 
   if (eap - ap > alloc_waste_maximum) {
@@ -410,7 +410,7 @@ ptr S_get_more_room_help(ptr tc, uptr ap, uptr type, uptr size) {
 
   tc_mutex_acquire()
 
-  S_scan_dirty((ptr **)eap, (ptr **)real_eap);
+  S_scan_dirty((ptr *)eap, (ptr *)real_eap);
   eap = real_eap;
 
   if (eap - ap >= size) {
@@ -461,15 +461,15 @@ void S_list_bits_set(p, bits) ptr p; iptr bits; {
      If a race loses bits, that's ok, as long as it's unlikely. */
 
   if (!si->list_bits) {
-    ptr list_bits;
+    void *list_bits;
 
     if (si->generation == 0) {
       ptr tc = get_thread_context();
-      thread_find_room(tc, typemod, ptr_align(segment_bitmap_bytes), list_bits);
+      thread_find_room_voidp(tc, ptr_align(segment_bitmap_bytes), list_bits);
     } else {
       tc_mutex_acquire()
 
-      find_room(space_data, si->generation, typemod, ptr_align(segment_bitmap_bytes), list_bits);
+      find_room_voidp(space_data, si->generation, ptr_align(segment_bitmap_bytes), list_bits);
       tc_mutex_release()
     }
 
@@ -514,8 +514,8 @@ ptr S_ephemeron_cons_in(gen, car, cdr) IGEN gen; ptr car, cdr; {
   find_room(space_ephemeron, gen, type_pair, size_ephemeron, p);
   INITCAR(p) = car;
   INITCDR(p) = cdr;
-  EPHEMERONPREVREF(p) = NULL;
-  EPHEMERONNEXT(p) = NULL;
+  EPHEMERONPREVREF(p) = 0;
+  EPHEMERONNEXT(p) = 0;
 
   return p;
 }

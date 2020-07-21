@@ -17,7 +17,7 @@
 (define-constant asm-arg-reg-max 7)
 (define-constant asm-arg-reg-cnt 3)
 (define-constant asm-fpreg-max 8)
-(define-constant typedef-ptr "void *")
+(define-constant typedef-ptr "uint64_t") ; not "void *"
 (define-constant typedef-iptr "int64_t")
 (define-constant typedef-uptr "uint64_t")
 (define-constant typedef-i8 "int8_t")

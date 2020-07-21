@@ -166,8 +166,8 @@
       (copy pair-cdr)
       (case-mode
        [(copy)
-        (set! (ephemeron-prev-ref _copy_) NULL)
-        (set! (ephemeron-next _copy_) NULL)]
+        (set! (ephemeron-prev-ref _copy_) 0)
+        (set! (ephemeron-next _copy_) 0)]
        [else])
       (add-ephemeron-to-pending)
       (mark one-bit no-sweep)
@@ -1046,7 +1046,7 @@
      [vfasl-sweep
       (let* ([r_sz : uptr (size_reloc_table m)]
              [new_t : ptr (vfasl_find_room vfi vspace_reloc typemod r_sz)])
-        (memcpy_aligned new_t t r_sz)
+        (memcpy_aligned (TO_VOIDP new_t) (TO_VOIDP t) r_sz)
         (set! t new_t))]
      [else])
     (define a : iptr 0)
@@ -1099,7 +1099,7 @@
                [else
                 (let* ([oldt : ptr t])
                   (find_room space_data target_generation typemod n t)
-                  (memcpy_aligned t oldt n))])))
+                  (memcpy_aligned (TO_VOIDP t) (TO_VOIDP oldt) n))])))
          (set! (reloc-table-code t) _)
          (set! (code-reloc _) t)])
       (S_record_code_mod tc_in (cast uptr (& (code-data _ 0))) (cast uptr (code-length _)))]
@@ -1161,7 +1161,7 @@
   (case-mode
    [(vfasl-copy)
     (set! (array-ref (cast void** (UNTYPE _copy_ type_typed_object)) 3)
-          (cast ptr 0))]
+          NULL)]
    [else]))
 
 (define-trace-macro (vfasl-fail what)
@@ -2239,7 +2239,7 @@
   (define (ensure-segment-mark-mask si inset flags)
     (code
      (format "~aif (!~a->marked_mask) {" inset si)
-     (format "~a  find_room(space_data, target_generation, typemod, ptr_align(segment_bitmap_bytes), ~a->marked_mask);"
+     (format "~a  find_room_voidp(space_data, target_generation, ptr_align(segment_bitmap_bytes), ~a->marked_mask);"
              inset si)
      (if (memq 'no-clear flags)
          (format "~a  /* no clearing needed */" inset)

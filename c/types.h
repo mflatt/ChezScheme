@@ -74,17 +74,24 @@ typedef int IFASLCODE;      /* fasl type codes */
 #define SBUFSIZ BUFSIZ
 #endif
 
+#define TO_VOIDP(p) ((void *)(p))
+#define TO_PTR(p) ((ptr)(p))
+#define ALREADY_PTR(p) (p)
+
 /* inline allocation --- mutex required */
 /* find room allocates n bytes in space s and generation g into
  * destination x, tagged with ty, punting to find_more_room if
  * no space is left in the current segment.  n is assumed to be
  * an integral multiple of the object alignment. */
-#define find_room(s, g, t, n, x) {\
+#define find_room_T(s, g, t, n, T, x) {          \
     ptr X = S_G.next_loc[s][g];\
     S_G.next_loc[s][g] = (ptr)((uptr)X + (n));\
     if ((S_G.bytes_left[s][g] -= (n)) < 0) X = S_find_more_room(s, g, n, X);\
-    (x) = TYPE(X, t);\
+    (x) = T(TYPE(X, t));                                                \
 }
+
+#define find_room(s, g, t, n, x) find_room_T(s, g, t, n, ALREADY_PTR, x)
+#define find_room_voidp(s, g, n, x) find_room_T(s, g, typemod, n, TO_VOIDP, x)
 
 /* thread-local inline allocation --- no mutex required */
 /* thread_find_room allocates n bytes in the local allocation area of
@@ -92,16 +99,20 @@ typedef int IFASLCODE;      /* fasl type codes */
  * with type t, punting to find_more_room if no space is left in the current
  * allocation area.  n is assumed to be an integral multiple of the object
  * alignment. */
-#define thread_find_room(tc, t, n, x) {\
+#define thread_find_room_T(tc, t, n, T, x) {     \
   ptr _tc = tc;\
   uptr _ap = (uptr)AP(_tc);\
   if ((uptr)n > ((uptr)EAP(_tc) - _ap)) {\
-    (x) = S_get_more_room_help(_tc, _ap, t, n);\
+    ptr _hp = S_get_more_room_help(_tc, _ap, t, n); \
+    (x) = T(_hp);                       \
   } else {\
-    (x) = TYPE(_ap,t);\
+    (x) = T(TYPE(_ap,t));                       \
     AP(_tc) = (ptr)(_ap + n);\
   }\
 }
+
+#define thread_find_room(tc, t, n, x) thread_find_room_T(tc, t, n, ALREADY_PTR, x)
+#define thread_find_room_voidp(tc, n, x) thread_find_room_T(tc, typemod, n, TO_VOIDP, x)
 
 #ifndef NO_PRESERVE_FLONUM_EQ
 # define PRESERVE_FLONUM_EQ

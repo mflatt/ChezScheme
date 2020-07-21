@@ -235,6 +235,7 @@
         (pr "typedef ~a ptr;~%" (constant typedef-ptr))
         (pr "typedef ~a iptr;~%" (constant typedef-iptr))
         (pr "typedef ~a uptr;~%" (constant typedef-uptr))
+        (pr "typedef ptr xptr;~%")
 
         (nl)
         (comment "String elements are 32-bit tagged char objects")

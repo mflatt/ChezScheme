@@ -1260,7 +1260,7 @@
         (syntax-case x ()
           [(k field) #'(k ,%tc field)]
           [(k e-tc field)
-           (if (memq (field-type 'tc (datum field)) '(ptr void* uptr iptr))
+           (if (memq (field-type 'tc (datum field)) '(ptr xptr uptr iptr))
                (with-implicit (k %mref)
                  #`(%mref e-tc
                      #,(lookup-constant

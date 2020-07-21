@@ -266,7 +266,7 @@ static ptr sorted_chunk_list(void) {
 
   for (i = PARTIAL_CHUNK_POOLS; i >= -1; i -= 1) {
     for (chunk = (i == -1) ? S_chunks_full : S_chunks[i]; chunk != NULL; chunk = chunk->next) {
-      ls = Scons(chunk, ls);
+      ls = Scons(TO_PTR(chunk), ls);
       n += 1;
     }
   }
@@ -347,7 +347,7 @@ static void s_show_chunks(FILE *out, ptr sorted_chunks) {
   ptr ls;
 
   for (ls = sorted_chunks; ls != Snil; ls = Scdr(ls)) {
-    chunk = Scar(ls);
+    chunk = TO_VOIDP(Scar(ls));
     max_addr = chunk->addr;
     if (chunk->segs > max_segs) max_segs = chunk->segs;
     if ((void *)chunk > max_header_addr) max_header_addr = (void *)chunk;
@@ -367,7 +367,7 @@ static void s_show_chunks(FILE *out, ptr sorted_chunks) {
   snprintf(fmtbuf, FMTBUFSIZE, "%%#0%dtx %%#0%dtx (+ %%#0%dtx bytes @ %%#0%dtx) %%%dtd of %%%dtd\n",
       addrwidth, byteswidth, headerbyteswidth, headeraddrwidth, segswidth, segswidth);
   for (ls = sorted_chunks; ls != Snil; ls = Scdr(ls)) {
-    chunk = Scar(ls);
+    chunk = TO_VOIDP(Scar(ls));
     fprintf(out, fmtbuf, (ptrdiff_t)chunk->addr, (ptrdiff_t)chunk->bytes,
         (ptrdiff_t)(sizeof(chunkinfo) + sizeof(seginfo) * chunk->segs),
         (ptrdiff_t)chunk, (ptrdiff_t)chunk->nused_segs, (ptrdiff_t)chunk->segs);
@@ -529,7 +529,7 @@ static void s_showalloc(IBOOL show_dump, const char *outfn) {
 
     for (ls = sorted_chunks; ls != Snil; ls = Scdr(ls)) {
       iptr last_seg;
-      chunk = Scar(ls);
+      chunk = TO_VOIDP(Scar(ls));
       last_seg = chunk->base + chunk->segs;
       if (last_seg > max_seg) max_seg = last_seg;
     }
@@ -544,7 +544,7 @@ static void s_showalloc(IBOOL show_dump, const char *outfn) {
     for (ls = sorted_chunks; ls != Snil; ls = Scdr(ls)) {
       seginfo *si;
 
-      chunk = Scar(ls);
+      chunk = TO_VOIDP(Scar(ls));
 
       if (chunk->base != next_base && segsprinted != 0) {
         for (;;) {
@@ -1535,16 +1535,18 @@ static ptr s_profile_release_counters(void) {
 void S_dump_tc(ptr tc) {
   INT i;
 
-  printf("AC0=%p AC1=%p SFP=%p CP=%p\n", AC0(tc), AC1(tc), SFP(tc), CP(tc));
-  printf("ESP=%p AP=%p EAP=%p\n", ESP(tc), AP(tc), EAP(tc));
-  printf("TRAP=%p XP=%p YP=%p REAL_EAP=%p\n", TRAP(tc), XP(tc), YP(tc), REAL_EAP(tc));
-  printf("CCHAIN=%p RANDOMSEED=%ld SCHEMESTACK=%p STACKCACHE=%p\n", CCHAIN(tc), (long)RANDOMSEED(tc), SCHEMESTACK(tc), STACKCACHE(tc));
-  printf("STACKLINK=%p SCHEMESTACKSIZE=%ld WINDERS=%p U=%p\n", STACKLINK(tc), (long)SCHEMESTACKSIZE(tc), WINDERS(tc), U(tc));
-  printf("V=%p W=%p X=%p Y=%p\n", V(tc), W(tc), X(tc), Y(tc));
-  printf("SOMETHING=%p KBDPEND=%p SIGPEND=%p TIMERTICKS=%p\n", SOMETHINGPENDING(tc), KEYBOARDINTERRUPTPENDING(tc), SIGNALINTERRUPTPENDING(tc), TIMERTICKS(tc));
-  printf("DISABLECOUNT=%p PARAMETERS=%p\n", DISABLECOUNT(tc), PARAMETERS(tc));
+  printf("AC0=%p AC1=%p SFP=%p CP=%p\n", TO_VOIDP(AC0(tc)), TO_VOIDP(AC1(tc)), TO_VOIDP(SFP(tc)), TO_VOIDP(CP(tc)));
+  printf("ESP=%p AP=%p EAP=%p\n", TO_VOIDP(ESP(tc)), TO_VOIDP(AP(tc)), TO_VOIDP(EAP(tc)));
+  printf("TRAP=%p XP=%p YP=%p REAL_EAP=%p\n", TO_VOIDP(TRAP(tc)), TO_VOIDP(XP(tc)), TO_VOIDP(YP(tc)), TO_VOIDP(REAL_EAP(tc)));
+  printf("CCHAIN=%p RANDOMSEED=%ld SCHEMESTACK=%p STACKCACHE=%p\n", TO_VOIDP(CCHAIN(tc)), (long)RANDOMSEED(tc),
+         TO_VOIDP(SCHEMESTACK(tc)), TO_VOIDP(STACKCACHE(tc)));
+  printf("STACKLINK=%p SCHEMESTACKSIZE=%ld WINDERS=%p U=%p\n", TO_VOIDP(STACKLINK(tc)), (long)SCHEMESTACKSIZE(tc), TO_VOIDP(WINDERS(tc)), TO_VOIDP(U(tc)));
+  printf("V=%p W=%p X=%p Y=%p\n", TO_VOIDP(V(tc)), TO_VOIDP(W(tc)), TO_VOIDP(X(tc)), TO_VOIDP(Y(tc)));
+  printf("SOMETHING=%p KBDPEND=%p SIGPEND=%p TIMERTICKS=%p\n", TO_VOIDP(SOMETHINGPENDING(tc)), TO_VOIDP(KEYBOARDINTERRUPTPENDING(tc)),
+         TO_VOIDP(SIGNALINTERRUPTPENDING(tc)), TO_VOIDP(TIMERTICKS(tc)));
+  printf("DISABLECOUNT=%p PARAMETERS=%p\n", TO_VOIDP(DISABLECOUNT(tc)), TO_VOIDP(PARAMETERS(tc)));
   for (i = 0 ; i < virtual_register_count ; i += 1) {
-    printf("VIRTREG[%d]=%p", i, VIRTREG(tc, i));
+    printf("VIRTREG[%d]=%p", i, TO_VOIDP(VIRTREG(tc, i)));
     if ((i & 0x11) == 0x11 || i == virtual_register_count - 1) printf("\n");
   }
   fflush(stdout);

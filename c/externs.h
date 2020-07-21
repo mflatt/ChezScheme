@@ -67,7 +67,7 @@ extern ptr S_compute_bytes_allocated PROTO((ptr xg, ptr xs));
 extern ptr S_bytes_finalized PROTO(());
 extern ptr S_find_more_room PROTO((ISPC s, IGEN g, iptr n, ptr old));
 extern void S_dirty_set PROTO((ptr *loc, ptr x));
-extern void S_scan_dirty PROTO((ptr **p, ptr **endp));
+extern void S_scan_dirty PROTO((ptr *p, ptr *endp));
 extern void S_scan_remembered_set PROTO((void));
 extern void S_get_more_room PROTO((void));
 extern ptr S_get_more_room_help PROTO((ptr tc, uptr ap, uptr type, uptr size));
