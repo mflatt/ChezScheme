@@ -644,7 +644,7 @@
   (define-op call   call-op)
   (define-op interp interp-op)
   (define-op ret    ret-op)
-  (define-op adr    adr-op)
+  (define-op adr    adr-op) ; use only for an address after an rpheader (or compact)
 
   (define movi-op
     (lambda (op keep? dest imm shift code*)

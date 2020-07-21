@@ -1905,15 +1905,63 @@ static void sparc64_set_literal(address, item) void *address; uptr item; {
 #ifdef PORTABLE_BYTECODE_BIGENDIAN
 static void swap_code_endian(octet *code, uptr len)
 {
-  for (; len > 0; code += 4, len -= 4) {
-    octet a = code[0];
-    octet b = code[1];
-    octet c = code[2];
-    octet d = code[3];
-    code[0] = d;
-    code[1] = c;
-    code[2] = b;
-    code[3] = a;
+  octet *next_rpheader = NULL;
+  uptr header_size = 0;
+
+  while (len > 0) {
+    if (code == next_rpheader) {
+      /* swap 8-byte segments while we're in the header */
+      while (header_size > 0) {
+        octet a = code[0];
+        octet b = code[1];
+        octet c = code[2];
+        octet d = code[3];
+        octet e = code[4];
+        octet f = code[5];
+        octet g = code[6];
+        octet h = code[7];
+        code[0] = h;
+        code[1] = g;
+        code[2] = f;
+        code[3] = e;
+        code[4] = d;
+        code[5] = c;
+        code[6] = b;
+        code[7] = a;
+
+        code += 8;
+        len -= 8;
+        header_size -= 8;
+      }
+    } else {
+      /* swap a 4-byte instruction */
+      octet a = code[0];
+      octet b = code[1];
+      octet c = code[2];
+      octet d = code[3];
+      code[0] = d;
+      code[1] = c;
+      code[2] = b;
+      code[3] = a;
+
+      if (a == pb_adr) {
+        /* after a few more instructions, we'll hit
+           a header where 64-bit values needs to be
+           swapped, instead of 32-bit values */
+        uptr delta = ((uptr)d << 16) + c;
+        octet *after_rpheader = code + 4 + delta;
+
+        if (after_rpheader[-8] & 0x1)
+          header_size = size_rp_compact_header;
+        else
+          header_size = size_rp_header;
+
+        next_rpheader = after_rpheader - header_size;
+      }
+
+      code += 4;
+      len -= 4;
+    }
   }
 }
 #endif
