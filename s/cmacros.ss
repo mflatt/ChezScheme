@@ -3058,6 +3058,7 @@
   pb-sub
   pb-mul
   pb-div
+  pb-subz
   pb-and
   pb-ior
   pb-xor
@@ -3089,12 +3090,6 @@
   pb-true
   pb-always)
 
-(define-pb-enum pb-binary-locks << pb-argument-types
-  pb-lock
-  pb-lock-incr
-  pb-lock-decr
-  pb-cas)
-
 (define-pb-enum pb-shifts
   pb-shift0
   pb-shift1
@@ -3123,7 +3118,9 @@
   [pb-return]
   [pb-interp]
   [pb-adr]
-  [pb-lock-op pb-binary-locks pb-argument-types])
+  [pb-inc pb-argument-types]
+  [pb-lock]
+  [pb-cas])
 
 (define-syntax define-pb-prototypes
   (lambda (stx)
@@ -3187,6 +3184,7 @@
   [uptr uptr int32]
   [uptr int32 uptr]
   [uptr uptr int64]
+  [uptr uptr void*]
   [uptr void* uptr]
   [uptr void* int32]
   [uptr void* void*]
@@ -3200,6 +3198,7 @@
   [uptr int32 int32 uptr uptr]
   [uptr int32 void* uptr uptr]
   [uptr uptr uptr uptr uptr]
+  [uptr uptr void* uptr uptr]
   [uptr uptr uptr uptr uptr int32]
   [uptr uptr uptr uptr uptr uptr]
   [uptr void* void* void* void* uptr]

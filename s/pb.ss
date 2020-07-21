@@ -161,9 +161,9 @@
 
   (define-instruction value (- -/ovfl -/eq)
     [(op (z ur) (x ur) (y signed16))
-     `(set! ,(make-live-info) ,z (asm ,info ,(asm-sub (memq op '(-/ovfl -/eq))) ,x ,y))]
+     `(set! ,(make-live-info) ,z (asm ,info ,(asm-sub op) ,x ,y))]
     [(op (z ur) (x ur) (y ur))
-     `(set! ,(make-live-info) ,z (asm ,info ,(asm-sub (memq op '(-/ovfl -/eq))) ,x ,y))])
+     `(set! ,(make-live-info) ,z (asm ,info ,(asm-sub op) ,x ,y))])
 
   (define-instruction value (+ +/ovfl +/carry)
     [(op (z ur) (x ur) (y signed16))
@@ -365,17 +365,19 @@
     [(op (x ur) (w signed16) (z ur signed16))
      (let ([u (make-tmp 'u)])
        (seq
-        `(set! ,(make-live-info) ,u (mref ,x ,%zero ,w uptr))
-        `(set! ,(make-live-info) ,u (asm ,info ,(asm-add #f) ,u ,z))
-        `(set! ,(make-live-info) (mref ,x ,%zero ,w uptr) ,u)))])
+        `(set! ,(make-live-info) ,u (asm ,null-info ,(asm-add #f) ,x ,w))
+        `(asm ,info ,asm-inc! ,u ,z)))])
 
   (define-instruction effect (inc-profile-counter)
     [(op (x mem) (y signed16))
-     (let ([u (make-tmp 'u)])
-       (seq
-         `(set! ,(make-live-info) ,u ,x)
-         `(set! ,(make-live-info) ,u (asm ,null-info ,(asm-add #f) ,u ,y))
-         `(set! ,(make-live-info) ,x ,u)))])
+     (nanopass-case (L15d Triv) x
+       [(mref ,x0 ,x1 ,imm ,type)
+        (let ([u (make-tmp 'u)])
+          (seq
+           `(set! ,(make-live-info) ,u (asm ,null-info ,(asm-add #f) ,x0 ,(if (eq? x1 %zero)
+                                                                              `(immediate ,imm)
+                                                                              x1)))
+           `(asm ,info ,asm-inc! ,u ,y)))])])
 
   (define-instruction value (read-time-stamp-counter)
     [(op (z ur)) `(set! ,(make-live-info) ,z (immediate 0))])
@@ -423,33 +425,51 @@
            `(set! ,(make-live-info) ,tmp (asm ,null-info ,(asm-logical 'logand) ,x ,mask)))
          `(asm ,info-cc-eq ,asm-eq ,tmp ,type)))])
 
-  (define-instruction pred (lock!)
-    [(op (x ur) (y ur) (w signed16))
-     (values '() `(asm ,info-cc-eq ,(asm-lock! info-cc-eq) ,x ,y ,w))])
+  (let ()
+    (define (addr-reg x y w k)
+      (with-output-language (L15d Effect)
+        (let ([n (nanopass-case (L15d Triv) w [(immediate ,imm) imm])])
+          (cond
+            [(and (eq? y %zero) (fx= n 0))
+             (k x)]
+            [else
+             (let ([u (make-tmp 'u)])
+               (cond
+                 [(eq? y %zero)
+                  (seq
+                   `(set! ,(make-live-info) ,u (asm ,null-info ,(asm-add #f) ,x ,w))
+                   (k u))]
+                 [(fx= n 0)
+                  (seq
+                   `(set! ,(make-live-info) ,u (asm ,null-info ,(asm-add #f) ,x ,y))
+                   (k u))]
+                 [else
+                  (seq
+                   `(set! ,(make-live-info) ,u (asm ,null-info ,(asm-add #f) ,x ,y))
+                   `(set! ,(make-live-info) ,u (asm ,null-info ,(asm-add #f) ,u ,w))
+                   (k u))]))]))))
 
-  (define-instruction effect (locked-incr!)
-    [(op (x ur) (y ur) (w signed16))
-     `(asm ,info ,asm-lock-incr! ,x ,y ,w)])
+    (define-instruction pred (lock!)
+      [(op (x ur) (y ur) (w signed16))
+       (addr-reg x y w (lambda (u)
+                         (values '() `(asm ,info-cc-eq ,(asm-lock! info-cc-eq) ,u))))])
 
-  (define-instruction effect (locked-decr!)
-    [(op (x ur) (y ur) (w signed16))
-     `(asm ,info ,asm-lock-decr! ,x ,y ,w)])
+    (define-instruction effect (locked-incr!)
+      [(op (x ur) (y ur) (w signed16))
+       (addr-reg x y w (lambda (u)
+                         ;; signals on zero after increment
+                         `(asm ,info ,asm-inc! ,u (immediate 1))))])
+    (define-instruction effect (locked-decr!)
+      [(op (x ur) (y ur) (w signed16))
+       (addr-reg x y w (lambda (u)
+                         ;; signals on zero after decrement
+                         `(asm ,info ,asm-inc! ,u (immediate -1))))])
 
-  (define-instruction effect (cas)
-    [(op (x ur) (y ur) (w signed16) (old ur) (new ur))
-     (let ([u (make-tmp 'u)])
-       (seq
-        (cond
-          [(eq? y %zero)
-           `(set! ,(make-live-info) ,u (asm ,null-info ,(asm-add #f) ,x ,w))]
-          [(nanopass-case (L15d Triv) w [(immediate ,imm) (zero? imm)])
-           `(set! ,(make-live-info) ,u (asm ,null-info ,(asm-add #f) ,x ,y))]
-          [else
-           (seq
-            `(set! ,(make-live-info) ,u (asm ,null-info ,(asm-add #f) ,x ,y))
-            `(set! ,(make-live-info) ,u (asm ,null-info ,(asm-add #f) ,u ,w)))])
-        ;; sets equality condition code
-        `(asm ,info ,asm-cas! ,u ,old ,new)))])
+    (define-instruction effect (cas)
+      [(op (x ur) (y ur) (w signed16) (old ur) (new ur))
+       (addr-reg x y w (lambda (u)
+                         ;; signals on successful swap
+                         `(asm ,info ,asm-cas! ,u ,old ,new)))]))
 
   (define-instruction effect (pause)
     ;; NB: use sqrt or something like that?
@@ -494,7 +514,7 @@
                      asm-direct-jump asm-return-address asm-jump asm-conditional-jump
                      asm-indirect-call asm-condition-code
                      asm-fpmove-single asm-fl-cvt asm-fpt asm-fpmove asm-fpcastto asm-fpcastfrom asm-fptrunc 
-                     asm-lock! asm-lock-incr! asm-lock-decr! asm-cas!
+                     asm-inc! asm-lock! asm-cas!
                      asm-fpop-2 asm-fpsqrt asm-c-simple-call
                      asm-return asm-c-return asm-size
                      asm-enter asm-foreign-call asm-foreign-callable
@@ -560,6 +580,8 @@
   (define-op mul   signal-bin-op (constant pb-mul))
   (define-op div   bin-op (constant pb-div))
 
+  (define-op subz  signal-bin-op (constant pb-subz)) ; signals on 0 instead of overflow
+
   (define-op land  bin-op (constant pb-and))
   (define-op lior  bin-op (constant pb-ior))
   (define-op lxor  bin-op (constant pb-xor))
@@ -614,10 +636,9 @@
   (define-op b     branch-op (constant pb-always))
   (define-op b*    branch-indirect-op)
 
-  (define-op lock  lock-op (constant pb-lock))
-  (define-op lock+ lock-op (constant pb-lock-incr))
-  (define-op lock- lock-op (constant pb-lock-decr))
-  (define-op cas   lock-op (constant pb-cas))
+  (define-op lock  lock-op)
+  (define-op cas   cas-op)
+  (define-op inc   inc-op)
 
   (define-op call   call-op)
   (define-op interp interp-op)
@@ -882,25 +903,36 @@
         (ax-ea-reg-code dest)
         offset)))
 
-  (define lock-op
-    (lambda (op opcode dest src0 src1 code*)
+  (define inc-op
+    (lambda (op dest src code*)
       (cond
-        [(ax-reg? src1)
-         (emit-code (op dest src0 src1 code*)
-           (fx+ (constant pb-lock-op)
-                opcode
+        [(ax-reg? src)
+         (emit-code (op dest src code*)
+           (fx+ (constant pb-inc)
                 (constant pb-register))
            (ax-ea-reg-code dest)
-           (ax-ea-reg-code src0)
-           (ax-ea-reg-code src1))]
+           (ax-ea-reg-code src))]
         [else
-         (emit-code (op dest src0 src1 code*)
-           (fx+ (constant pb-lock-op)
-                opcode
+         (emit-code (op dest src code*)
+           (fx+ (constant pb-inc)
                 (constant pb-immediate))
            (ax-ea-reg-code dest)
-           (ax-ea-reg-code src0)
-           (ax-imm-data src1))])))
+           (ax-imm-data src))])))
+
+  (define lock-op
+    (lambda (op dest code*)
+      (emit-code (op dest code*)
+        (constant pb-lock)
+        (ax-ea-reg-code dest)
+        0)))
+
+  (define cas-op
+    (lambda (op dest src0 src1 code*)
+      (emit-code (op dest src0 src1 code*)
+        (constant pb-cas)
+        (ax-ea-reg-code dest)
+        (ax-ea-reg-code src0)
+        (ax-ea-reg-code src1))))
 
   (define-syntax emit-code
     (lambda (x)
@@ -1023,17 +1055,25 @@
              [else (bad!)])]
           [else (bad!)]))))
 
-  (define-syntax asm-signal-binop
-    (syntax-rules ()
-      [(_ op)
-       (lambda (set-cc?)
-         (lambda (code* dest src0 src1)
-           (Trivit (dest src0 src1)
-             (emit op set-cc? dest src0 src1 code*))))]))
-  
-  (define asm-add (asm-signal-binop add))
-  (define asm-sub (asm-signal-binop sub))
-  (define asm-mul (asm-signal-binop mul))
+  (define asm-add
+    (lambda (set-cc?)
+      (lambda (code* dest src0 src1)
+        (Trivit (dest src0 src1)
+          (emit add set-cc? dest src0 src1 code*)))))
+
+  (define asm-sub
+    (lambda (op)
+      (lambda (code* dest src0 src1)
+        (Trivit (dest src0 src1)
+          (if (eq? op '-/eq)
+              (emit subz #t dest src0 src1 code*)
+              (emit sub (eq? op '-/ovfl) dest src0 src1 code*))))))
+
+  (define asm-mul
+    (lambda (set-cc?)
+      (lambda (code* dest src0 src1)
+        (Trivit (dest src0 src1)
+          (emit mul set-cc? dest src0 src1 code*)))))
 
   (define asm-div
     (lambda (code* dest src0 src1)
@@ -1188,23 +1228,18 @@
             [(unsigned-16) (emit rev (constant pb-uint16) dest src code*)]
             [else (sorry! who "unexpected asm-swap type argument ~s" type)])))))
 
+  (define asm-inc!
+    (lambda (code* dest src)
+      (Trivit (dest src)
+        (emit inc dest src code*))))
+
   (define asm-lock!
     (lambda (info)
-      (lambda (l1 l2 offset dest base index)
+      (lambda (l1 l2 offset dest)
         (values
-         (Trivit (dest base index)
-           (emit lock dest base index '()))
+         (Trivit (dest)
+           (emit lock dest '()))
          (asm-conditional-jump info l1 l2 offset)))))
-
-  (define asm-lock-incr!
-    (lambda (code* dest base index)
-      (Trivit (dest base index)
-        (emit lock+ dest base index code*))))
-
-  (define asm-lock-decr!
-    (lambda (code* dest base index)
-      (Trivit (dest base index)
-        (emit lock- dest base index code*))))
 
   (define asm-cas!
     (lambda (code* dest old new)
