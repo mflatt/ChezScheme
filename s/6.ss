@@ -94,7 +94,7 @@
       [(path mode) (do-mkdir path mode)])))
 
 (define-who chmod
-  (let ([fp (foreign-procedure "(cs)chmod" (string fixnum) ptr)])
+  (let ([fp (foreign-procedure "(cs)chmod" (string int) ptr)])
     (lambda (path mode)
       (unless (string? path) ($oops who "~s is not a string" path))
       (unless (fixnum? mode) ($oops who "~s is not a fixnum" mode))
@@ -159,7 +159,7 @@
       [(_ name path-name fd-name)
        (set-who! name
          (let ([path-fp (foreign-procedure path-name (string boolean) ptr)]
-               [fd-fp (foreign-procedure fd-name (fixnum) ptr)])
+               [fd-fp (foreign-procedure fd-name (int) ptr)])
            (case-lambda
              [(file) (file-x-time who path-fp fd-fp file #t)]
              [(file follow?) (file-x-time who path-fp fd-fp file follow?)])))]))

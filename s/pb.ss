@@ -1512,7 +1512,7 @@
                                                 [else 'int64])])]
                                      [(fp-scheme-object) 'uptr]
                                      [(fp-fixnum) 'uptr]
-                                     [(fp-u8*) 'uptr]
+                                     [(fp-u8*) 'void*]
                                      [(fp-void) 'void]
                                      [else (sorry! who "unhandled type in prototype ~s" type)]))
                                  type*)]
