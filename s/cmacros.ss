@@ -193,6 +193,14 @@
   (lambda (x)
     (syntax-error x "misplaced aux keyword")))
 
+(define-syntax when-unaligned-integer
+  (lambda (stx)
+    (syntax-case stx ()
+      [(_ e ...)
+       #'(constant-case unaligned-integers
+           [(#t) e ...]
+           [(#f) (void)])])))
+
 ;; ---------------------------------------------------------------------
 ;; Libspec representation:
 
@@ -390,6 +398,11 @@
 (include "machine.def")
 
 (define-constant machine-type-name (cdr (assv (constant machine-type) (constant machine-type-alist))))
+
+(define-constant fasl-endianness
+  (constant-case architecture
+    [(pb) 'little]
+    [else (constant native-endianness)]))
 
 ;; ---------------------------------------------------------------------
 ;; Some object-layout constants:
@@ -3070,7 +3083,8 @@
   pb-xor
   pb-lsl
   pb-lsr
-  pb-asr)
+  pb-asr
+  pb-lslo)
 
 (define-pb-enum pb-signals << pb-binaries
   pb-no-signal

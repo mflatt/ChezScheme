@@ -287,6 +287,7 @@ static void idiot_checks() {
   }
 #define big 0
 #define little 1
+#define unknown 2
   if (native_endianness == big) {
     uptr x[1];
     *x = 1;
@@ -294,7 +295,7 @@ static void idiot_checks() {
       fprintf(stderr, "endianness claimed to be big, appears to be little\n");
       oops = 1;
     }
-  } else {
+  } else if (native_endianness == little) {
     uptr x[1];
     *x = 1;
     if (*(char *)x == 0) {

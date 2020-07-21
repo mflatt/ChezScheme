@@ -68,7 +68,7 @@ signedness -> signed | unsigned
 
 bits -> exact positive integer
 
-endianness -> native | big | little
+endianness -> native | big | little | swapped
 
 built-in ftype names:
     short | unsigned-short
@@ -358,7 +358,8 @@ ftype operators:
                      (if swap?
                          `(endian ,(constant-case native-endianness
                                      [(big) 'little]
-                                     [(little) 'big])
+                                     [(little) 'big]
+                                     [(unknown) 'swapped])
                             ,ty)
                          ty)
                      bytes (alignment (if (memq 'type '(single-float double-float)) (constant max-float-alignment) (constant max-integer-alignment)) bytes) swap? ty))]))
@@ -493,19 +494,22 @@ ftype operators:
                                     (syntax-error (car bits*) "invalid bit-field bit count"))
                                   (let-values ([(bit-size field*) (f (cdr id*) (cdr s*) (cdr bits*) (+ bit-offset bits))])
                                     (values bit-size
-                                      (let ([start (if (eq? (native-endianness) (if swap? 'little 'big))
+                                      (let ([start (if (eq? (constant native-endianness) (if swap? 'little 'big))
                                                        (- bit-size bit-offset bits)
                                                        bit-offset)])
                                         (cons (list (car id*) (signed? (car s*)) start (+ start bits))
                                               field*)))))))))
-                      (let-values ([(bit-size field*) (parse-fields)])
-                        (unless (memq bit-size '(8 16 24 32 40 48 56 64))
-                          (syntax-error ftype "bit counts do not add up to 8, 16, 32, or 64"))
-                        (let ([offset (fxsrl bit-size 3)])
-                          (make-ftd-bits rtd/fptr
-                            (and defid (symbol->string (syntax->datum defid)))
-                            stype offset (alignment (constant max-integer-alignment) offset)
-                            (and swap? (fx> offset 1)) field*))))]
+                      (constant-case native-endianness
+                        [(unknown) (syntax-error ftype "bit fields not supported with run-time endianness")]
+                        [else
+                         (let-values ([(bit-size field*) (parse-fields)])
+                           (unless (memq bit-size '(8 16 24 32 40 48 56 64))
+                             (syntax-error ftype "bit counts do not add up to 8, 16, 32, or 64"))
+                           (let ([offset (fxsrl bit-size 3)])
+                             (make-ftd-bits rtd/fptr
+                               (and defid (symbol->string (syntax->datum defid)))
+                               stype offset (alignment (constant max-integer-alignment) offset)
+                               (and swap? (fx> offset 1)) field*)))]))]
                    [(*-kwd ftype)
                     (eq? (datum *-kwd) '*)
                     (cond
@@ -551,10 +555,15 @@ ftype operators:
                    [(endian-kwd ?eness ftype)
                     (eq? (datum endian-kwd) 'endian)
                     (let ([eness (datum ?eness)])
-                      (unless (memq eness '(big little native))
+                      (unless (memq eness '(big little native swapped))
                         (syntax-error #'?eness "invalid endianness"))
                       (let ([swap? (and (not (eq? eness 'native))
-                                        (not (eq? eness (constant native-endianness))))])
+                                        (or (eq? eness 'swapped)
+                                            (constant-case native-endianness
+                                              [(unknown)
+                                               (syntax-error #'?eness "only native and swapped endianness supported with runtime endianness")]
+                                              [else
+                                               (not (eq? eness (constant native-endianness)))])))])
                         (f/flags #'ftype #f stype packed? swap? funok?)))]
                    [_ (syntax-error ftype "invalid ftype")])))))]))
   (define expand-fp-ftype
@@ -669,6 +678,16 @@ ftype operators:
       (lambda (pargs->new)
         (lambda (whoid expr ftd pointer?)
           ((pargs->new expr) (syntax->datum whoid) ftd pointer?)))))
+  (define-syntax swapped-endianness
+    (lambda (stx)
+      (syntax-case stx ()
+        [(_)
+         (constant-case native-endianness
+           [(little) #''big]
+           [(big) #''little]
+           [(unknown) #'(if (eq? (native-endianness) 'little)
+                            'big
+                            'little)])])))
   (record-writer rtd/ftd
     (lambda (x p wr)
       (fprintf p "#<ftd ~s>" (record-type-name x))))
@@ -1079,7 +1098,8 @@ ftype operators:
         (define (little-endian?)
           (constant-case native-endianness
             [(little) (not (ftd-bits-swap? ftd))]
-            [(big) (ftd-bits-swap? ftd)]))
+            [(big) (ftd-bits-swap? ftd)]
+            [(unknown) (error 'trans-bitfield "bitfields not supported with runtime endianness")]))
         (let ([width (fx- end start)])
           (cond
             [(and (fx= width 8) (fx= (mod start 8) 0))
@@ -1463,7 +1483,7 @@ ftype operators:
         [(32) (let ([bv (make-bytevector 8)])
                 (bytevector-u64-set! bv 0
                   (foreign-ref 'unsigned-64 ($ftype-pointer-address fptr) offset)
-                  (if (eq? (constant native-endianness) 'big) 'little 'big))
+                  (swapped-endianness))
                 ($object-ref 'double-float bv (constant bytevector-data-disp)))])))
     
   (set! $fptr-ref-single-float
@@ -1476,7 +1496,7 @@ ftype operators:
         [(32) (let ([bv (make-bytevector 4)])
                 (bytevector-u32-set! bv 0
                   (foreign-ref 'unsigned-32 ($ftype-pointer-address fptr) offset)
-                  (if (eq? (constant native-endianness) 'big) 'little 'big))
+                  (swapped-endianness))
                 ($object-ref 'single-float bv (constant bytevector-data-disp)))])))
     
   (set! $fptr-ref-char
@@ -1616,7 +1636,7 @@ ftype operators:
                   ($object-set! 'integer-40 bv (constant bytevector-data-disp) val)
                   (foreign-set! 'unsigned-40 ($ftype-pointer-address fptr) offset
                     (bytevector-u40-ref bv 0
-                      (if (eq? (constant native-endianness) 'big) 'little 'big))))])))
+                      (swapped-endianness))))])))
     (set! $fptr-set-swap-unsigned-40!
       (lambda (info fptr offset val)
         (unless ($integer-40? val) (invalid-value info val))
@@ -1626,7 +1646,7 @@ ftype operators:
                   ($object-set! 'unsigned-40 bv (constant bytevector-data-disp) val)
                   (foreign-set! 'unsigned-40 ($ftype-pointer-address fptr) offset
                     (bytevector-u40-ref bv 0
-                      (if (eq? (constant native-endianness) 'big) 'little 'big))))])))
+                      (swapped-endianness))))])))
 
     (set! $fptr-set-integer-48!
       (lambda (info fptr offset val)
@@ -1649,7 +1669,7 @@ ftype operators:
                   ($object-set! 'integer-48 bv (constant bytevector-data-disp) val)
                   (foreign-set! 'unsigned-48 ($ftype-pointer-address fptr) offset
                     (bytevector-u48-ref bv 0
-                      (if (eq? (constant native-endianness) 'big) 'little 'big))))])))
+                      (swapped-endianness))))])))
     (set! $fptr-set-swap-unsigned-48!
       (lambda (info fptr offset val)
         (unless ($integer-48? val) (invalid-value info val))
@@ -1659,7 +1679,7 @@ ftype operators:
                   ($object-set! 'unsigned-48 bv (constant bytevector-data-disp) val)
                   (foreign-set! 'unsigned-48 ($ftype-pointer-address fptr) offset
                     (bytevector-u48-ref bv 0
-                      (if (eq? (constant native-endianness) 'big) 'little 'big))))])))
+                      (swapped-endianness))))])))
 
     (set! $fptr-set-integer-56!
       (lambda (info fptr offset val)
@@ -1682,7 +1702,7 @@ ftype operators:
                   ($object-set! 'integer-56 bv (constant bytevector-data-disp) val)
                   (foreign-set! 'unsigned-56 ($ftype-pointer-address fptr) offset
                     (bytevector-u56-ref bv 0
-                      (if (eq? (constant native-endianness) 'big) 'little 'big))))])))
+                      (swapped-endianness))))])))
     (set! $fptr-set-swap-unsigned-56!
       (lambda (info fptr offset val)
         (unless ($integer-56? val) (invalid-value info val))
@@ -1692,7 +1712,7 @@ ftype operators:
                   ($object-set! 'unsigned-56 bv (constant bytevector-data-disp) val)
                   (foreign-set! 'unsigned-56 ($ftype-pointer-address fptr) offset
                     (bytevector-u56-ref bv 0
-                      (if (eq? (constant native-endianness) 'big) 'little 'big))))])))
+                      (swapped-endianness))))])))
 
     (set! $fptr-set-integer-64!
       (lambda (info fptr offset val)
@@ -1715,7 +1735,7 @@ ftype operators:
                   ($object-set! 'integer-64 bv (constant bytevector-data-disp) val)
                   (foreign-set! 'unsigned-64 ($ftype-pointer-address fptr) offset
                     (bytevector-u64-ref bv 0
-                      (if (eq? (constant native-endianness) 'big) 'little 'big))))])))
+                      (swapped-endianness))))])))
     (set! $fptr-set-swap-unsigned-64!
       (lambda (info fptr offset val)
         (unless ($integer-64? val) (invalid-value info val))
@@ -1725,7 +1745,7 @@ ftype operators:
                   ($object-set! 'unsigned-64 bv (constant bytevector-data-disp) val)
                   (foreign-set! 'unsigned-64 ($ftype-pointer-address fptr) offset
                     (bytevector-u64-ref bv 0
-                      (if (eq? (constant native-endianness) 'big) 'little 'big))))])))
+                      (swapped-endianness))))])))
 
     (set! $fptr-set-double-float!
       (lambda (info fptr offset val)
@@ -1740,7 +1760,7 @@ ftype operators:
                   ($object-set! 'double-float bv (constant bytevector-data-disp) val)
                   (foreign-set! 'unsigned-64 ($ftype-pointer-address fptr) offset
                     (bytevector-u64-ref bv 0
-                      (if (eq? (constant native-endianness) 'big) 'little 'big))))])))
+                      (swapped-endianness))))])))
 
     (set! $fptr-set-single-float!
       (lambda (info fptr offset val)
@@ -1753,7 +1773,7 @@ ftype operators:
           ($object-set! 'single-float bv (constant bytevector-data-disp) val)
           (foreign-set! 'unsigned-32 ($ftype-pointer-address fptr) offset
             (bytevector-u32-ref bv 0
-              (if (eq? (constant native-endianness) 'big) 'little 'big))))))
+              (swapped-endianness))))))
 
     (set! $fptr-set-char!
       (lambda (info fptr offset val)

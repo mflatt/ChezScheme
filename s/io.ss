@@ -2474,7 +2474,8 @@ implementation notes:
                  (define UTF-32B/LE
                    (constant-case native-endianness
                      [(little) "UTF-32LE"]
-                     [(big) "UTF-32BE"]))
+                     [(big) "UTF-32BE"]
+                     [(unknown) "UTF-32"]))
                  (define (iconv-open to from)
                    (let ([desc ($iconv-open to from)])
                      (when (string? desc) ($oops who "~a" desc))

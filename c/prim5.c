@@ -1552,6 +1552,10 @@ void S_dump_tc(ptr tc) {
   fflush(stdout);
 }
 
+static IBOOL s_native_little_endian() {
+  return 1; /* FIXME */
+}
+
 #define proc2ptr(x) (ptr)(iptr)(x)
 
 void S_prim5_init() {
@@ -1663,6 +1667,8 @@ void S_prim5_init() {
     Sforeign_symbol("(cs)bytevector_uncompress", (void*)S_bytevector_uncompress);
 
     Sforeign_symbol("(cs)phantom_bytevector_adjust", (void*)S_phantom_bytevector_adjust);
+
+    Sforeign_symbol("(cs)native_little_endian", (void *)s_native_little_endian);
 
     Sforeign_symbol("(cs)logand", (void *)S_logand);
     Sforeign_symbol("(cs)logbitp", (void *)S_logbitp);

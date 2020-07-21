@@ -241,6 +241,12 @@ void S_pb_interp(ptr tc, void *bytecode) {
     case pb_bin_op_pb_no_signal_pb_asr_pb_immediate:
       regs[INSTR_dri_dest(instr)] = (iptr)regs[INSTR_dri_reg(instr)] >> INSTR_dri_imm(instr);
       break;
+    case pb_bin_op_pb_no_signal_pb_lslo_pb_register:
+      regs[INSTR_drr_dest(instr)] = regs[INSTR_drr_reg1(instr)] << regs[INSTR_drr_reg2(instr)]; /* little endian */
+      break;
+    case pb_bin_op_pb_no_signal_pb_lslo_pb_immediate:
+      regs[INSTR_dri_dest(instr)] = regs[INSTR_dri_reg(instr)] << INSTR_dri_imm(instr); /* little endian */
+      break;
     case pb_bin_op_pb_signal_pb_add_pb_register:
       {
 #if USE_OVERFLOW_INTRINSICS

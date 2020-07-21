@@ -197,7 +197,7 @@
     [(op (z ur) (x ur))
      `(set! ,(make-live-info) ,z (asm ,info ,asm-lognot ,x))])
 
-  (define-instruction value (sll srl sra)
+  (define-instruction value (sll srl sra slol)
     [(op (z ur) (x ur) (y signed16 ur))
      `(set! ,(make-live-info) ,z (asm ,info ,(asm-logical op) ,x ,y))])
 
@@ -590,6 +590,7 @@
   (define-op lsl   bin-op (constant pb-lsl))
   (define-op lsr   bin-op (constant pb-lsr))
   (define-op asr   bin-op (constant pb-asr))
+  (define-op lslo  bin-op (constant pb-lslo))
 
   (define-op rev   rev-op)
 
@@ -1091,6 +1092,7 @@
             [(sll)    (emit lsl dest src0 src1 code*)]
             [(srl)    (emit lsr dest src0 src1 code*)]
             [(sra)    (emit asr dest src0 src1 code*)]
+            [(slol)   (emit lslo dest src0 src1 code*)]
             [else ($oops 'asm-logical "unexpected ~s" op)])))))
 
   (define asm-lognot

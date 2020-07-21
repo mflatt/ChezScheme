@@ -50,6 +50,18 @@
           (rtd-flds prtd)
           0)))
 
+  (define-syntax native-endianness-case
+    (lambda (stx)
+      (syntax-case stx (big little)
+        [(_ [(big) b ...] [(little) l ...])
+         #`(constant-case endianness-case
+             [(big) b ...]
+             [(little) l ...]
+             [(unknown)
+              (case (native-endianness)
+                [(big) b ...]
+                [(little) l ...])])])))
+
   ; $record is hand-coded and is defined in prims.ss
 
   (let ([addr? (constant-case ptr-bits
@@ -96,7 +108,7 @@
                  [(64) (not (eq? (#3%foreign-ref 'integer-64 addr offset) 0))])]
               [(_ integer-64 bytes pred)
                (< (constant ptr-bits) 64)
-               (constant-case native-endianness
+               (native-endianness-case
                  [(big)
                   (logor (ash (#3%foreign-ref 'integer-32 addr offset) 32)
                     (#3%foreign-ref 'unsigned-32 (+ addr 4) offset))]
@@ -105,7 +117,7 @@
                     (#3%foreign-ref 'unsigned-32 addr offset))])]
               [(_ unsigned-64 bytes pred)
                (< (constant ptr-bits) 64)
-               (constant-case native-endianness
+               (native-endianness-case
                  [(big)
                   (logor (ash (#3%foreign-ref 'unsigned-32 addr offset) 32)
                     (#3%foreign-ref 'unsigned-32 (+ addr 4) offset))]
@@ -142,7 +154,7 @@
                (< (constant ptr-bits) 64)
                (begin
                  (unless (pred v) (value-err v ty))
-                 (constant-case native-endianness
+                 (endianness-case
                    [(big)
                     (#3%foreign-set! 'integer-32 addr offset (bitwise-arithmetic-shift-right v 8))
                     (#3%foreign-set! 'unsigned-8 (+ addr 4) offset (logand v (- (expt 2 8) 1)))]
@@ -153,7 +165,7 @@
                (< (constant ptr-bits) 64)
                (begin
                  (unless (pred v) (value-err v ty))
-                 (constant-case native-endianness
+                 (native-endianness-case
                    [(big)
                     (#3%foreign-set! 'unsigned-32 addr offset (bitwise-arithmetic-shift-right v 8))
                     (#3%foreign-set! 'unsigned-8 (+ addr 4) offset (logand v (- (expt 2 8) 1)))]
@@ -164,7 +176,7 @@
                (< (constant ptr-bits) 64)
                (begin
                  (unless (pred v) (value-err v ty))
-                 (constant-case native-endianness
+                 (native-endianness-case
                    [(big)
                     (#3%foreign-set! 'integer-32 addr offset (bitwise-arithmetic-shift-right v 16))
                     (#3%foreign-set! 'unsigned-16 (+ addr 4) offset (logand v (- (expt 2 16) 1)))]
@@ -175,7 +187,7 @@
                (< (constant ptr-bits) 64)
                (begin
                  (unless (pred v) (value-err v ty))
-                 (constant-case native-endianness
+                 (native-endianness-case
                    [(big)
                     (#3%foreign-set! 'unsigned-32 addr offset (bitwise-arithmetic-shift-right v 16))
                     (#3%foreign-set! 'unsigned-16 (+ addr 4) offset (logand v (- (expt 2 16) 1)))]
@@ -186,7 +198,7 @@
                (< (constant ptr-bits) 64)
                (begin
                  (unless (pred v) (value-err v ty))
-                 (constant-case native-endianness
+                 (native-endianness-case
                    [(big)
                     (#3%foreign-set! 'integer-32 addr offset (bitwise-arithmetic-shift-right v 24))
                     (#3%foreign-set! 'unsigned-16 (+ addr 4) offset (logand (bitwise-arithmetic-shift-right v 8) (- (expt 2 16) 1)))
@@ -199,7 +211,7 @@
                (< (constant ptr-bits) 64)
                (begin
                  (unless (pred v) (value-err v ty))
-                 (constant-case native-endianness
+                 (native-endianness-case
                    [(big)
                     (#3%foreign-set! 'unsigned-32 addr offset (bitwise-arithmetic-shift-right v 24))
                     (#3%foreign-set! 'unsigned-16 (+ addr 4) offset (logand (bitwise-arithmetic-shift-right v 8) (- (expt 2 16) 1)))
@@ -212,7 +224,7 @@
                (< (constant ptr-bits) 64)
                (begin
                  (unless (pred v) (value-err v ty))
-                 (constant-case native-endianness
+                 (native-endianness-case
                    [(big)
                     (#3%foreign-set! 'integer-32 addr offset (ash v -32))
                     (#3%foreign-set! 'unsigned-32 (+ addr 4) offset (logand v (- (expt 2 32) 1)))]
@@ -223,7 +235,7 @@
                (< (constant ptr-bits) 64)
                (begin
                  (unless (pred v) (value-err v ty))
-                 (constant-case native-endianness
+                 (native-endianness-case
                    [(big)
                     (#3%foreign-set! 'unsigned-32 addr offset (ash v -32))
                     (#3%foreign-set! 'unsigned-32 (+ addr 4) offset (logand v (- (expt 2 32) 1)))]
@@ -295,7 +307,7 @@
           [(_ integer-40 bytes pred)
            (< (constant ptr-bits) 64)
            (begin
-             (constant-case native-endianness
+             (native-endianness-case
                [(big)
                 (#3%$object-set! 'integer-32 r offset (bitwise-arithmetic-shift-right v 8))
                 (#3%$object-set! 'unsigned-8 r (fx+ offset 4) (logand v (- (expt 2 8) 1)))]
@@ -305,7 +317,7 @@
           [(_ unsigned-40 bytes pred)
            (< (constant ptr-bits) 64)
            (begin
-             (constant-case native-endianness
+             (native-endianness-case
                [(big)
                 (#3%$object-set! 'unsigned-32 r offset (bitwise-arithmetic-shift-right v 8))
                 (#3%$object-set! 'unsigned-8 r (fx+ offset 4) (logand v (- (expt 2 8) 1)))]
@@ -315,7 +327,7 @@
           [(_ integer-48 bytes pred)
            (< (constant ptr-bits) 64)
            (begin
-             (constant-case native-endianness
+             (native-endianness-case
                [(big)
                 (#3%$object-set! 'integer-32 r offset (bitwise-arithmetic-shift-right v 16))
                 (#3%$object-set! 'unsigned-16 r (fx+ offset 4) (logand v (- (expt 2 16) 1)))]
@@ -325,7 +337,7 @@
           [(_ unsigned-48 bytes pred)
            (< (constant ptr-bits) 64)
            (begin
-             (constant-case native-endianness
+             (native-endianness-case
                [(big)
                 (#3%$object-set! 'unsigned-32 r offset (bitwise-arithmetic-shift-right v 16))
                 (#3%$object-set! 'unsigned-16 r (fx+ offset 4) (logand v (- (expt 2 16) 1)))]
@@ -335,7 +347,7 @@
           [(_ integer-56 bytes pred)
            (< (constant ptr-bits) 64)
            (begin
-             (constant-case native-endianness
+             (native-endianness-case
                [(big)
                 (#3%$object-set! 'integer-32 r offset (bitwise-arithmetic-shift-right v 24))
                 (#3%$object-set! 'unsigned-16 r (fx+ offset 4) (logand (bitwise-arithmetic-shift-right v 8) (- (expt 2 16) 1)))
@@ -347,7 +359,7 @@
           [(_ unsigned-56 bytes pred)
            (< (constant ptr-bits) 64)
            (begin
-             (constant-case native-endianness
+             (native-endianness-case
                [(big)
                 (#3%$object-set! 'unsigned-32 r offset (bitwise-arithmetic-shift-right v 24))
                 (#3%$object-set! 'unsigned-16 r (fx+ offset 4) (logand (bitwise-arithmetic-shift-right v 8) (- (expt 2 16) 1)))
@@ -358,7 +370,7 @@
                 (#3%$object-set! 'unsigned-8 r (fx+ offset 6) (bitwise-arithmetic-shift-right v 48))]))]
           [(_ integer-64 bytes pred)
            (< (constant ptr-bits) 64)
-           (constant-case native-endianness
+           (native-endianness-case
              [(big)
               (#3%$object-set! 'integer-32 r offset (bitwise-arithmetic-shift-right v 32))
               (#3%$object-set! 'unsigned-32 r (fx+ offset 4) (logand v (- (expt 2 32) 1)))]
@@ -367,7 +379,7 @@
               (#3%$object-set! 'integer-32 r (fx+ offset 4) (bitwise-arithmetic-shift-right v 32))])]
           [(_ unsigned-64 bytes pred)
            (< (constant ptr-bits) 64)
-           (constant-case native-endianness
+           (native-endianness-case
              [(big)
               (#3%$object-set! 'unsigned-32 r offset (bitwise-arithmetic-shift-right v 32))
               (#3%$object-set! 'unsigned-32 r (fx+ offset 4) (logand v (- (expt 2 32) 1)))]
