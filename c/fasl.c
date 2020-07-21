@@ -266,6 +266,9 @@ static U32 adjust_delay_inst PROTO((U32 delay_inst, U32 *old_call_addr, U32 *new
 static INT sparc64_set_lit_only PROTO((void *address, uptr item, I32 destreg));
 static void sparc64_set_literal PROTO((void *address, uptr item));
 #endif /* SPARC64 */
+#ifdef PORTABLE_BYTECODE_BIGENDIAN
+static void swap_code_endian(octet *code, uptr len);
+#endif
 
 static double s_nan;
 
@@ -1025,6 +1028,9 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
               S_G.profile_counters = Scons(S_weak_cons(co, pinfos), S_G.profile_counters);
             }
             bytesin((octet *)&CODEIT(co, 0), n, f);
+#ifdef PORTABLE_BYTECODE_BIGENDIAN
+            swap_code_endian((octet *)&CODEIT(co, 0), n);
+#endif
             m = uptrin(f);
             CODERELOC(co) = reloc = S_relocation_table(m);
             RELOCCODE(reloc) = co;
@@ -1895,3 +1901,19 @@ static void sparc64_set_literal(address, item) void *address; uptr item; {
   sparc64_set_lit_only(address, item, destreg);
 }
 #endif /* SPARC64 */
+
+#ifdef PORTABLE_BYTECODE_BIGENDIAN
+static void swap_code_endian(octet *code, uptr len)
+{
+  for (; len > 0; code += 4, len -= 4) {
+    octet a = code[0];
+    octet b = code[1];
+    octet c = code[2];
+    octet d = code[3];
+    code[0] = d;
+    code[1] = c;
+    code[2] = b;
+    code[3] = a;
+  }
+}
+#endif

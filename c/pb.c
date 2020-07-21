@@ -170,7 +170,11 @@ void S_pb_interp(ptr tc, void *bytecode) {
     case pb_mov_pb_s_d:
       {
         float f;
-        memcpy(&f, &fpregs[INSTR_dr_reg(instr)], sizeof(float)); /* litte endian */
+#ifdef PORTABLE_BYTECODE_BIGENDIAN
+        memcpy(&f, (char *)&fpregs[INSTR_dr_reg(instr)] + 4, sizeof(float));
+#else
+        memcpy(&f, &fpregs[INSTR_dr_reg(instr)], sizeof(float));
+#endif
         fpregs[INSTR_dr_dest(instr)] = f;
       }
       break;
@@ -178,7 +182,11 @@ void S_pb_interp(ptr tc, void *bytecode) {
       {
         float f;
         f = fpregs[INSTR_dr_reg(instr)];
-        memcpy(&fpregs[INSTR_dr_dest(instr)], &f, sizeof(float)); /* litte endian */
+#ifdef PORTABLE_BYTECODE_BIGENDIAN
+        memcpy((char *)&fpregs[INSTR_dr_dest(instr)] + 4, &f, sizeof(float));
+#else
+        memcpy(&fpregs[INSTR_dr_dest(instr)], &f, sizeof(float));
+#endif
       }
       break;
     case pb_bin_op_pb_no_signal_pb_add_pb_register:
@@ -242,10 +250,18 @@ void S_pb_interp(ptr tc, void *bytecode) {
       regs[INSTR_dri_dest(instr)] = (iptr)regs[INSTR_dri_reg(instr)] >> INSTR_dri_imm(instr);
       break;
     case pb_bin_op_pb_no_signal_pb_lslo_pb_register:
-      regs[INSTR_drr_dest(instr)] = regs[INSTR_drr_reg1(instr)] << regs[INSTR_drr_reg2(instr)]; /* little endian */
+#ifdef PORTABLE_BYTECODE_BIGENDIAN
+      regs[INSTR_drr_dest(instr)] = regs[INSTR_drr_reg1(instr)] >> regs[INSTR_drr_reg2(instr)];
+#else
+      regs[INSTR_drr_dest(instr)] = regs[INSTR_drr_reg1(instr)] << regs[INSTR_drr_reg2(instr)];
+#endif
       break;
     case pb_bin_op_pb_no_signal_pb_lslo_pb_immediate:
-      regs[INSTR_dri_dest(instr)] = regs[INSTR_dri_reg(instr)] << INSTR_dri_imm(instr); /* little endian */
+#ifdef PORTABLE_BYTECODE_BIGENDIAN
+      regs[INSTR_dri_dest(instr)] = regs[INSTR_dri_reg(instr)] >> INSTR_dri_imm(instr);
+#else
+      regs[INSTR_dri_dest(instr)] = regs[INSTR_dri_reg(instr)] << INSTR_dri_imm(instr);
+#endif
       break;
     case pb_bin_op_pb_signal_pb_add_pb_register:
       {

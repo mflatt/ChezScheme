@@ -92,6 +92,9 @@
 # elif __APPLE__
 #   define OS_ANY_MACOSX
 # endif
+# if defined(__powerpc__) && !defined(__powerpc64__)
+#  define PORTABLE_BYTECODE_BIGENDIAN
+# endif
 #endif
 
 #ifdef OS_ANY_LINUX
