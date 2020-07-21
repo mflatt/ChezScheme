@@ -52,7 +52,12 @@ enum {
 void S_machine_init() {}
 
 #define SIGN_FLIP(r, a, b) ((~((a ^ b) | (r ^ ~b))) >> (ptr_bits-1))
-#define USE_OVERFLOW_INTRINSICS 1
+
+#if __GNUC__ >= 5
+# define USE_OVERFLOW_INTRINSICS 1
+#else
+# define USE_OVERFLOW_INTRINSICS 0
+#endif
 
 int counter = 0;
 
