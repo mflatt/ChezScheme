@@ -165,7 +165,13 @@ typedef struct _seginfo {
 #endif
   octet *counting_mask;                     /* bitmap of counting roots during a GC */
   octet *measured_mask;                     /* bitmap of objects that have been measured */
+#ifdef PORTABLE_BYTECODE
+  union { ptr force_alignment;    
+#endif
   octet dirty_bytes[cards_per_segment];     /* one dirty byte per card */
+#ifdef PORTABLE_BYTECODE
+  };
+#endif
 } seginfo;
 
 typedef struct _chunkinfo {

@@ -71,9 +71,6 @@ else
     CONFIG_UNAME=`uname`
 fi
 
-pb64=pb64el
-pb32=pb32el
-
 case "${CONFIG_UNAME}" in
   Linux)
     if uname -a | egrep 'i386|i686|amd64|athlon|x86_64' > /dev/null 2>&1 ; then
@@ -86,8 +83,6 @@ case "${CONFIG_UNAME}" in
       m64=""
       tm32=tppc32le
       tm64=""
-      pb32=pb32eb
-      pb64=""
     elif uname -a | egrep 'armv|aarch64' > /dev/null 2>&1 ; then
       m32=arm32le
       m64=arm64le
@@ -330,7 +325,7 @@ fi
 
 if [ "$m" = "" ] ; then
   if [ $pb = yes ] ; then
-     if [ $bits = 64 ] ; then m=$pb64 ; else m=$pb32 ; fi
+     m=pb
      if [ $bits = 64 ] ; then mpbhost=$m64 ; else mpbhost=$m32 ; fi
   else      
     if [ $bits = 64 ] ; then

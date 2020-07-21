@@ -75,9 +75,7 @@ case "$M" in
   ti3qnx) Muni=i3qnx ;;
   ti3s2) Muni=i3s2 ;;
   tppc32le) Muni=ppc32le ;;
-  pb64el) ;;
-  pb32el) ;;
-  pb32eb) ;;
+  pb) ;;
   *) echo "Unrecognized machine name $M"; exit 1 ;;
 esac
 

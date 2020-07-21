@@ -22,9 +22,10 @@
        (case (machine-type)
          [(i3le ti3le i3nt ti3nt a6nt ta6nt i3ob ti3ob i3fb ti3fb i3nb ti3nb i3osx ti3osx a6le ta6le a6nb ta6nb
                 a6osx ta6osx a6fb ta6fb a6ob ta6ob a6s2 ta6s2 i3s2 ti3s2 i3qnx ti3qnx
-                arm32le tarm32le arm64le tarm64le pb64el pb32el)
+                arm32le tarm32le arm64le tarm64le)
           'little]
-         [(ppc32le tppc32le pb32eb) 'big]
+         [(ppc32le tppc32le) 'big]
+         [(pb) (native-endianness)]
          [else (errorf #f "unrecognized machine type")]))
 )
 
@@ -747,7 +748,7 @@
     '(bytevector-s16-native-ref #vu8(3 252 5) 0)
     (native->signed 3 252))
   (or
-   dyanmic-native-endianness?
+   dynamic-native-endianness?
    (equal?
     ;; list doesn't get inlined, so take if off the front of the list
     (cdr (parameterize ([optimize-level 2] [enable-cp0 #t] [#%$suppress-primitive-inlining #f])
@@ -817,7 +818,7 @@
     '(bytevector-u16-native-ref #vu8(3 252 5) 0)
     (native->unsigned 3 252))
   (or
-   dyanmic-native-endianness?
+   dynamic-native-endianness?
    (equal?
     ;; list doesn't get inlined, so take if off the front of the list
     (cdr (parameterize ([optimize-level 2] [enable-cp0 #t] [#%$suppress-primitive-inlining #f])
@@ -3235,7 +3236,7 @@
     '(bytevector-s32-native-ref #vu8(3 252 5 32 65 87 20) 0)
     (native->signed 3 252 5 32))
   (or
-   dyanmic-native-endianness?
+   dynamic-native-endianness?
    (equal?
     (cdr (parameterize ([optimize-level 2] [enable-cp0 #t] [#%$suppress-primitive-inlining #f])
            (expand/optimize '(let ([v '#vu8(30 100 200 250
@@ -3307,7 +3308,7 @@
     '(bytevector-u32-native-ref #vu8(3 252 5 32 65 87 20) 0)
     (native->unsigned 3 252 5 32))
   (or
-   dyanmic-native-endianness?
+   dynamic-native-endianness?
    (equal?
     (cdr (parameterize ([optimize-level 2] [enable-cp0 #t] [#%$suppress-primitive-inlining #f])
            (expand/optimize '(let ([v '#vu8(30 100 200 250

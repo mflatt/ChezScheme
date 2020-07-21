@@ -1,6 +1,6 @@
-# Mf-pb64el
+# Mf-pb
 
-m = pb64el
+m = pb
 archincludes = pb.ss
 
 include Mf-base

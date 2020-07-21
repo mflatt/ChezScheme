@@ -184,6 +184,7 @@ static void idiot_checks() {
               (long)sizeof(short), short_bits);
     oops = 1;
   }
+#ifndef PORTABLE_BYTECODE
   if (sizeof(long) * 8 != long_bits) {
     fprintf(stderr, "sizeof(long) * 8 [%ld] != long_bits [%d]\n",
               (long)sizeof(long), long_bits);
@@ -196,11 +197,13 @@ static void idiot_checks() {
     oops = 1;
   }
 #endif
+#endif
   if (sizeof(wchar_t) * 8 != wchar_bits) {
     fprintf(stderr, "sizeof(wchar_t) * 8 [%ld] != wchar_bits [%d]\n",
               (long)sizeof(wchar_t), wchar_bits);
     oops = 1;
   }
+#ifndef PORTABLE_BYTECODE
   if (sizeof(size_t) * 8 != size_t_bits) {
     fprintf(stderr, "sizeof(size_t) * 8 [%ld] != size_t_bits [%d]\n",
               (long)sizeof(size_t), size_t_bits);
@@ -223,6 +226,7 @@ static void idiot_checks() {
               (long)sizeof(time_t), time_t_bits);
     oops = 1;
   }
+#endif
   if (sizeof(bigit) * 8 != bigit_bits) {
     fprintf(stderr, "sizeof(bigit) * 8 [%ld] != bigit_bits [%d]\n",
               (long)sizeof(bigit), bigit_bits);

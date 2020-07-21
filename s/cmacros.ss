@@ -392,7 +392,7 @@
   arm32le   tarm32le
   ppc32le   tppc32le
   arm64le   tarm64le
-  pb64el pb32el pb32eb 
+  pb
 )
 
 (include "machine.def")

@@ -1,7 +1,7 @@
-# Mf-pb32eb
+# Mf-pb
 
 # Override definitions in `Mf-pbhost`
-m = pb32eb
+m = pb
 Cpu = PORTABLE_BYTECODE
 mdsrc = pb.c
 mdobj = pb.o

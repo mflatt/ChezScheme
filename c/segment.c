@@ -59,12 +59,14 @@ void S_segment_init() {
   S_G.number_of_nonstatic_segments = 0;
   S_G.number_of_empty_segments = 0;
 
+#ifndef PORTABLE_BYTECODE
   if (seginfo_space_disp != offsetof(seginfo, space))
     S_error_abort("seginfo_space_disp is wrong");
   if (seginfo_generation_disp != offsetof(seginfo, generation))
     S_error_abort("seginfo_generation_disp is wrong");
   if (seginfo_list_bits_disp != offsetof(seginfo, list_bits))
     S_error_abort("seginfo_list_bits_disp is wrong");
+#endif
 }
 
 static uptr membytes = 0;
