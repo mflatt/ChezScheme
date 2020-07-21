@@ -1504,15 +1504,20 @@ ptr S_get_code_obj(typ, p, n, o) IFASLCODE typ; iptr n, o; ptr p; {
 static void pb_set_abs(void *address, uptr item) {
   ((U32 *)address)[0] = ((((U32 *)address)[0] & ~ADDRESS_BITS_MASK) | ((item & 0xFFFF) << ADDRESS_BITS_SHIFT));
   ((U32 *)address)[1] = ((((U32 *)address)[1] & ~ADDRESS_BITS_MASK) | (((item >> 16) & 0xFFFF) << ADDRESS_BITS_SHIFT));
+#if ptr_bytes == 8  
   ((U32 *)address)[2] = ((((U32 *)address)[2] & ~ADDRESS_BITS_MASK) | (((item >> 32) & 0xFFFF) << ADDRESS_BITS_SHIFT));
   ((U32 *)address)[3] = ((((U32 *)address)[3] & ~ADDRESS_BITS_MASK) | (((item >> 48) & 0xFFFF) << ADDRESS_BITS_SHIFT));
+#endif
 }
 
 static uptr pb_get_abs(void *address) {
   return ((uptr)((((U32 *)address)[0] & ADDRESS_BITS_MASK) >> ADDRESS_BITS_SHIFT)
           | ((uptr)((((U32 *)address)[1] & ADDRESS_BITS_MASK) >> ADDRESS_BITS_SHIFT) << 16)
+#if ptr_bytes == 8          
           | ((uptr)((((U32 *)address)[2] & ADDRESS_BITS_MASK) >> ADDRESS_BITS_SHIFT) << 32)
-          | ((uptr)((((U32 *)address)[3] & ADDRESS_BITS_MASK) >> ADDRESS_BITS_SHIFT) << 48));
+          | ((uptr)((((U32 *)address)[3] & ADDRESS_BITS_MASK) >> ADDRESS_BITS_SHIFT) << 48)
+#endif
+          );
 }
 
 #endif /* AARCH64 */

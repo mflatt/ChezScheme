@@ -13,14 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-m = a6osx
-Cpu = X86_64
+m ?= a6osx
+Cpu ?= X86_64
 
 mdclib = -liconv -lm ${ncursesLib}
 C = ${CC} ${CPPFLAGS} -m64 -Wpointer-arith -Wall -Wextra -Wno-implicit-fallthrough -Werror -O2 -I/opt/X11/include/ ${CFLAGS}
 o = o
-mdsrc = i3le.c
-mdobj = i3le.o
+mdsrc ?= i3le.c
+mdobj ?= i3le.o
 
 .SUFFIXES:
 .SUFFIXES: .c .o

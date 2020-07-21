@@ -13,14 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-m = arm32le
-Cpu = ARMV6
+m ?= arm32le
+Cpu ?= ARMV6
 
 mdclib = -lm -ldl ${ncursesLib} -lrt -luuid
 C = ${CC} ${CPPFLAGS} -Wpointer-arith -Wextra -Werror -Wno-implicit-fallthrough -O2 ${CFLAGS}
 o = o
-mdsrc = arm32le.c
-mdobj = arm32le.o
+mdsrc ?= arm32le.c
+mdobj ?= arm32le.o
 
 .SUFFIXES:
 .SUFFIXES: .c .o

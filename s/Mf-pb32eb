@@ -1,0 +1,6 @@
+# Mf-pb32eb
+
+m = pb32eb
+archincludes = pb.ss
+
+include Mf-base

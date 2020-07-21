@@ -442,6 +442,8 @@
                     [(int16) 'int16_t]
                     [(int32) 'int32_t]
                     [(uint32) 'uint32_t]
+                    [(int64) 'int64_t]
+                    [(uint64) 'uint64_t]
                     [else s]))
                 (pr "typedef ~a (*pb_~a_t)(~a);~%"
                     (sym->type (car proto))

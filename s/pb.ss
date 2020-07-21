@@ -309,19 +309,44 @@
     [(op (x fpmem) (y fpur)) `(set! ,(make-live-info) ,x ,y)]
     [(op (x fpur) (y fpmem fpur)) `(set! ,(make-live-info) ,x ,y)])
 
-  (let ()
-    (define (mem->mem mem new-type)
-      (nanopass-case (L15d Triv) mem
-        [(mref ,x0 ,x1 ,imm ,type)
-         (with-output-language (L15d Lvalue) `(mref ,x0 ,x1 ,imm ,new-type))]))
+  (constant-case ptr-bits
+    [(64)
+     (let ()
+       (define (mem->mem mem new-type)
+         (nanopass-case (L15d Triv) mem
+           [(mref ,x0 ,x1 ,imm ,type)
+            (with-output-language (L15d Lvalue) `(mref ,x0 ,x1 ,imm ,new-type))]))
 
-    (define-instruction value (fpcastto)
-      [(op (x mem) (y fpur)) `(set! ,(make-live-info) ,(mem->mem x 'fp) ,y)]
-      [(op (x ur) (y fpur)) `(set! ,(make-live-info) ,x (asm ,info ,asm-fpcastto ,y))])
+       (define-instruction value (fpcastto)
+         [(op (x mem) (y fpur)) `(set! ,(make-live-info) ,(mem->mem x 'fp) ,y)]
+         [(op (x ur) (y fpur)) `(set! ,(make-live-info) ,x (asm ,info ,asm-fpcastto ,y))])
+       
+       (define-instruction value (fpcastfrom)
+         [(op (x fpmem) (y ur)) `(set! ,(make-live-info) ,(mem->mem x 'uptr) ,y)]
+         [(op (x fpur) (y ur)) `(set! ,(make-live-info) ,x (asm ,info ,asm-fpcastfrom ,y))]))]
+    [(32)
+     (let ()
+       (define (mem->mem mem delta)
+         (nanopass-case (L15d Triv) mem
+           [(mref ,x0 ,x1 ,imm ,type)
+            (let ([delta (constant-case native-endianness
+                           [(little) (if (eq? delta 'lo) 0 4)]
+                           [(big) (if (eq? delta 'hi) 0 4)])])
+              (with-output-language (L15d Lvalue) `(mref ,x0 ,x1 ,(fx+ imm delta) uptr)))]))
+
+       (define-instruction value (fpcastto/hi)
+         [(op (x ur) (y fpmem)) `(set! ,(make-live-info) ,x ,(mem->mem y 'hi))]
+         [(op (x ur) (y fpur)) `(set! ,(make-live-info) ,x (asm ,info ,(asm-fpcastto 'hi) ,y))])
     
-    (define-instruction value (fpcastfrom)
-      [(op (x fpmem) (y ur)) `(set! ,(make-live-info) ,(mem->mem x 'uptr) ,y)]
-      [(op (x fpur) (y ur)) `(set! ,(make-live-info) ,x (asm ,info ,asm-fpcastfrom ,y))]))
+       (define-instruction value (fpcastto/lo)
+         [(op (x ur) (y fpmem)) `(set! ,(make-live-info) ,x ,(mem->mem y 'lo))]
+         [(op (x ur) (y fpur)) `(set! ,(make-live-info) ,x (asm ,info ,(asm-fpcastto 'lo) ,y))])
+    
+       (define-instruction value (fpcastfrom)
+         [(op (x fpmem) (hi ur) (lo ur)) (seq
+                                          `(set! ,(make-live-info) ,(mem->mem x 'lo) ,lo)
+                                          `(set! ,(make-live-info) ,(mem->mem x 'hi) ,hi))]
+         [(op (x fpur) (hi ur) (lo ur)) `(set! ,(make-live-info) ,x (asm ,info ,asm-fpcastfrom ,lo ,hi))]))])
 
   (define-instruction value (fp+ fp- fp/ fp*)
     [(op (x fpur) (y fpur) (z fpur))
@@ -574,8 +599,15 @@
   (define-op mov.d->s mov-op (constant pb-d->s))
   (define-op mov.i->d mov-op (constant pb-i->d))
   (define-op mov.d->i mov-op (constant pb-d->i))
+
+  ;; 64-bit versions
   (define-op mov.i*>d mov-op (constant pb-i-bits->d-bits))
   (define-op mov.d*>i mov-op (constant pb-d-bits->i-bits))
+
+  ;; 32-bit versions
+  (define-op mov.ii*>d mov2-op (constant pb-i-i-bits->d-bits))
+  (define-op mov.d*l>i mov-op (constant pb-d-lo-bits->i-bits))
+  (define-op mov.d*h>i mov-op (constant pb-d-hi-bits->i-bits))
 
   (define-op btrue branch-op (constant pb-true))
   (define-op bfals branch-op (constant pb-fals))
@@ -610,6 +642,15 @@
              mode)
         (ax-ea-reg-code dest)
         (ax-ea-reg-code src))))
+
+  (define mov2-op
+    (lambda (op mode dest src0 src1 code*)
+      (emit-code (op dest src0 src1 code*)
+        (fx+ (constant pb-mov)
+             mode)
+        (ax-ea-reg-code dest)
+        (ax-ea-reg-code src0)
+        (ax-ea-reg-code src1))))
 
   (define signal-bin-op
     (lambda (op opcode set-cc? dest src0 src1 code*)
@@ -916,7 +957,9 @@
       (case (car x)
         [(asm pb-abs pb-proc) 0]
         [(long) 4]
-        [else 8])))
+        [else (constant-case ptr-bits
+                [(64) 8]
+                [(32) 4])])))
 
   (define ax-mov64
     (lambda (dest n code*)
@@ -1108,15 +1151,30 @@
               (emit ld (if double? (constant pb-double) (constant pb-single)) dest `(reg . ,breg) `(reg . ,ireg) code*)]
              [else (emit fpmov dest src code*)])]))))
 
-  (define asm-fpcastto
-    (lambda (code* dest src)
-      (Trivit (dest src)
-        (emit mov.d*>i dest src code*))))  
-
-  (define asm-fpcastfrom
-    (lambda (code* dest src)
-      (Trivit (dest src)
-        (emit mov.i*>d dest src code*))))
+  (constant-case ptr-bits
+    [(64)
+     (define asm-fpcastto
+       (lambda (code* dest src)
+         (Trivit (dest src)
+           (emit mov.d*>i dest src code*))))  
+     
+     (define asm-fpcastfrom
+       (lambda (code* dest src)
+         (Trivit (dest src)
+           (emit mov.i*>d dest src code*))))]
+    [(32)
+     (define asm-fpcastto
+       (lambda (part)
+         (lambda (code* dest src)
+           (Trivit (dest src)
+             (if (eq? part 'hi)
+                 (emit mov.d*h>i dest src code*)
+                 (emit mov.d*l>i dest src code*))))))
+     
+     (define asm-fpcastfrom
+       (lambda (code* dest src-lo src-hi)
+         (Trivit (dest src-lo src-hi)
+           (emit mov.ii*>d dest src-lo src-hi code*))))])
 
   (define-who asm-swap
     (lambda (type)
@@ -1349,6 +1407,24 @@
                   (lambda (ireg)
                     (lambda (x)
                       `(set! ,ireg ,x)))]
+                 [load-two-int-regs
+                  (lambda (lo-ireg hi-ireg)
+                    (lambda (lo hi)
+                      `(seq
+                        (set! ,lo-ireg ,lo)
+                        (set! ,hi-ireg ,hi))))]
+                 [64-bit-type-on-32-bit?
+                  (lambda (type)
+                    (nanopass-case (Ltype Type) type
+                      [(fp-integer ,bits)
+                       (constant-case ptr-bits
+                         [(64) #f]
+                         [(32) (fx= bits 64)])]
+                      [(fp-integer ,bits)
+                       (constant-case ptr-bits
+                         [(64) #f]
+                         [(32) (fx= bits 64)])]
+                      [else #f]))]
                  [do-args
                   (lambda (in-types)
                     (let loop ([types in-types] [locs '()] [live* '()] [int* (int-argument-regs)] [fp* (fp-argument-regs)])
@@ -1373,10 +1449,18 @@
                                (sorry! who "indirect arguments no supported")]
                               [else
                                (when (null? int*) (sorry! who "too many integer/pointer arguments: ~s" (length in-types)))
-                               (loop types
-                                     (cons (load-int-reg (car int*)) locs)
-                                     (cons (car int*) live*)
-                                     (cdr int*) fp*)])))))]
+                               (cond
+                                 [(64-bit-type-on-32-bit? type)
+                                  (when (null? (cdr int*)) (sorry! who "too many integer/pointer arguments: ~s" (length in-types)))
+                                  (loop types
+                                        (cons (load-two-int-regs (car int*) (cadr int*)) locs)
+                                        (cons* (cadr int*) (car int*) live*)
+                                        (cddr int*) fp*)]
+                                 [else
+                                  (loop types
+                                        (cons (load-int-reg (car int*)) locs)
+                                        (cons (car int*) live*)
+                                        (cdr int*) fp*)])])))))]
                  [do-result
                   (lambda (type)
                     (nanopass-case (Ltype Type) type
@@ -1391,6 +1475,8 @@
                       [(fp-ftd& ,ftd)
                        (sorry! who "unhandled result type ~s" type)]
                       [else
+                       (when (64-bit-type-on-32-bit? type)
+                         (sorry! who "unhandled result type ~s" type))
                        (values (lambda (lvalue) `(set! ,lvalue ,%Cretval))
                                (list %Cretval))]))]
                  [get-prototype
@@ -1400,16 +1486,30 @@
                                    (nanopass-case (Ltype Type) type
                                      [(fp-double-float) 'double]
                                      [(fp-single-float) 'float]
-                                     [(fp-integer ,bits) (case bits
-                                                           [(8) 'int8]
-                                                           [(16) 'int16]
-                                                           [(32) 'int32]
-                                                           [else 'uptr])]
-                                     [(fp-unsigned ,bits) (case bits
-                                                            [(8) 'uint8]
-                                                            [(16) 'uint16]
-                                                            [(32) 'uint32]
-                                                            [else 'uptr])]
+                                     [(fp-integer ,bits)
+                                      (constant-case ptr-bits
+                                        [(64) (case bits
+                                                [(8) 'int8]
+                                                [(16) 'int16]
+                                                [(32) 'int32]
+                                                [else 'uptr])]
+                                        [(32) (case bits
+                                                [(8) 'int8]
+                                                [(16) 'int16]
+                                                [(32) 'uptr]
+                                                [else 'int64])])]
+                                     [(fp-unsigned ,bits)
+                                      (constant-case ptr-bits
+                                        [(64) (case bits
+                                                [(8) 'uint8]
+                                                [(16) 'uint16]
+                                                [(32) 'uint32]
+                                                [else 'uptr])]
+                                        [(32) (case bits
+                                                [(8) 'uint8]
+                                                [(16) 'uint16]
+                                                [(32) 'uptr]
+                                                [else 'int64])])]
                                      [(fp-scheme-object) 'uptr]
                                      [(fp-fixnum) 'uptr]
                                      [(fp-u8*) 'uptr]

@@ -78,7 +78,7 @@
 # endif
 #endif
 
-#if (machine_type == machine_type_pb)
+#if (machine_type == machine_type_pb64el) || (machine_type == machine_type_pb32el) || (machine_type == machine_type_pb32eb)
 # if defined(__linux__)
 #  define OS_ANY_LINUX
 # elif defined(__NetBSD__)

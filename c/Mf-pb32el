@@ -1,0 +1,9 @@
+# Mf-pb32el
+
+# Override definitions in `Mf-pbhost`
+m = pb32el
+Cpu = PORTABLE_BYTECODE
+mdsrc = pb.c
+mdobj = pb.o
+
+include Mf-pbhost

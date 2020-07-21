@@ -10658,8 +10658,8 @@
                 ,(unsigned->ptr
                    (%inline logor ,(%inline sll ,%rdx (immediate 32)) ,%rax)
                    64))]
-             [(arm32) (unsigned->ptr (%inline read-time-stamp-counter) 32)]
-             [(arm64 pb) (unsigned->ptr (%inline read-time-stamp-counter) 64)]
+             [(arm32 pb) (unsigned->ptr (%inline read-time-stamp-counter) 32)]
+             [(arm64) (unsigned->ptr (%inline read-time-stamp-counter) 64)]
              [(ppc32)
               (let ([t-hi (make-tmp 't-hi)])
                 `(let ([,t-hi (inline ,(make-info-kill* (reg-list %real-zero))
@@ -10679,8 +10679,8 @@
                 ,(unsigned->ptr
                    (%inline logor ,(%inline sll ,%rdx (immediate 32)) ,%rax)
                    64))]
-             [(arm32 ppc32) (unsigned->ptr (%inline read-performance-monitoring-counter ,(build-unfix e)) 32)]
-             [(arm64 pb) (unsigned->ptr (%inline read-performance-monitoring-counter ,(build-unfix e)) 64)])])
+             [(arm32 ppc32 pb) (unsigned->ptr (%inline read-performance-monitoring-counter ,(build-unfix e)) 32)]
+             [(arm64) (unsigned->ptr (%inline read-performance-monitoring-counter ,(build-unfix e)) 64)])])
 
     )) ; expand-primitives module
 

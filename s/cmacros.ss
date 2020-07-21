@@ -384,7 +384,7 @@
   arm32le   tarm32le
   ppc32le   tppc32le
   arm64le   tarm64le
-  pb
+  pb64el pb32el pb32eb 
 )
 
 (include "machine.def")
@@ -3048,7 +3048,10 @@
   pb-s->d
   pb-d->s
   pb-i-bits->d-bits
-  pb-d-bits->i-bits)
+  pb-d-bits->i-bits
+  pb-i-i-bits->d-bits
+  pb-d-lo-bits->i-bits
+  pb-d-hi-bits->i-bits)
 
 (define-pb-enum pb-binaries << pb-argument-types
   pb-add
@@ -3172,13 +3175,17 @@
   [uptr uptr uptr]
   [uptr uptr int32]
   [uptr int32 uptr]
+  [uptr uptr int64]
   [uptr uptr int32 int32]
   [uptr uptr uptr int32]
   [uptr uptr uptr uptr]
   [uptr int32 int32 uptr]
   [uptr int32 uptr uptr uptr]
+  [uptr uptr uptr uptr uptr]
   [uptr uptr uptr uptr uptr int32]
   [uptr uptr uptr uptr uptr uptr]
   [uptr uptr int32 uptr uptr uptr uptr]
+  [uptr uptr uptr uptr uptr uptr uptr]
   [uptr uptr uptr uptr uptr uptr uptr int32]
-  [uptr uptr uptr uptr uptr uptr uptr uptr])
+  [uptr uptr uptr uptr uptr uptr uptr uptr]
+  [uptr double double double double double double])

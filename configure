@@ -25,6 +25,7 @@ machs=$machs$sep2$last
 
 m=""
 w=""
+pb=no
 threads=yes
 nothreads=no
 temproot=""
@@ -70,6 +71,9 @@ else
     CONFIG_UNAME=`uname`
 fi
 
+pb64=pb64el
+pb32=pb32el
+
 case "${CONFIG_UNAME}" in
   Linux)
     if uname -a | egrep 'i386|i686|amd64|athlon|x86_64' > /dev/null 2>&1 ; then
@@ -82,6 +86,8 @@ case "${CONFIG_UNAME}" in
       m64=""
       tm32=tppc32le
       tm64=""
+      pb32=pb32eb
+      pb64=""
     elif uname -a | egrep 'armv|aarch64' > /dev/null 2>&1 ; then
       m32=arm32le
       m64=arm64le
@@ -185,6 +191,9 @@ while [ $# != 0 ] ; do
       ;;
     --32)
       bits=32
+      ;;
+    --pb)
+      pb=yes
       ;;
     --installprefix=*)
       installprefix=`echo $1 | sed -e 's/^--installprefix=//'`
@@ -320,10 +329,15 @@ if [ "$threads" = "" ] ; then
 fi
 
 if [ "$m" = "" ] ; then
-  if [ $bits = 64 ] ; then
-    if [ $threads = yes ] ; then m=$tm64 ; else m=$m64 ; fi
-  else
-    if [ $threads = yes ] ; then m=$tm32 ; else m=$m32 ; fi
+  if [ $pb = yes ] ; then
+     if [ $bits = 64 ] ; then m=$pb64 ; else m=$pb32 ; fi
+     if [ $bits = 64 ] ; then mpbhost=$m64 ; else mpbhost=$m32 ; fi
+  else      
+    if [ $bits = 64 ] ; then
+      if [ $threads = yes ] ; then m=$tm64 ; else m=$m64 ; fi
+    else
+      if [ $threads = yes ] ; then m=$tm32 ; else m=$m32 ; fi
+    fi
   fi
 fi
 
@@ -447,7 +461,7 @@ else
   fi
 fi
 
-./workarea $m $w
+./workarea $m $w $mpbhost
 
 sed -e 's/$(m)/'$m'/g'\
     -e 's/$(workarea)/'$w'/g'\

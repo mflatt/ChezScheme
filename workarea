@@ -15,9 +15,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-if [ $# != 1 -a $# != 2 ]
+if [ $# != 1 -a $# != 2  -a $# != 3 ]
 then
-    echo "Usage: workarea <machine-type> { <workarea name> }"
+    echo "Usage: workarea <machine-type> { <workarea name> <pb host machine-type> }"
     exit 1
 fi
 
@@ -28,6 +28,12 @@ then
     W=$M
 else
     W=$2
+fi
+if [ "$3" != "" ]
+then
+   Mpbhost=$3
+else
+   Mpbhost=""
 fi
 
 case "$M" in
@@ -66,7 +72,9 @@ case "$M" in
   ti3qnx) ;;
   ti3s2) ;;
   tppc32le) ;;
-  pb) ;;
+  pb64el) ;;
+  pb32el) ;;
+  pb32eb) ;;
   *) echo "Unrecognized machine name $M"; exit 1 ;;
 esac
 
@@ -128,6 +136,10 @@ workdir $W
 workdir $W/c
 (cd $W/c; workln ../../c/Mf-$M Mf-$M)
 (cd $W/c; forceworkln Mf-$M Makefile)
+if [ "$Mpbhost" != "" ] ; then
+  (cd $W/c; workln ../../c/Mf-$Mpbhost Mf-$Mpbhost)
+  (cd $W/c; forceworkln Mf-$Mpbhost Mf-pbhost)
+fi
 (cd $W/c; workln ../../c/Mf-base Mf-base)
 if [ ! -e $W/c/config.h ] ; then
   touch $W/c/config.h
@@ -152,6 +164,10 @@ workdir $W/s
 workdir $W/mats
 (cd $W/mats; workln ../../mats/Mf-$M Mf-$M)
 (cd $W/mats; forceworkln Mf-$M Makefile)
+if [ "$Mpbhost" != "" ] ; then
+  (cd $W/mats; workln ../../c/Mf-$Mpbhost Mf-$Mpbhost)
+  (cd $W/mats; forceworkln Mf-$Mpbhost Mf-pbhost)
+fi
 (cd $W/mats; workln ../../mats/Mf-base Mf-base)
 (cd $W/mats; workln ../../mats/Mf-exobj Mf-exobj)
 case $M in

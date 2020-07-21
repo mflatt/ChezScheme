@@ -90,10 +90,18 @@ void S_pb_interp(ptr tc, void *bytecode) {
       regs[INSTR_di_dest(instr)] = (uptr)INSTR_di_imm_unsigned(instr) << 16;
       break;
     case pb_mov16_pb_zero_bits_pb_shift2:
+#if ptr_bits == 64      
       regs[INSTR_di_dest(instr)] = (uptr)INSTR_di_imm_unsigned(instr) << 32;
+#else
+      regs[INSTR_di_dest(instr)] = 0;
+#endif
       break;
     case pb_mov16_pb_zero_bits_pb_shift3:
+#if ptr_bits == 64      
       regs[INSTR_di_dest(instr)] = (uptr)INSTR_di_imm_unsigned(instr) << 48;
+#else
+      regs[INSTR_di_dest(instr)] = 0;
+#endif
       break;
     case pb_mov16_pb_keep_bits_pb_shift0:
       regs[INSTR_di_dest(instr)] |= (uptr)INSTR_di_imm_unsigned(instr);
@@ -102,10 +110,14 @@ void S_pb_interp(ptr tc, void *bytecode) {
       regs[INSTR_di_dest(instr)] |= (uptr)INSTR_di_imm_unsigned(instr) << 16;
       break;
     case pb_mov16_pb_keep_bits_pb_shift2:
+#if ptr_bits == 64      
       regs[INSTR_di_dest(instr)] |= (uptr)INSTR_di_imm_unsigned(instr) << 32;
+#endif
       break;
     case pb_mov16_pb_keep_bits_pb_shift3:
+#if ptr_bits == 64      
       regs[INSTR_di_dest(instr)] |= (uptr)INSTR_di_imm_unsigned(instr) << 48;
+#endif
       break;
     case pb_mov_pb_i_i:
       regs[INSTR_dr_dest(instr)] = regs[INSTR_dr_reg(instr)];
@@ -119,12 +131,37 @@ void S_pb_interp(ptr tc, void *bytecode) {
     case pb_mov_pb_d_i:
       regs[INSTR_dr_dest(instr)] = (iptr)fpregs[INSTR_dr_reg(instr)];
       break;
+#if ptr_bits == 64      
     case pb_mov_pb_i_bits_d_bits:
       memcpy(&fpregs[INSTR_dr_dest(instr)], &regs[INSTR_dr_reg(instr)], sizeof(double));
       break;
     case pb_mov_pb_d_bits_i_bits:
       memcpy(&regs[INSTR_dr_dest(instr)], &fpregs[INSTR_dr_reg(instr)], sizeof(double));
       break;
+#else
+    case pb_mov_pb_i_i_bits_d_bits:
+      {
+        uint64_t d;
+        d = regs[INSTR_drr_reg1(instr)] | ((uint64_t)regs[INSTR_drr_reg2(instr)] << 32);
+        memcpy(&fpregs[INSTR_drr_dest(instr)], &d, sizeof(double));
+      }
+      break;
+    case pb_mov_pb_d_lo_bits_i_bits:
+      {
+        uint64_t d;
+        memcpy(&d, &fpregs[INSTR_dr_reg(instr)], sizeof(double));
+        regs[INSTR_dr_dest(instr)] = d;
+      }
+      break;
+    case pb_mov_pb_d_hi_bits_i_bits:
+      {
+        uint64_t d;
+        memcpy(&d, &fpregs[INSTR_dr_reg(instr)], sizeof(double));
+        d >>= 32;
+        regs[INSTR_dr_dest(instr)] = d;
+      }
+      break;
+#endif      
     case pb_mov_pb_s_d:
       {
         float f;
@@ -398,34 +435,53 @@ void S_pb_interp(ptr tc, void *bytecode) {
       flag = fpregs[INSTR_dr_dest(instr)] <= fpregs[INSTR_dr_reg(instr)];
       break;
     case pb_rev_op_pb_int16_pb_register:
+#if ptr_bits == 64
       regs[INSTR_dr_dest(instr)] = ((uptr)((iptr)(regs[INSTR_dr_reg(instr)] << 56) >> 48)
-                              | ((regs[INSTR_dr_reg(instr)] & 0xFF00) >> 8));
+                                    | ((regs[INSTR_dr_reg(instr)] & 0xFF00) >> 8));
+#else
+      regs[INSTR_dr_dest(instr)] = ((uptr)((iptr)(regs[INSTR_dr_reg(instr)] << 24) >> 16)
+                                    | ((regs[INSTR_dr_reg(instr)] & 0xFF00) >> 8));
+#endif
       break;
     case pb_rev_op_pb_uint16_pb_register:
       regs[INSTR_dr_dest(instr)] = (((regs[INSTR_dr_reg(instr)] & 0x00FF) << 8)
-                              | ((regs[INSTR_dr_reg(instr)] & 0xFF00) >> 8));
+                                    | ((regs[INSTR_dr_reg(instr)] & 0xFF00) >> 8));
       break;
     case pb_rev_op_pb_int32_pb_register:
+#if ptr_bits == 64
       regs[INSTR_dr_dest(instr)] = ((uptr)((iptr)(regs[INSTR_dr_reg(instr)] << 56) >> 32)
-                              | ((regs[INSTR_dr_reg(instr)] & (uptr)0xFF000000) >> 24)
-                              | ((regs[INSTR_dr_reg(instr)] & (uptr)0x00FF0000) >> 8)
-                              | ((regs[INSTR_dr_reg(instr)] & (uptr)0x0000FF00) << 8));
+                                    | ((regs[INSTR_dr_reg(instr)] & (uptr)0xFF000000) >> 24)
+                                    | ((regs[INSTR_dr_reg(instr)] & (uptr)0x00FF0000) >> 8)
+                                    | ((regs[INSTR_dr_reg(instr)] & (uptr)0x0000FF00) << 8));
+#else
+      regs[INSTR_dr_dest(instr)] = ((regs[INSTR_dr_reg(instr)] << 24)
+                                    | ((regs[INSTR_dr_reg(instr)] & (uptr)0xFF000000) >> 24)
+                                    | ((regs[INSTR_dr_reg(instr)] & (uptr)0x00FF0000) >> 8)
+                                    | ((regs[INSTR_dr_reg(instr)] & (uptr)0x0000FF00) << 8));
+#endif
       break;
     case pb_rev_op_pb_uint32_pb_register:
-      regs[INSTR_dr_dest(instr)] = (((regs[INSTR_dr_reg(instr)] * (uptr)0x000000FF) << 24)
-                              | ((regs[INSTR_dr_reg(instr)] & (uptr)0xFF000000) >> 24)
-                              | ((regs[INSTR_dr_reg(instr)] & (uptr)0x00FF0000) >> 8)
-                              | ((regs[INSTR_dr_reg(instr)] & (uptr)0x0000FF00) << 8));
+      regs[INSTR_dr_dest(instr)] = (((regs[INSTR_dr_reg(instr)] & (uptr)0x000000FF) << 24)
+                                    | ((regs[INSTR_dr_reg(instr)] & (uptr)0xFF000000) >> 24)
+                                    | ((regs[INSTR_dr_reg(instr)] & (uptr)0x00FF0000) >> 8)
+                                    | ((regs[INSTR_dr_reg(instr)] & (uptr)0x0000FF00) << 8));
       break;
     case pb_rev_op_pb_int64_pb_register:
-      regs[INSTR_dr_dest(instr)] = (((regs[INSTR_dr_reg(instr)] * (uptr)0x00000000000000FF) << 56)
-                              | ((regs[INSTR_dr_reg(instr)] & (uptr)0x000000000000FF00) << 40)
-                              | ((regs[INSTR_dr_reg(instr)] & (uptr)0x0000000000FF0000) << 24)
-                              | ((regs[INSTR_dr_reg(instr)] & (uptr)0x00000000FF000000) << 8)
-                              | ((regs[INSTR_dr_reg(instr)] & (uptr)0x000000FF00000000) >> 8)
-                              | ((regs[INSTR_dr_reg(instr)] & (uptr)0x0000FF0000000000) >> 24)
-                              | ((regs[INSTR_dr_reg(instr)] & (uptr)0x00FF000000000000) >> 40)
-                              | ((regs[INSTR_dr_reg(instr)] & (uptr)0xFF00000000000000) >> 56));
+#if ptr_bits == 64
+      regs[INSTR_dr_dest(instr)] = (((regs[INSTR_dr_reg(instr)] & (uptr)0x00000000000000FF) << 56)
+                                    | ((regs[INSTR_dr_reg(instr)] & (uptr)0x000000000000FF00) << 40)
+                                    | ((regs[INSTR_dr_reg(instr)] & (uptr)0x0000000000FF0000) << 24)
+                                    | ((regs[INSTR_dr_reg(instr)] & (uptr)0x00000000FF000000) << 8)
+                                    | ((regs[INSTR_dr_reg(instr)] & (uptr)0x000000FF00000000) >> 8)
+                                    | ((regs[INSTR_dr_reg(instr)] & (uptr)0x0000FF0000000000) >> 24)
+                                    | ((regs[INSTR_dr_reg(instr)] & (uptr)0x00FF000000000000) >> 40)
+                                    | ((regs[INSTR_dr_reg(instr)] & (uptr)0xFF00000000000000) >> 56));
+#else
+      regs[INSTR_dr_dest(instr)] = (((regs[INSTR_dr_reg(instr)] & (uptr)0x000000FF) << 24)
+                                    | ((regs[INSTR_dr_reg(instr)] & (uptr)0xFF000000) >> 24)
+                                    | ((regs[INSTR_dr_reg(instr)] & (uptr)0x00FF0000) >> 8)
+                                    | ((regs[INSTR_dr_reg(instr)] & (uptr)0x0000FF00) << 8));
+#endif
       break;
     case pb_ld_op_pb_int8_pb_register:
       regs[INSTR_drr_dest(instr)] = *(int8_t *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
@@ -661,6 +717,13 @@ void S_pb_interp(ptr tc, void *bytecode) {
         case pb_call_uptr_uptr_int32:
           regs[Cretval] = ((pb_uptr_uptr_int32_t)proc)(regs[Carg1], regs[Carg2]);
           break;
+        case pb_call_uptr_uptr_int64:
+#if ptr_bits == 64
+          regs[Cretval] = ((pb_uptr_uptr_int64_t)proc)(regs[Carg1], regs[Carg2]);
+#else
+          regs[Cretval] = ((pb_uptr_uptr_int64_t)proc)(regs[Carg1], regs[Carg2] | ((int64_t)regs[Carg3] << 32));
+#endif
+          break;
         case pb_call_uptr_int32_uptr:
           regs[Cretval] = ((pb_uptr_int32_uptr_t)proc)(regs[Carg1], regs[Carg2]);
           break;
@@ -680,6 +743,10 @@ void S_pb_interp(ptr tc, void *bytecode) {
           regs[Cretval] = ((pb_uptr_int32_uptr_uptr_uptr_t)proc)(regs[Carg1], regs[Carg2], regs[Carg3],
                                                                  regs[Carg4]);
           break;
+        case pb_call_uptr_uptr_uptr_uptr_uptr:
+          regs[Cretval] = ((pb_uptr_uptr_uptr_uptr_uptr_t)proc)(regs[Carg1], regs[Carg2], regs[Carg3],
+                                                                regs[Carg4]);
+          break;
         case pb_call_uptr_uptr_uptr_uptr_uptr_int32:
           regs[Cretval] = ((pb_uptr_uptr_uptr_uptr_uptr_int32_t)proc)(regs[Carg1], regs[Carg2], regs[Carg3],
                                                                       regs[Carg4], regs[Carg5]);
@@ -692,6 +759,10 @@ void S_pb_interp(ptr tc, void *bytecode) {
           regs[Cretval] = ((pb_uptr_uptr_int32_uptr_uptr_uptr_uptr_t)proc)(regs[Carg1], regs[Carg2], regs[Carg3],
                                                                            regs[Carg4], regs[Carg5], regs[Carg6]);
           break;
+        case pb_call_uptr_uptr_uptr_uptr_uptr_uptr_uptr:
+          regs[Cretval] = ((pb_uptr_uptr_uptr_uptr_uptr_uptr_uptr_t)proc)(regs[Carg1], regs[Carg2], regs[Carg3],
+                                                                          regs[Carg4], regs[Carg5], regs[Carg6]);
+          break;
         case pb_call_uptr_uptr_uptr_uptr_uptr_uptr_uptr_int32:
           regs[Cretval] = ((pb_uptr_uptr_uptr_uptr_uptr_uptr_uptr_int32_t)proc)(regs[Carg1], regs[Carg2], regs[Carg3],
                                                                                 regs[Carg4], regs[Carg5], regs[Carg6],
@@ -701,6 +772,10 @@ void S_pb_interp(ptr tc, void *bytecode) {
           regs[Cretval] = ((pb_uptr_uptr_uptr_uptr_uptr_uptr_uptr_uptr_t)proc)(regs[Carg1], regs[Carg2], regs[Carg3],
                                                                                regs[Carg4], regs[Carg5], regs[Carg6],
                                                                                regs[Carg7]);
+          break;
+        case pb_call_uptr_double_double_double_double_double_double:
+          regs[Cretval] = ((pb_uptr_double_double_double_double_double_double_t)proc)(fpregs[Cfparg1], fpregs[Cfparg2], fpregs[Cfparg3],
+                                                                                      fpregs[Cfparg4], fpregs[Cfparg5], fpregs[Cfparg6]);
           break;
         }
       }
