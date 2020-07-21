@@ -525,133 +525,133 @@ void S_pb_interp(ptr tc, void *bytecode) {
 #endif
       break;
     case pb_ld_op_pb_int8_pb_register:
-      regs[INSTR_drr_dest(instr)] = *(int8_t *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
+      regs[INSTR_drr_dest(instr)] = *(int8_t *)TO_VOIDP(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
       break;
     case pb_ld_op_pb_int8_pb_immediate:
-      regs[INSTR_dri_dest(instr)] = *(int8_t *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
+      regs[INSTR_dri_dest(instr)] = *(int8_t *)TO_VOIDP(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
       break;
     case pb_ld_op_pb_uint8_pb_register:
-      regs[INSTR_drr_dest(instr)] = *(uint8_t *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
+      regs[INSTR_drr_dest(instr)] = *(uint8_t *)TO_VOIDP(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
       break;
     case pb_ld_op_pb_uint8_pb_immediate:
-      regs[INSTR_dri_dest(instr)] = *(uint8_t *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
+      regs[INSTR_dri_dest(instr)] = *(uint8_t *)TO_VOIDP(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
       break;
     case pb_ld_op_pb_int16_pb_register:
-      regs[INSTR_drr_dest(instr)] = *(int16_t *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
+      regs[INSTR_drr_dest(instr)] = *(int16_t *)TO_VOIDP(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
       break;
     case pb_ld_op_pb_int16_pb_immediate:
-      regs[INSTR_dri_dest(instr)] = *(int16_t *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
+      regs[INSTR_dri_dest(instr)] = *(int16_t *)TO_VOIDP(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
       break;
     case pb_ld_op_pb_uint16_pb_register:
-      regs[INSTR_drr_dest(instr)] = *(uint16_t *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
+      regs[INSTR_drr_dest(instr)] = *(uint16_t *)TO_VOIDP(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
       break;
     case pb_ld_op_pb_uint16_pb_immediate:
-      regs[INSTR_dri_dest(instr)] = *(uint16_t *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
+      regs[INSTR_dri_dest(instr)] = *(uint16_t *)TO_VOIDP(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
       break;
     case pb_ld_op_pb_int32_pb_register:
-      regs[INSTR_drr_dest(instr)] = *(int32_t *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
+      regs[INSTR_drr_dest(instr)] = *(int32_t *)TO_VOIDP(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
       break;
     case pb_ld_op_pb_int32_pb_immediate:
-      regs[INSTR_dri_dest(instr)] = *(int32_t *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
+      regs[INSTR_dri_dest(instr)] = *(int32_t *)TO_VOIDP(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
       break;
     case pb_ld_op_pb_uint32_pb_register:
-      regs[INSTR_drr_dest(instr)] = *(uint32_t *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
+      regs[INSTR_drr_dest(instr)] = *(uint32_t *)TO_VOIDP(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
       break;
     case pb_ld_op_pb_uint32_pb_immediate:
-      regs[INSTR_dri_dest(instr)] = *(uint32_t *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
+      regs[INSTR_dri_dest(instr)] = *(uint32_t *)TO_VOIDP(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
       break;
     case pb_ld_op_pb_int64_pb_register:
-      regs[INSTR_drr_dest(instr)] = *(uptr *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
+      regs[INSTR_drr_dest(instr)] = *(uptr *)TO_VOIDP(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
       break;
     case pb_ld_op_pb_int64_pb_immediate:
-      regs[INSTR_dri_dest(instr)] = *(uptr *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
+      regs[INSTR_dri_dest(instr)] = *(uptr *)TO_VOIDP(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
       break;
     case pb_ld_op_pb_double_pb_register:
-      fpregs[INSTR_drr_dest(instr)] = *(double *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
+      fpregs[INSTR_drr_dest(instr)] = *(double *)TO_VOIDP(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
       break;
     case pb_ld_op_pb_double_pb_immediate:
-      fpregs[INSTR_dri_dest(instr)] = *(double *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
+      fpregs[INSTR_dri_dest(instr)] = *(double *)TO_VOIDP(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
       break;
     case pb_ld_op_pb_single_pb_register:
-      fpregs[INSTR_drr_dest(instr)] =  *(float *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
+      fpregs[INSTR_drr_dest(instr)] =  *(float *)TO_VOIDP(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]);
       break;
     case pb_ld_op_pb_single_pb_immediate:
-      fpregs[INSTR_dri_dest(instr)] = *(float *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
+      fpregs[INSTR_dri_dest(instr)] = *(float *)TO_VOIDP(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr));
       break;
     case pb_st_op_pb_int8_pb_register:
-      *(char *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]) = (char)regs[INSTR_drr_dest(instr)];
+      *(char *)TO_VOIDP(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]) = (char)regs[INSTR_drr_dest(instr)];
       break;
     case pb_st_op_pb_int8_pb_immediate:
-      *(char *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr)) = (char)regs[INSTR_dri_dest(instr)];
+      *(char *)TO_VOIDP(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr)) = (char)regs[INSTR_dri_dest(instr)];
       break;
     case pb_st_op_pb_int16_pb_register:
-      *(short *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]) = (short)regs[INSTR_drr_dest(instr)];
+      *(short *)TO_VOIDP(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]) = (short)regs[INSTR_drr_dest(instr)];
       break;
     case pb_st_op_pb_int16_pb_immediate:
-      *(short *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr)) = (short)regs[INSTR_dri_dest(instr)];
+      *(short *)TO_VOIDP(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr)) = (short)regs[INSTR_dri_dest(instr)];
       break;
     case pb_st_op_pb_int32_pb_register:
-      *(int *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]) = (int)regs[INSTR_drr_dest(instr)];
+      *(int *)TO_VOIDP(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]) = (int)regs[INSTR_drr_dest(instr)];
       break;
     case pb_st_op_pb_int32_pb_immediate:
-      *(int *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr)) = (int)regs[INSTR_dri_dest(instr)];
+      *(int *)TO_VOIDP(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr)) = (int)regs[INSTR_dri_dest(instr)];
       break;
     case pb_st_op_pb_int64_pb_register:
-      *(uptr *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]) = regs[INSTR_drr_dest(instr)];
+      *(uptr *)TO_VOIDP(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]) = regs[INSTR_drr_dest(instr)];
       break;
     case pb_st_op_pb_int64_pb_immediate:
-      *(uptr *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr)) = regs[INSTR_dri_dest(instr)];
+      *(uptr *)TO_VOIDP(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr)) = regs[INSTR_dri_dest(instr)];
       break;
     case pb_st_op_pb_double_pb_register:
-      *(double *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]) = fpregs[INSTR_drr_dest(instr)];
+      *(double *)TO_VOIDP(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]) = fpregs[INSTR_drr_dest(instr)];
       break;
     case pb_st_op_pb_double_pb_immediate:
-      *(double *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr)) = fpregs[INSTR_dri_dest(instr)];
+      *(double *)TO_VOIDP(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr)) = fpregs[INSTR_dri_dest(instr)];
       break;
     case pb_st_op_pb_single_pb_register:
-      *(float *)(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]) = fpregs[INSTR_drr_dest(instr)];
+      *(float *)TO_VOIDP(regs[INSTR_drr_reg1(instr)] + regs[INSTR_drr_reg2(instr)]) = fpregs[INSTR_drr_dest(instr)];
       break;
     case pb_st_op_pb_single_pb_immediate:
-      *(float *)(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr)) = fpregs[INSTR_dri_dest(instr)];
+      *(float *)TO_VOIDP(regs[INSTR_dri_reg(instr)] + INSTR_dri_imm(instr)) = fpregs[INSTR_dri_dest(instr)];
       break;
     case pb_b_op_pb_fals_pb_register:
       if (!flag) {
-        next_ip = (instruction_t *)regs[INSTR_dr_reg(instr)];
+        next_ip = (instruction_t *)TO_VOIDP(regs[INSTR_dr_reg(instr)]);
         TRACE(printf("branch %p -> %p\n", ip, next_ip), { branch_from = ip; branch_to = next_ip; });
       }
       break;
     case pb_b_op_pb_fals_pb_immediate:
       if (!flag) {
-        next_ip = (instruction_t *)((char *)next_ip + INSTR_i_imm(instr));
+        next_ip = (instruction_t *)TO_VOIDP((char *)next_ip + INSTR_i_imm(instr));
         TRACE(printf("branch %p -> %p\n", ip, next_ip), { branch_from = ip; branch_to = next_ip; });
       }
       break;
     case pb_b_op_pb_true_pb_register:
       if (flag) {
-        next_ip = (instruction_t *)regs[INSTR_dr_reg(instr)];
+        next_ip = (instruction_t *)TO_VOIDP(regs[INSTR_dr_reg(instr)]);
         TRACE(printf("branch %p -> %p\n", ip, next_ip), { branch_from = ip; branch_to = next_ip; });
       }
       break;
     case pb_b_op_pb_true_pb_immediate:
       if (flag) {
-        next_ip = (instruction_t *)((char *)next_ip + INSTR_i_imm(instr));
+        next_ip = (instruction_t *)TO_VOIDP((char *)next_ip + INSTR_i_imm(instr));
         TRACE(printf("branch %p -> %p\n", ip, next_ip), { branch_from = ip; branch_to = next_ip; });
       }
       break;
     case pb_b_op_pb_always_pb_register:
-      next_ip = (instruction_t *)regs[INSTR_dr_reg(instr)];
+      next_ip = (instruction_t *)TO_VOIDP(regs[INSTR_dr_reg(instr)]);
       TRACE(printf("jump %p -> %p\n", ip, next_ip), { jump_from = ip; jump_to = next_ip; });
       break;
     case pb_b_op_pb_always_pb_immediate:
-      next_ip = (instruction_t *)((char *)next_ip + INSTR_i_imm(instr));
+      next_ip = (instruction_t *)TO_VOIDP((char *)next_ip + INSTR_i_imm(instr));
       TRACE(printf("jump %p -> %p\n", ip, next_ip), { jump_from = ip; jump_to = next_ip; });
       break;
     case pb_bs_op_pb_register:
-      next_ip = *(instruction_t **)(regs[INSTR_dr_dest(instr)] + regs[INSTR_dr_reg(instr)]);
+      next_ip = (instruction_t *)TO_VOIDP(*(uptr *)TO_VOIDP(regs[INSTR_dr_dest(instr)] + regs[INSTR_dr_reg(instr)]));
       TRACE(printf("jump %p -> %p\n", ip, next_ip), { jump_from = ip; jump_to = next_ip; });
       break;
     case pb_bs_op_pb_immediate:
-      next_ip = *(instruction_t **)(regs[INSTR_di_dest(instr)] + INSTR_di_imm(instr));
+      next_ip = (instruction_t *)TO_VOIDP(*(uptr *)TO_VOIDP(regs[INSTR_di_dest(instr)] + INSTR_di_imm(instr)));
       TRACE(printf("jump %p -> %p\n", ip, next_ip), { jump_from = ip; jump_to = next_ip; });
       break;
     case pb_return:
@@ -661,14 +661,14 @@ void S_pb_interp(ptr tc, void *bytecode) {
       break;
     case pb_interp:
       {
-        void *code = (void *)regs[INSTR_d_dest(instr)];
+        void *code = TO_VOIDP(regs[INSTR_d_dest(instr)]);
         TRACE(printf("interp %p -> %p\n", ip, code), { interp_from = ip; interp_to = (instruction_t *)regs[0]; });
         S_pb_interp((ptr)regs[0], code);
       }
       break;
     case pb_call:
       {
-        void *proc = (void *)regs[INSTR_dri_dest(instr)];
+        void *proc = TO_VOIDP(regs[INSTR_dri_dest(instr)]);
         TRACE(printf("call %p -> %p %x\n", ip, proc, INSTR_dri_imm(instr)), { call_from = ip; call_to = proc; });
         switch (INSTR_dri_imm(instr)) {
         case pb_call_void:
@@ -886,21 +886,21 @@ void S_pb_interp(ptr tc, void *bytecode) {
       break;
     case pb_inc_pb_register:
       {
-        uptr r = *(uptr *)regs[INSTR_dr_dest(instr)] + regs[INSTR_dr_reg(instr)];
-        *(uptr *)regs[INSTR_dr_dest(instr)] = r;
+        uptr r = *(uptr *)TO_VOIDP(regs[INSTR_dr_dest(instr)]) + regs[INSTR_dr_reg(instr)];
+        *(uptr *)TO_VOIDP(regs[INSTR_dr_dest(instr)]) = r;
         flag = (r == 0);
       }
       break;
     case pb_inc_pb_immediate:
       {
-        uptr r = *(uptr *)regs[INSTR_di_dest(instr)] + INSTR_di_imm(instr);
-        *(uptr *)regs[INSTR_di_dest(instr)] = r;
+        uptr r = *(uptr *)TO_VOIDP(regs[INSTR_di_dest(instr)]) + INSTR_di_imm(instr);
+        *(uptr *)TO_VOIDP(regs[INSTR_di_dest(instr)]) = r;
         flag = (r == 0);
       }
       break;
     case pb_lock:
       {
-        uptr *l = (uptr *)(regs[INSTR_d_dest(instr)]);
+        uptr *l = TO_VOIDP(regs[INSTR_d_dest(instr)]);
         if (*l == 0) {
           *l = 1;
           flag = 1;
@@ -910,7 +910,7 @@ void S_pb_interp(ptr tc, void *bytecode) {
       break;
     case pb_cas:
       {
-        uptr *l = (uptr *)regs[INSTR_drr_dest(instr)];
+        uptr *l = TO_VOIDP(regs[INSTR_drr_dest(instr)]);
         uptr old = regs[INSTR_drr_reg1(instr)];
         uptr new = regs[INSTR_drr_reg2(instr)];
         if (*l == old) {
