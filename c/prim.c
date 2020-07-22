@@ -45,6 +45,10 @@ static void install_library_entry(n, x) ptr n, x; {
     if (n == FIX(library_cpu_features))
       x86_64_set_popcount_present(x);
 #endif
+#ifdef PORTABLE_BYTECODE_BIGENDIAN
+    if (n == FIX(library_dounderflow))
+      S_swap_dounderflow_header_endian(x);
+#endif
 }
 
 ptr S_lookup_library_entry(n, errorp) iptr n; IBOOL errorp; {
