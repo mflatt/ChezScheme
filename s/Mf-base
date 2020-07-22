@@ -640,3 +640,18 @@ prettyclean:
 
 profileclean: prettyclean
 	rm -f ${ProfileDumpSource} ${ProfileDumpBlock}
+
+.PHONY: reset
+reset:
+	$(MAKE) reset-one FILE=petite.boot
+	$(MAKE) reset-one FILE=scheme.boot
+	$(MAKE) reset-one FILE=equates.h
+	$(MAKE) reset-one FILE=scheme.h
+	$(MAKE) reset-one FILE=gc-oce.inc
+	$(MAKE) reset-one FILE=gc-ocd.inc
+	$(MAKE) reset-one FILE=vfasl.inc
+
+.PHONY: reset-one
+reset-one:
+	if [ -f ../boot/${m}/${FILE} ] ; then rm ../boot/${m}/${FILE} ; fi
+	if [ ! -h ../boot/${m}/${FILE} ] ; then ln -s ../../../boot/${m}/${FILE} ../boot/${m}/${FILE} ; fi

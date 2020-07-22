@@ -54,13 +54,83 @@
     (lambda (stx)
       (syntax-case stx (big little)
         [(_ [(big) b ...] [(little) l ...])
-         #`(constant-case endianness-case
+         #`(constant-case native-endianness
              [(big) b ...]
              [(little) l ...]
              [(unknown)
               (case (native-endianness)
                 [(big) b ...]
                 [(little) l ...])])])))
+
+  (define-syntax build-multi-int
+    (lambda (stx)
+      (syntax-case stx ()
+        [(moi (ref/set r offset arg ...) signed wide-bits narrow-bits swap?)
+         #`(moi (ref/set r offset arg ...) signed wide-bits 0 narrow-bits swap?)]
+        [(moi (ref/set r offset arg ...) signed wide-bits middle-bits narrow-bits swap?)
+         (let ([mk (lambda (base n)
+                     (datum->syntax #'moi (string->symbol (format "~a-~a" base n))))])
+           (with-syntax ([signed-wide (mk (datum signed) (datum wide-bits))]
+                         [unsigned-wide (mk 'unsigned (datum wide-bits))]
+                         [unsigned-middle (mk 'unsigned (datum middle-bits))]
+                         [signed-narrow (mk (datum signed) (datum narrow-bits))]
+                         [unsigned-narrow (mk 'unsigned (datum narrow-bits))]
+                         [wide-bytes (fxsrl (datum wide-bits) 3)]
+                         [middle-bytes (fxsrl (datum middle-bits) 3)]
+                         [narrow-bytes (fxsrl (datum narrow-bits) 3)])
+             (with-syntax ([big-case
+                            (cond
+                              [(null? #'(arg ...))
+                               ;; ref mode
+                               #`(logor
+                                  (ash (ref/set 'signed-wide r offset) (fx+ narrow-bits wide-bits))
+                                  #,(if (zero? (datum middle-bits))
+                                        #`0
+                                        #`(ash (ref/set 'unsigned-middle r offset) narrow-bits))
+                                  (ref/set 'unsigned-narrow r (fx+ offset wide-bytes middle-bytes)))]
+                               [else
+                                ;; set mode
+                                #`(begin
+                                    (ref/set 'signed-wide r offset
+                                             (bitwise-arithmetic-shift-right arg ... (fx+ narrow-bits middle-bits)))
+                                    #,(if (zero? (datum middle-bits))
+                                          #`(void)
+                                          #`(ref/set 'unsigned-middle r (fx+ offset wide-bytes)
+                                                     (logand (bitwise-arithmetic-shift-right arg ... narrow-bits)
+                                                             (- (expt 2 middle-bits) 1))))
+                                    (ref/set 'unsigned-narrow r (+ offset middle-bytes wide-bytes)
+                                             (logand arg ... (- (expt 2 narrow-bits) 1))))])]
+                           [little-case
+                            (cond
+                              [(null? #'(arg ...))
+                               ;; ref mode
+                               #`(logor
+                                  (ref/set 'unsigned-wide r offset)
+                                  #,(if (zero? (datum middle-bits))
+                                        0
+                                        #`(ash (ref/set 'unsigned-middle r (fx+ offset wide-bytes)) wide-bits))
+                                  (ash (ref/set 'signed-narrow r (fx+ offset wide-bytes middle-bytes)) (+ wide-bits middle-bits)))]
+                              [else
+                               ;; set mode
+                               #`(begin
+                                   (ref/set 'unsigned-wide r offset
+                                            (logand arg ... (- (expt 2 wide-bits) 1)))
+                                   #,(if (zero? (datum middle-bits))
+                                         #`(void)
+                                         #`(ref/set 'unsigned-middle r (fx+ offset wide-bytes)
+                                                    (logand (bitwise-arithmetic-shift-right arg ... wide-bits)
+                                                            (- (expt 2 middle-bits) 1))))
+                                   (ref/set 'signed-narrow r (fx+ offset middle-bytes wide-bytes)
+                                            (bitwise-arithmetic-shift-right arg ... (+ wide-bits middle-bits))))])])
+               (cond
+                 [(not (datum swap?))
+                  #'(native-endianness-case
+                     [(big) big-case]
+                     [(little) little-case])]
+                 [else
+                  #'(native-endianness-case
+                     [(big) little-case]
+                     [(little) big-case])]))))])))
 
   ; $record is hand-coded and is defined in prims.ss
 
@@ -95,7 +165,9 @@
       (set-who! foreign-ref ; checks ty, addr, and offset, but inherently unsafe
         (lambda (ty addr offset)
           (define-syntax ref
-            (syntax-rules (scheme-object char wchar boolean integer-64 unsigned-64)
+            (syntax-rules (scheme-object char wchar boolean
+                                         integer-24 unsigned-24 integer-40 unsigned-40 integer-48 unsigned-48
+                                         integer-56 unsigned-56 integer-64 unsigned-64)
               [(_ scheme-object bytes pred) ($oops who "cannot load scheme pointers from foreign memory")]
               [(_ char bytes pred) (integer->char (#3%foreign-ref 'unsigned-8 addr offset))]
               [(_ wchar bytes pred)
@@ -106,24 +178,36 @@
                (constant-case int-bits
                  [(32) (not (eq? (#3%foreign-ref 'integer-32 addr offset) 0))]
                  [(64) (not (eq? (#3%foreign-ref 'integer-64 addr offset) 0))])]
+              [(_ integer-24 bytes pred)
+               (not (constant unaligned-integers))
+               (build-multi-int (#3%foreign-ref addr offset) integer 16 8 #f)]
+              [(_ unsigned-24 bytes pred)
+               (not (constant unaligned-integers))
+               (build-multi-int (#3%foreign-ref addr offset) unsigned 16 8 #f)]
+              [(_ integer-40 bytes pred)
+               (not (constant unaligned-integers))
+               (build-multi-int (#3%foreign-ref addr offset) integer 32 8 #f)]
+              [(_ unsigned-40 bytes pred)
+               (not (constant unaligned-integers))
+               (build-multi-int (#3%foreign-ref addr offset) unsigned 32 8 #f)]
+              [(_ integer-48 bytes pred)
+               (not (constant unaligned-integers))
+               (build-multi-int (#3%foreign-ref addr offset) integer 32 16 #f)]
+              [(_ unsigned-48 bytes pred)
+               (not (constant unaligned-integers))
+               (build-multi-int (#3%foreign-ref addr offset) unsigned 32 16 #f)]
+              [(_ integer-56 bytes pred)
+               (not (constant unaligned-integers))
+               (build-multi-int (#3%foreign-ref addr offset) integer 32 16 8 #f)]
+              [(_ unsigned-56 bytes pred)
+               (not (constant unaligned-integers))
+               (build-multi-int (#3%foreign-ref addr offset) unsigned 32 16 8 #f)]
               [(_ integer-64 bytes pred)
                (< (constant ptr-bits) 64)
-               (native-endianness-case
-                 [(big)
-                  (logor (ash (#3%foreign-ref 'integer-32 addr offset) 32)
-                    (#3%foreign-ref 'unsigned-32 (+ addr 4) offset))]
-                 [(little)
-                  (logor (ash (#3%foreign-ref 'integer-32 (+ addr 4) offset) 32)
-                    (#3%foreign-ref 'unsigned-32 addr offset))])]
+               (build-multi-int (#3%foreign-ref addr offset) integer 32 32 #f)]
               [(_ unsigned-64 bytes pred)
                (< (constant ptr-bits) 64)
-               (native-endianness-case
-                 [(big)
-                  (logor (ash (#3%foreign-ref 'unsigned-32 addr offset) 32)
-                    (#3%foreign-ref 'unsigned-32 (+ addr 4) offset))]
-                 [(little)
-                  (logor (ash (#3%foreign-ref 'unsigned-32 (+ addr 4) offset) 32)
-                    (#3%foreign-ref 'unsigned-32 addr offset))])]
+               (build-multi-int (#3%foreign-ref addr offset) unsigned 32 32 #f)]
               [(_ type bytes pred) (#3%foreign-ref 'type addr offset)]))
           (check-args who ty addr offset)
           (record-datatype cases (filter-foreign-type ty) ref
@@ -133,7 +217,8 @@
         (lambda (ty addr offset v)
           (define (value-err x t) ($oops who "invalid value ~s for foreign type ~s" x t))
           (define-syntax set
-            (syntax-rules (scheme-object char wchar boolean integer-40 unsigned-40 integer-48 unsigned-48
+            (syntax-rules (scheme-object char wchar boolean
+                            integer-24 unsigned-24 integer-40 unsigned-40 integer-48 unsigned-48
                             integer-56 unsigned-56 integer-64 unsigned-64)
               [(_ scheme-object bytes pred) ($oops who "cannot store scheme pointers into foreign memory")]
               [(_ char bytes pred)
@@ -150,98 +235,62 @@
                (constant-case int-bits
                  [(32) (#3%foreign-set! 'integer-32 addr offset (if v 1 0))]
                  [(64) (#3%foreign-set! 'integer-64 addr offset (if v 1 0))])]
+              [(_ integer-24 bytes pred)
+               (not (constant unaligned-integers))
+               (begin
+                 (unless (pred v) (value-err v ty))
+                 (build-multi-int (#3%foreign-set! addr offset v) integer 16 8 #f))]
+              [(_ unsigned-24 bytes pred)
+               (not (constant unaligned-integers))
+               (begin
+                 (unless (pred v) (value-err v ty))
+                 (build-multi-int (#3%foreign-set! addr offset v) unsigned 16 8 #f))]
               [(_ integer-40 bytes pred)
-               (< (constant ptr-bits) 64)
+               (or (< (constant ptr-bits) 64)
+                   (not (constant unaligned-integers)))
                (begin
                  (unless (pred v) (value-err v ty))
-                 (endianness-case
-                   [(big)
-                    (#3%foreign-set! 'integer-32 addr offset (bitwise-arithmetic-shift-right v 8))
-                    (#3%foreign-set! 'unsigned-8 (+ addr 4) offset (logand v (- (expt 2 8) 1)))]
-                   [(little)
-                    (#3%foreign-set! 'unsigned-32 addr offset (logand v (- (expt 2 32) 1)))
-                    (#3%foreign-set! 'integer-8 (+ addr 4) offset (bitwise-arithmetic-shift-right v 32))]))]
+                 (build-multi-int (#3%foreign-set! addr offset v) integer 32 8 #f))]
               [(_ unsigned-40 bytes pred)
-               (< (constant ptr-bits) 64)
+               (or (< (constant ptr-bits) 64)
+                   (not (constant unaligned-integers)))
                (begin
                  (unless (pred v) (value-err v ty))
-                 (native-endianness-case
-                   [(big)
-                    (#3%foreign-set! 'unsigned-32 addr offset (bitwise-arithmetic-shift-right v 8))
-                    (#3%foreign-set! 'unsigned-8 (+ addr 4) offset (logand v (- (expt 2 8) 1)))]
-                   [(little)
-                    (#3%foreign-set! 'unsigned-32 addr offset (logand v (- (expt 2 32) 1)))
-                    (#3%foreign-set! 'unsigned-8 (+ addr 4) offset (bitwise-arithmetic-shift-right v 32))]))]
+                 (build-multi-int (#3%foreign-set! addr offset v) unsigned 32 8 #f))]
               [(_ integer-48 bytes pred)
-               (< (constant ptr-bits) 64)
+               (or (< (constant ptr-bits) 64)
+                   (not (constant unaligned-integers)))
                (begin
                  (unless (pred v) (value-err v ty))
-                 (native-endianness-case
-                   [(big)
-                    (#3%foreign-set! 'integer-32 addr offset (bitwise-arithmetic-shift-right v 16))
-                    (#3%foreign-set! 'unsigned-16 (+ addr 4) offset (logand v (- (expt 2 16) 1)))]
-                   [(little)
-                    (#3%foreign-set! 'unsigned-32 addr offset (logand v (- (expt 2 32) 1)))
-                    (#3%foreign-set! 'integer-16 (+ addr 4) offset (bitwise-arithmetic-shift-right v 32))]))]
+                 (build-multi-int (#3%foreign-set! addr offset v) integer 32 16 #f))]
               [(_ unsigned-48 bytes pred)
-               (< (constant ptr-bits) 64)
+               (or (< (constant ptr-bits) 64)
+                   (not (constant unaligned-integers)))
                (begin
                  (unless (pred v) (value-err v ty))
-                 (native-endianness-case
-                   [(big)
-                    (#3%foreign-set! 'unsigned-32 addr offset (bitwise-arithmetic-shift-right v 16))
-                    (#3%foreign-set! 'unsigned-16 (+ addr 4) offset (logand v (- (expt 2 16) 1)))]
-                   [(little)
-                    (#3%foreign-set! 'unsigned-32 addr offset (logand v (- (expt 2 32) 1)))
-                    (#3%foreign-set! 'unsigned-16 (+ addr 4) offset (bitwise-arithmetic-shift-right v 32))]))]
+                 (build-multi-int (#3%foreign-set! addr offset v) unsigned 32 16 #f))]
               [(_ integer-56 bytes pred)
-               (< (constant ptr-bits) 64)
+               (or (< (constant ptr-bits) 64)
+                   (not (constant unaligned-integers)))
                (begin
                  (unless (pred v) (value-err v ty))
-                 (native-endianness-case
-                   [(big)
-                    (#3%foreign-set! 'integer-32 addr offset (bitwise-arithmetic-shift-right v 24))
-                    (#3%foreign-set! 'unsigned-16 (+ addr 4) offset (logand (bitwise-arithmetic-shift-right v 8) (- (expt 2 16) 1)))
-                    (#3%foreign-set! 'unsigned-8 (+ addr 6) offset (logand v (- (expt 2 8) 1)))]
-                   [(little)
-                    (#3%foreign-set! 'unsigned-32 addr offset (logand v (- (expt 2 32) 1)))
-                    (#3%foreign-set! 'unsigned-16 (+ addr 4) offset (fxlogand (bitwise-arithmetic-shift-right v 32) (- (expt 2 16) 1)))
-                    (#3%foreign-set! 'integer-8 (+ addr 6) offset (bitwise-arithmetic-shift-right v 48))]))]
+                 (build-multi-int (#3%foreign-set! addr offset v) integer 32 16 8 #f))]
               [(_ unsigned-56 bytes pred)
-               (< (constant ptr-bits) 64)
+               (or (< (constant ptr-bits) 64)
+                   (not (constant unaligned-integers)))
                (begin
                  (unless (pred v) (value-err v ty))
-                 (native-endianness-case
-                   [(big)
-                    (#3%foreign-set! 'unsigned-32 addr offset (bitwise-arithmetic-shift-right v 24))
-                    (#3%foreign-set! 'unsigned-16 (+ addr 4) offset (logand (bitwise-arithmetic-shift-right v 8) (- (expt 2 16) 1)))
-                    (#3%foreign-set! 'unsigned-8 (+ addr 6) offset (logand v (- (expt 2 8) 1)))]
-                   [(little)
-                    (#3%foreign-set! 'unsigned-32 addr offset (logand v (- (expt 2 32) 1)))
-                    (#3%foreign-set! 'unsigned-16 (+ addr 4) offset (fxlogand (bitwise-arithmetic-shift-right v 32) (- (expt 2 16) 1)))
-                    (#3%foreign-set! 'unsigned-8 (+ addr 6) offset (bitwise-arithmetic-shift-right v 48))]))]
+                 (build-multi-int (#3%foreign-set! addr offset v) unsigned 32 16 8 #f))]
               [(_ integer-64 bytes pred)
                (< (constant ptr-bits) 64)
                (begin
                  (unless (pred v) (value-err v ty))
-                 (native-endianness-case
-                   [(big)
-                    (#3%foreign-set! 'integer-32 addr offset (ash v -32))
-                    (#3%foreign-set! 'unsigned-32 (+ addr 4) offset (logand v (- (expt 2 32) 1)))]
-                   [(little)
-                    (#3%foreign-set! 'integer-32 (+ addr 4) offset (ash v -32))
-                    (#3%foreign-set! 'unsigned-32 addr offset (logand v (- (expt 2 32) 1)))]))]
+                 (build-multi-int (#3%foreign-set! addr offset v) integer 32 32 #f))]
               [(_ unsigned-64 bytes pred)
                (< (constant ptr-bits) 64)
                (begin
                  (unless (pred v) (value-err v ty))
-                 (native-endianness-case
-                   [(big)
-                    (#3%foreign-set! 'unsigned-32 addr offset (ash v -32))
-                    (#3%foreign-set! 'unsigned-32 (+ addr 4) offset (logand v (- (expt 2 32) 1)))]
-                   [(little)
-                    (#3%foreign-set! 'unsigned-32 (+ addr 4) offset (ash v -32))
-                    (#3%foreign-set! 'unsigned-32 addr offset (logand v (- (expt 2 32) 1)))]))]
+                 (build-multi-int (#3%foreign-set! addr offset v) unsigned 32 32 #f))]
               [(_ type bytes pred)
                (begin
                  (unless (pred v) (value-err v ty))
@@ -258,7 +307,9 @@
   (set-who! $object-ref ; not safe, just handles non-constant types
     (lambda (ty r offset)
       (define-syntax ref
-        (syntax-rules (char wchar boolean integer-64 unsigned-64)
+        (syntax-rules (char wchar boolean
+                            integer-24 unsigned-24 integer-40 unsigned-40 integer-48 unsigned-48
+                            integer-56 unsigned-56 integer-64 unsigned-64)
           [(_ char bytes pred) (integer->char (#3%$object-ref 'unsigned-8 r offset))]
           [(_ wchar bytes pred)
            (constant-case wchar-bits
@@ -268,6 +319,30 @@
            (constant-case int-bits
              [(32) (not (eq? (#3%$object-ref 'integer-32 r offset) 0))]
              [(64) (not (eq? (#3%$object-ref 'integer-64 r offset) 0))])]
+          [(_ integer-24 bytes pred)
+           (not (constant unaligned-integers))
+           (build-multi-int (#3%$object-ref r offset) integer 16 8 #f)]
+          [(_ unsigned-24 bytes pred)
+           (not (constant unaligned-integers))
+           (build-multi-int (#3%$object-ref r offset) unsigned 16 8 #f)]
+          [(_ integer-40 bytes pred)
+           (not (constant unaligned-integers))
+           (build-multi-int (#3%$object-ref r offset) integer 32 8 #f)]
+          [(_ unsigned-40 bytes pred)
+           (not (constant unaligned-integers))
+           (build-multi-int (#3%$object-ref r offset) unsigned 32 8 #f)]
+          [(_ integer-48 bytes pred)
+           (not (constant unaligned-integers))
+           (build-multi-int (#3%$object-ref r offset) integer 32 16 #f)]
+          [(_ unsigned-48 bytes pred)
+           (not (constant unaligned-integers))
+           (build-multi-int (#3%$object-ref r offset) unsigned 32 16 #f)]
+          [(_ integer-56 bytes pred)
+           (not (constant unaligned-integers))
+           (build-multi-int (#3%$object-ref r offset) integer 32 16 8 #f)]
+          [(_ unsigned-56 bytes pred)
+           (not (constant unaligned-integers))
+           (build-multi-int (#3%$object-ref r offset) unsigned 32 16 8 #f)]
           [(_ type bytes pred) (#3%$object-ref 'type r offset)]))
       (record-datatype cases (filter-foreign-type ty) ref
         ($oops who "unrecognized type ~s" ty))))
@@ -275,7 +350,9 @@
   (set-who! $swap-object-ref ; not safe, just handles non-constant types
     (lambda (ty r offset)
       (define-syntax ref
-        (syntax-rules (char wchar boolean integer-64 unsigned-64)
+        (syntax-rules (char wchar boolean
+                            integer-24 unsigned-24 integer-40 unsigned-40 integer-48 unsigned-48
+                            integer-56 unsigned-56 integer-64 unsigned-64)
           [(_ char bytes pred) (integer->char (#3%$swap-object-ref 'unsigned-8 r offset))]
           [(_ wchar bytes pred)
            (constant-case wchar-bits
@@ -285,6 +362,30 @@
            (constant-case int-bits
              [(32) (not (eq? (#3%$swap-object-ref 'integer-32 r offset) 0))]
              [(64) (not (eq? (#3%$swap-object-ref 'integer-64 r offset) 0))])]
+          [(_ integer-24 bytes pred)
+           (not (constant unaligned-integers))
+           (build-multi-int (#3%$swap-object-ref r offset) integer 16 8 #t)]
+          [(_ unsigned-24 bytes pred)
+           (not (constant unaligned-integers))
+           (build-multi-int (#3%$swap-object-ref r offset) unsigned 32 8 #t)]
+          [(_ integer-40 bytes pred)
+           (not (constant unaligned-integers))
+           (build-multi-int (#3%$swap-object-ref r offset) integer 32 8 #t)]
+          [(_ unsigned-40 bytes pred)
+           (not (constant unaligned-integers))
+           (build-multi-int (#3%$swap-object-ref r offset) unsigned 16 8 #t)]
+          [(_ integer-48 bytes pred)
+           (not (constant unaligned-integers))
+           (build-multi-int (#3%$swap-object-ref r offset) integer 32 16 #t)]
+          [(_ unsigned-48 bytes pred)
+           (not (constant unaligned-integers))
+           (build-multi-int (#3%$swap-object-ref r offset) unsigned 16 16 #t)]
+          [(_ integer-56 bytes pred)
+           (not (constant unaligned-integers))
+           (build-multi-int (#3%$swap-object-ref r offset) integer 32 16 8 #t)]
+          [(_ unsigned-56 bytes pred)
+           (not (constant unaligned-integers))
+           (build-multi-int (#3%$swap-object-ref r offset) unsigned 32 16 8 #t)]
           [(_ type bytes pred) (#3%$swap-object-ref 'type r offset)]))
       (record-datatype cases (filter-foreign-type ty) ref
         ($oops who "unrecognized type ~s" ty))))
@@ -292,8 +393,9 @@
   (set-who! $object-set! ; not safe, just handles non-constant types
     (lambda (ty r offset v)
       (define-syntax set
-        (syntax-rules (char wchar boolean integer-40 unsigned-40 integer-48 unsigned-48
-                       integer-56 unsigned-56 integer-64 unsigned-64)
+        (syntax-rules (char wchar boolean
+                            integer-24 unsigned-24 integer-40 unsigned-40 integer-48 unsigned-48
+                            integer-56 unsigned-56 integer-64 unsigned-64)
           [(_ char bytes pred)
            (#3%$object-set! 'unsigned-8 r offset (char->integer v))]
           [(_ wchar bytes pred)
@@ -304,88 +406,42 @@
            (constant-case int-bits
              [(32) (#3%$object-set! 'integer-32 r offset (if v 1 0))]
              [(64) (#3%$object-set! 'integer-64 r offset (if v 1 0))])]
+          [(_ integer-24 bytes pred)
+           (not (constant unaligned-integers))
+           (build-multi-int (#3%$object-set! r offset v) integer 16 8 #f)]
+          [(_ unsigned-24 bytes pred)
+           (not (constant unaligned-integers))
+           (build-multi-int (#3%$object-set! r offset v) unsigned 16 8 #f)]
           [(_ integer-40 bytes pred)
-           (< (constant ptr-bits) 64)
-           (begin
-             (native-endianness-case
-               [(big)
-                (#3%$object-set! 'integer-32 r offset (bitwise-arithmetic-shift-right v 8))
-                (#3%$object-set! 'unsigned-8 r (fx+ offset 4) (logand v (- (expt 2 8) 1)))]
-               [(little)
-                (#3%$object-set! 'unsigned-32 r offset (logand v (- (expt 2 32) 1)))
-                (#3%$object-set! 'integer-8 r (fx+ offset 4) (bitwise-arithmetic-shift-right v 32))]))]
+           (or (< (constant ptr-bits) 64)
+               (not (constant unaligned-integers)))
+           (build-multi-int (#3%$object-set! r offset v) integer 32 8 #f)]
           [(_ unsigned-40 bytes pred)
-           (< (constant ptr-bits) 64)
-           (begin
-             (native-endianness-case
-               [(big)
-                (#3%$object-set! 'unsigned-32 r offset (bitwise-arithmetic-shift-right v 8))
-                (#3%$object-set! 'unsigned-8 r (fx+ offset 4) (logand v (- (expt 2 8) 1)))]
-               [(little)
-                (#3%$object-set! 'unsigned-32 r offset (logand v (- (expt 2 32) 1)))
-                (#3%$object-set! 'unsigned-8 r (fx+ offset 4) (bitwise-arithmetic-shift-right v 32))]))]
+           (or (< (constant ptr-bits) 64)
+               (not (constant unaligned-integers)))
+           (build-multi-int (#3%$object-set! r offset v) unsigned 32 8 #f)]
           [(_ integer-48 bytes pred)
-           (< (constant ptr-bits) 64)
-           (begin
-             (native-endianness-case
-               [(big)
-                (#3%$object-set! 'integer-32 r offset (bitwise-arithmetic-shift-right v 16))
-                (#3%$object-set! 'unsigned-16 r (fx+ offset 4) (logand v (- (expt 2 16) 1)))]
-               [(little)
-                (#3%$object-set! 'unsigned-32 r offset (logand v (- (expt 2 32) 1)))
-                (#3%$object-set! 'integer-16 r (fx+ offset 4) (bitwise-arithmetic-shift-right v 32))]))]
+           (or (< (constant ptr-bits) 64)
+               (not (constant unaligned-integers)))
+           (build-multi-int (#3%$object-set! r offset v) integer 32 16 #f)]
           [(_ unsigned-48 bytes pred)
-           (< (constant ptr-bits) 64)
-           (begin
-             (native-endianness-case
-               [(big)
-                (#3%$object-set! 'unsigned-32 r offset (bitwise-arithmetic-shift-right v 16))
-                (#3%$object-set! 'unsigned-16 r (fx+ offset 4) (logand v (- (expt 2 16) 1)))]
-               [(little)
-                (#3%$object-set! 'unsigned-32 r offset (logand v (- (expt 2 32) 1)))
-                (#3%$object-set! 'unsigned-16 r (fx+ offset 4) (bitwise-arithmetic-shift-right v 32))]))]
+           (or (< (constant ptr-bits) 64)
+               (not (constant unaligned-integers)))
+           (build-multi-int (#3%$object-set! r offset v) unsigned 32 16 #f)]
           [(_ integer-56 bytes pred)
-           (< (constant ptr-bits) 64)
-           (begin
-             (native-endianness-case
-               [(big)
-                (#3%$object-set! 'integer-32 r offset (bitwise-arithmetic-shift-right v 24))
-                (#3%$object-set! 'unsigned-16 r (fx+ offset 4) (logand (bitwise-arithmetic-shift-right v 8) (- (expt 2 16) 1)))
-                (#3%$object-set! 'unsigned-8 r (fx+ offset 6) (logand v (- (expt 2 8) 1)))]
-               [(little)
-                (#3%$object-set! 'unsigned-32 r offset (logand v (- (expt 2 32) 1)))
-                (#3%$object-set! 'unsigned-16 r (fx+ offset 4) (fxlogand (bitwise-arithmetic-shift-right v 32) (- (expt 2 16) 1)))
-                (#3%$object-set! 'integer-8 r (fx+ offset 6) (bitwise-arithmetic-shift-right v 48))]))]
+           (or (< (constant ptr-bits) 64)
+               (not (constant unaligned-integers)))
+           (build-multi-int (#3%$object-set! r offset v) integer 32 16 8 #f)]
           [(_ unsigned-56 bytes pred)
-           (< (constant ptr-bits) 64)
-           (begin
-             (native-endianness-case
-               [(big)
-                (#3%$object-set! 'unsigned-32 r offset (bitwise-arithmetic-shift-right v 24))
-                (#3%$object-set! 'unsigned-16 r (fx+ offset 4) (logand (bitwise-arithmetic-shift-right v 8) (- (expt 2 16) 1)))
-                (#3%$object-set! 'unsigned-8 r (fx+ offset 6) (logand v (- (expt 2 8) 1)))]
-               [(little)
-                (#3%$object-set! 'unsigned-32 r offset (logand v (- (expt 2 32) 1)))
-                (#3%$object-set! 'unsigned-16 r (fx+ offset 4) (fxlogand (bitwise-arithmetic-shift-right v 32) (- (expt 2 16) 1)))
-                (#3%$object-set! 'unsigned-8 r (fx+ offset 6) (bitwise-arithmetic-shift-right v 48))]))]
+           (or (< (constant ptr-bits) 64)
+               (not (constant unaligned-integers)))
+           (build-multi-int (#3%$object-set! r offset v) unsigned 32 16 8 #f)]
           [(_ integer-64 bytes pred)
            (< (constant ptr-bits) 64)
-           (native-endianness-case
-             [(big)
-              (#3%$object-set! 'integer-32 r offset (bitwise-arithmetic-shift-right v 32))
-              (#3%$object-set! 'unsigned-32 r (fx+ offset 4) (logand v (- (expt 2 32) 1)))]
-             [(little)
-              (#3%$object-set! 'unsigned-32 r offset (logand v (- (expt 2 32) 1)))
-              (#3%$object-set! 'integer-32 r (fx+ offset 4) (bitwise-arithmetic-shift-right v 32))])]
-          [(_ unsigned-64 bytes pred)
+           (build-multi-int (#3%$object-set! r offset v) integer 32 32 #f)]
+          [(_ integer-64 bytes pred)
            (< (constant ptr-bits) 64)
-           (native-endianness-case
-             [(big)
-              (#3%$object-set! 'unsigned-32 r offset (bitwise-arithmetic-shift-right v 32))
-              (#3%$object-set! 'unsigned-32 r (fx+ offset 4) (logand v (- (expt 2 32) 1)))]
-             [(little)
-              (#3%$object-set! 'unsigned-32 r offset (logand v (- (expt 2 32) 1)))
-              (#3%$object-set! 'unsigned-32 r (fx+ offset 4) (bitwise-arithmetic-shift-right v 32))])]
+           (build-multi-int (#3%$object-set! r offset v) unsigned 32 32 #f)]
           [(_ type bytes pred) (#3%$object-set! 'type r offset v)]))
       (record-datatype cases (filter-foreign-type ty) set
         ($oops who "unrecognized type ~s" ty))))

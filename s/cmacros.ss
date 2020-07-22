@@ -193,14 +193,6 @@
   (lambda (x)
     (syntax-error x "misplaced aux keyword")))
 
-(define-syntax when-unaligned-integer
-  (lambda (stx)
-    (syntax-case stx ()
-      [(_ e ...)
-       #'(constant-case unaligned-integers
-           [(#t) e ...]
-           [(#f) (void)])])))
-
 ;; ---------------------------------------------------------------------
 ;; Libspec representation:
 

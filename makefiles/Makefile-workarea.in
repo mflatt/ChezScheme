@@ -45,6 +45,10 @@ coverage:
 bootfiles: build
 	$(MAKE) -f Mf-boot
 
+.PHONY reset
+reset:
+	(cs s && $(MAKE) reset)
+
 .PHONY: bintar
 bintar: build
 	(cd bintar && $(MAKE))

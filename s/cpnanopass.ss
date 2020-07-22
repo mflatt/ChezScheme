@@ -3547,6 +3547,13 @@
                        (if is-pariah?
                            #'`(seq (pariah) body)
                            #'`body)))))])))
+        (define-syntax when-unaligned-integer
+          (lambda (stx)
+            (syntax-case stx ()
+              [(_ e ...)
+               #'(constant-case unaligned-integers
+                   [(#t) e ...]
+                   [(#f) (void)])])))
         (define constant?
           (case-lambda
             [(x)
@@ -8354,7 +8361,7 @@
              (define-fptr-ref-inline $fptr-ref-unsigned-40 'unsigned-40 #f)
              (define-fptr-ref-inline $fptr-ref-swap-integer-40 'integer-40 #t)
              (define-fptr-ref-inline $fptr-ref-swap-unsigned-40 'unsigned-40 #t)
-             
+
              (define-fptr-ref-inline $fptr-ref-integer-48 'integer-48 #f)
              (define-fptr-ref-inline $fptr-ref-unsigned-48 'unsigned-48 #f)
              (define-fptr-ref-inline $fptr-ref-swap-integer-48 'integer-48 #t)
@@ -8597,20 +8604,22 @@
             (define-fptr-bits-set-inline #f $fptr-set-bits-unsigned-16! unsigned-16 #f)
             (define-fptr-bits-set-inline #f $fptr-set-bits-swap-unsigned-16! unsigned-16 #t)
 
-            (define-fptr-bits-set-inline #f $fptr-set-bits-unsigned-24! unsigned-24 #f)
-            (define-fptr-bits-set-inline #f $fptr-set-bits-swap-unsigned-24! unsigned-24 #t)
+            (when-unaligned-integer
+             (define-fptr-bits-set-inline #f $fptr-set-bits-unsigned-24! unsigned-24 #f)
+             (define-fptr-bits-set-inline #f $fptr-set-bits-swap-unsigned-24! unsigned-24 #t))
 
             (define-fptr-bits-set-inline #f $fptr-set-bits-unsigned-32! unsigned-32 #f)
             (define-fptr-bits-set-inline #f $fptr-set-bits-swap-unsigned-32! unsigned-32 #t)
 
-            (define-fptr-bits-set-inline #f $fptr-set-bits-unsigned-40! unsigned-40 #f)
-            (define-fptr-bits-set-inline #f $fptr-set-bits-swap-unsigned-40! unsigned-40 #t)
+            (when-unaligned-integer
+             (define-fptr-bits-set-inline #f $fptr-set-bits-unsigned-40! unsigned-40 #f)
+             (define-fptr-bits-set-inline #f $fptr-set-bits-swap-unsigned-40! unsigned-40 #t)
 
-            (define-fptr-bits-set-inline #f $fptr-set-bits-unsigned-48! unsigned-48 #f)
-            (define-fptr-bits-set-inline #f $fptr-set-bits-swap-unsigned-48! unsigned-48 #t)
+             (define-fptr-bits-set-inline #f $fptr-set-bits-unsigned-48! unsigned-48 #f)
+             (define-fptr-bits-set-inline #f $fptr-set-bits-swap-unsigned-48! unsigned-48 #t)
 
-            (define-fptr-bits-set-inline #f $fptr-set-bits-unsigned-56! unsigned-56 #f)
-            (define-fptr-bits-set-inline #f $fptr-set-bits-swap-unsigned-56! unsigned-56 #t)
+             (define-fptr-bits-set-inline #f $fptr-set-bits-unsigned-56! unsigned-56 #f)
+             (define-fptr-bits-set-inline #f $fptr-set-bits-swap-unsigned-56! unsigned-56 #t))
 
             (define-fptr-bits-set-inline #t $fptr-set-bits-unsigned-64! unsigned-64 #f)
             (define-fptr-bits-set-inline #t $fptr-set-bits-swap-unsigned-64! unsigned-64 #t))
@@ -9690,20 +9699,22 @@
             (define-bv-int-ref-inline bytevector-s16-ref integer-16 1)
             (define-bv-int-ref-inline bytevector-u16-ref unsigned-16 1)
 
-            (define-bv-int-ref-inline bytevector-s24-ref integer-24 1)
-            (define-bv-int-ref-inline bytevector-u24-ref unsigned-24 1)
+            (when-unaligned-integer
+             (define-bv-int-ref-inline bytevector-s24-ref integer-24 1)
+             (define-bv-int-ref-inline bytevector-u24-ref unsigned-24 1))
 
             (define-bv-int-ref-inline bytevector-s32-ref integer-32 3)
             (define-bv-int-ref-inline bytevector-u32-ref unsigned-32 3)
 
-            (define-bv-int-ref-inline bytevector-s40-ref integer-40 3)
-            (define-bv-int-ref-inline bytevector-u40-ref unsigned-40 3)
+            (when-unaligned-integer
+             (define-bv-int-ref-inline bytevector-s40-ref integer-40 3)
+             (define-bv-int-ref-inline bytevector-u40-ref unsigned-40 3)
 
-            (define-bv-int-ref-inline bytevector-s48-ref integer-48 3)
-            (define-bv-int-ref-inline bytevector-u48-ref unsigned-48 3)
+             (define-bv-int-ref-inline bytevector-s48-ref integer-48 3)
+             (define-bv-int-ref-inline bytevector-u48-ref unsigned-48 3)
 
-            (define-bv-int-ref-inline bytevector-s56-ref integer-56 7)
-            (define-bv-int-ref-inline bytevector-u56-ref unsigned-56 7)
+             (define-bv-int-ref-inline bytevector-s56-ref integer-56 7)
+             (define-bv-int-ref-inline bytevector-u56-ref unsigned-56 7))
 
             (define-bv-int-ref-inline bytevector-s64-ref integer-64 7)
             (define-bv-int-ref-inline bytevector-u64-ref unsigned-64 7))

@@ -43,6 +43,10 @@ coverage:
 bootfiles:
 	(cd $(workarea) && $(MAKE) bootfiles)
 
+.PHONY reset
+reset:
+	(cd $(workarea) && $(make) reset)
+
 # Supply XM=<machine> to build boot files for <machine>
 .PHONY: boot
 boot: build
