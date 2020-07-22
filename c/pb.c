@@ -25,6 +25,8 @@ typedef uint32_t instruction_t;
 
 #define INSTR_i_imm(instr)    (((int32_t)(instr)) >> 8)
 
+#define SHIFT_MASK(v) ((v) & (ptr_bits-1))
+
 static uptr regs[16];
 static double fpregs[8];
 
@@ -136,7 +138,7 @@ void S_pb_interp(ptr tc, void *bytecode) {
     case pb_mov_pb_d_i:
       regs[INSTR_dr_dest(instr)] = (iptr)fpregs[INSTR_dr_reg(instr)];
       break;
-#if ptr_bits == 64      
+#if ptr_bits == 64
     case pb_mov_pb_i_bits_d_bits:
       memcpy(&fpregs[INSTR_dr_dest(instr)], &regs[INSTR_dr_reg(instr)], sizeof(double));
       break;
@@ -232,22 +234,22 @@ void S_pb_interp(ptr tc, void *bytecode) {
       regs[INSTR_dri_dest(instr)] = regs[INSTR_dri_reg(instr)] ^ (uptr)INSTR_dri_imm(instr);
       break;
     case pb_bin_op_pb_no_signal_pb_lsl_pb_register:
-      regs[INSTR_drr_dest(instr)] = regs[INSTR_drr_reg1(instr)] << regs[INSTR_drr_reg2(instr)];
+      regs[INSTR_drr_dest(instr)] = regs[INSTR_drr_reg1(instr)] << SHIFT_MASK(regs[INSTR_drr_reg2(instr)]);
       break;
     case pb_bin_op_pb_no_signal_pb_lsl_pb_immediate:
-      regs[INSTR_dri_dest(instr)] = regs[INSTR_dri_reg(instr)] << INSTR_dri_imm(instr);
+      regs[INSTR_dri_dest(instr)] = regs[INSTR_dri_reg(instr)] << SHIFT_MASK(INSTR_dri_imm(instr));
       break;
     case pb_bin_op_pb_no_signal_pb_lsr_pb_register:
-      regs[INSTR_drr_dest(instr)] = regs[INSTR_drr_reg1(instr)] >> regs[INSTR_drr_reg2(instr)];
+      regs[INSTR_drr_dest(instr)] = regs[INSTR_drr_reg1(instr)] >> SHIFT_MASK(regs[INSTR_drr_reg2(instr)]);
       break;
     case pb_bin_op_pb_no_signal_pb_lsr_pb_immediate:
-      regs[INSTR_dri_dest(instr)] = regs[INSTR_dri_reg(instr)] >> INSTR_dri_imm(instr);
+      regs[INSTR_dri_dest(instr)] = regs[INSTR_dri_reg(instr)] >> SHIFT_MASK(INSTR_dri_imm(instr));
       break;
     case pb_bin_op_pb_no_signal_pb_asr_pb_register:
-      regs[INSTR_drr_dest(instr)] = (iptr)regs[INSTR_drr_reg1(instr)] >> regs[INSTR_drr_reg2(instr)];
+      regs[INSTR_drr_dest(instr)] = (iptr)regs[INSTR_drr_reg1(instr)] >> SHIFT_MASK(regs[INSTR_drr_reg2(instr)]);
       break;
     case pb_bin_op_pb_no_signal_pb_asr_pb_immediate:
-      regs[INSTR_dri_dest(instr)] = (iptr)regs[INSTR_dri_reg(instr)] >> INSTR_dri_imm(instr);
+      regs[INSTR_dri_dest(instr)] = (iptr)regs[INSTR_dri_reg(instr)] >> SHIFT_MASK(INSTR_dri_imm(instr));
       break;
     case pb_bin_op_pb_no_signal_pb_lslo_pb_register:
 #ifdef PORTABLE_BYTECODE_BIGENDIAN

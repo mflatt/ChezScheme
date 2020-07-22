@@ -1965,20 +1965,17 @@ static void swap_code_endian(octet *code, uptr len)
   }
 }
 
-static void S_swap_dounderflow_header_endian(ptr co)
+void S_swap_dounderflow_header_endian(ptr co)
 {
   /* The `dounderflow` library entry starts with a header, so
      it does not have a `pb_adr` instruction before. We need
-     to finish swapping the header's `ptr`-sized values. */
-  uint32 *code = (uint32 *)&CODEIT(co, 0);
-  long len = size_rp_header;
-
-  while (len > 0) {
-    uint32_t a = code[0];
-    uint32_t b = code[1];
-    code[0] = b;
-    code[1] = a;
-    len -= 8;
-  }
+     to finish swapping the header's `ptr`-sized values, but
+     the mv-return address is already linked, so the only
+     thing to fix turns out to be the first `ptr`. */
+  uint32_t *code = (uint32_t *)&CODEIT(co, 0);
+  uint32_t a = code[0];
+  uint32_t b = code[1];
+  code[0] = b;
+  code[1] = a;
 }
 #endif

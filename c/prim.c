@@ -47,7 +47,7 @@ static void install_library_entry(n, x) ptr n, x; {
 #endif
 #ifdef PORTABLE_BYTECODE_BIGENDIAN
     if (n == FIX(library_dounderflow))
-      S_swap_dounderflow_header_endian(x);
+      S_swap_dounderflow_header_endian(CLOSCODE(x));
 #endif
 }
 

@@ -121,7 +121,7 @@ extern int S_fasl_intern_rtd(ptr *x);
 extern void x86_64_set_popcount_present PROTO((ptr code));
 #endif
 #ifdef PORTABLE_BYTECODE_BIGENDIAN
-static void S_swap_dounderflow_header_endian PROTO((ptr code));
+extern void S_swap_dounderflow_header_endian PROTO((ptr code));
 #endif
 
 /* vfasl.c */
