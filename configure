@@ -510,6 +510,14 @@ if [ "$disablecurses" = "yes" ]; then
   ncursesLib=
 fi
 
+warningFlags="-Wpointer-arith -Wall -Wextra -Werror -Wno-implicit-fallthrough"
+if [ "$m" == "pb" ] ; then
+  # Disable pointer <-> int wanings, because we have many intentional
+  # casts between `void*` and 64-bit `uptr` on a 32-bit platform:
+  warningFlags="$warningFlags -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast"
+fi
+optFlags=-O2
+
 cat > $w/c/Mf-config << END
 CC=$CC
 CPPFLAGS=$CPPFLAGS
@@ -530,6 +538,9 @@ zlibLib=$zlibLib
 LZ4Lib=$LZ4Lib
 zlibHeaderDep=$zlibHeaderDep
 LZ4HeaderDep=$LZ4HeaderDep
+warningFlags=$warningFlags
+optFlags=$optFlags
+KernelCFlags=$KernelCFlags
 Kernel=\${${Kernel}}
 KernelLinkDeps=\${${Kernel}LinkDeps}
 KernelLinkLibs=\${${Kernel}LinkLibs}

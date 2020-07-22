@@ -5994,7 +5994,7 @@
                                      ,si))))))])
              (define-inline 2 $seginfo
                [(e)
-                (bind #t (e) (build-seginfo #f e))]))
+                (bind #t (e) (build-seginfo #f e))])
              (define-inline 2 $seginfo-generation
                [(e)
                 (bind #f (e) (build-object-ref #f 'unsigned-8 e %zero (constant seginfo-generation-disp)))])
@@ -6033,7 +6033,7 @@
              (define-inline 2 weak-pair?
                [(e) (bind #t (e) (build-space-test e (constant space-weakpair)))])
              (define-inline 2 ephemeron-pair?
-               [(e) (bind #t (e) (build-space-test e (constant space-ephemeron)))])])
+               [(e) (bind #t (e) (build-space-test e (constant space-ephemeron)))]))])
 
         (define-inline 2 unbox
           [(e)
