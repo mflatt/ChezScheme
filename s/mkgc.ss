@@ -1160,8 +1160,8 @@
 (define-trace-macro (vfasl-pad-word)
   (case-mode
    [(vfasl-copy)
-    (set! (array-ref (cast void** (UNTYPE _copy_ type_typed_object)) 3)
-          NULL)]
+    (set! (array-ref (cast ptr* (UNTYPE _copy_ type_typed_object)) 3)
+          0)]
    [else]))
 
 (define-trace-macro (vfasl-fail what)

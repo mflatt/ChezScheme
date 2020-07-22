@@ -1276,7 +1276,8 @@ static void fasl_init_entry_tables()
       ptr entry = Svector_ref(S_G.library_entry_vector, i);
       if (entry != Sfalse) {
         vfasl_hash_table_set(S_G.library_entries, entry, (ptr)(i+1));
-        vfasl_hash_table_set(S_G.library_entry_codes, CLOSCODE(entry), (ptr)(i+1));
+        if (Sprocedurep(entry))
+          vfasl_hash_table_set(S_G.library_entry_codes, CLOSCODE(entry), (ptr)(i+1));
       }
     }
   }
@@ -1367,7 +1368,7 @@ static void vfasl_hash_table_set(vfasl_hash_table *ht, ptr key, ptr value) {
   uptr hc = HASH_CODE(key);
   uptr hc2 = HASH_CODE2(key);
   uptr size = ht->size;
-    
+
   if (ht->count > ht->size >> 1) {
     /* rehash */
     uptr i;
@@ -1406,7 +1407,7 @@ static ptr vfasl_hash_table_ref(vfasl_hash_table *ht, ptr key) {
   uptr hc2 = HASH_CODE2(key);
   uptr size = ht->size;
   ptr old_key;
-  
+
   hc = hc & (size - 1);
   while ((old_key = ht->entries[hc].key) != key) {
     if (!old_key)
