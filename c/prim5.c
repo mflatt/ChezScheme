@@ -25,8 +25,8 @@
 
 /* locally defined functions */
 static INT s_errno PROTO((void));
-static iptr s_addr_in_heap PROTO((uptr x));
-static iptr s_ptr_in_heap PROTO((ptr x));
+static IBOOL s_addr_in_heap PROTO((uptr x));
+static IBOOL s_ptr_in_heap PROTO((ptr x));
 static ptr s_generation PROTO((ptr x));
 static iptr s_fxmul PROTO((iptr x, iptr y));
 static iptr s_fxdiv PROTO((iptr x, iptr y));
@@ -146,11 +146,11 @@ static INT s_errno() {
   return errno;
 }
 
-static iptr s_addr_in_heap(x) uptr x; {
+static IBOOL s_addr_in_heap(x) uptr x; {
   return MaybeSegInfo(addr_get_segment(x)) != NULL;
 }
 
-static iptr s_ptr_in_heap(x) ptr x; {
+static IBOOL s_ptr_in_heap(x) ptr x; {
   return MaybeSegInfo(ptr_get_segment(x)) != NULL;
 }
 
