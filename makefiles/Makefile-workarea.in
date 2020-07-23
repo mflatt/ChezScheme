@@ -47,7 +47,7 @@ bootfiles: build
 
 .PHONY: reset
 reset:
-	(cs s && $(MAKE) reset)
+	(cd s && $(MAKE) reset)
 
 # Supply XM=<machine> to build boot files for <machine>
 .PHONY: boot

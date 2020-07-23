@@ -70,67 +70,88 @@
         [(moi (ref/set r offset arg ...) signed wide-bits middle-bits narrow-bits swap?)
          (let ([mk (lambda (base n)
                      (datum->syntax #'moi (string->symbol (format "~a-~a" base n))))])
-           (with-syntax ([signed-wide (mk (datum signed) (datum wide-bits))]
-                         [unsigned-wide (mk 'unsigned (datum wide-bits))]
-                         [unsigned-middle (mk 'unsigned (datum middle-bits))]
-                         [signed-narrow (mk (datum signed) (datum narrow-bits))]
-                         [unsigned-narrow (mk 'unsigned (datum narrow-bits))]
-                         [wide-bytes (fxsrl (datum wide-bits) 3)]
-                         [middle-bytes (fxsrl (datum middle-bits) 3)]
-                         [narrow-bytes (fxsrl (datum narrow-bits) 3)])
-             (with-syntax ([big-case
-                            (cond
-                              [(null? #'(arg ...))
-                               ;; ref mode
-                               #`(logor
-                                  (ash (ref/set 'signed-wide r offset) (+ narrow-bits wide-bits))
-                                  #,(if (zero? (datum middle-bits))
-                                        #`0
-                                        #`(ash (ref/set 'unsigned-middle r offset) narrow-bits))
-                                  (ref/set 'unsigned-narrow r (fx+ offset wide-bytes middle-bytes)))]
-                               [else
-                                ;; set mode
-                                #`(begin
-                                    (ref/set 'signed-wide r offset
-                                             (bitwise-arithmetic-shift-right arg ... (+ narrow-bits middle-bits)))
-                                    #,(if (zero? (datum middle-bits))
-                                          #`(void)
-                                          #`(ref/set 'unsigned-middle r (fx+ offset wide-bytes)
-                                                     (logand (bitwise-arithmetic-shift-right arg ... narrow-bits)
-                                                             (- (expt 2 middle-bits) 1))))
-                                    (ref/set 'unsigned-narrow r (fx+ offset middle-bytes wide-bytes)
-                                             (logand arg ... (- (expt 2 narrow-bits) 1))))])]
-                           [little-case
-                            (cond
-                              [(null? #'(arg ...))
-                               ;; ref mode
-                               #`(logor
-                                  (ref/set 'unsigned-wide r offset)
-                                  #,(if (zero? (datum middle-bits))
-                                        0
-                                        #`(ash (ref/set 'unsigned-middle r (fx+ offset wide-bytes)) wide-bits))
-                                  (ash (ref/set 'signed-narrow r (fx+ offset wide-bytes middle-bytes)) (+ wide-bits middle-bits)))]
-                              [else
-                               ;; set mode
-                               #`(begin
-                                   (ref/set 'unsigned-wide r offset
-                                            (logand arg ... (- (expt 2 wide-bits) 1)))
-                                   #,(if (zero? (datum middle-bits))
-                                         #`(void)
-                                         #`(ref/set 'unsigned-middle r (fx+ offset wide-bytes)
-                                                    (logand (bitwise-arithmetic-shift-right arg ... wide-bits)
-                                                            (- (expt 2 middle-bits) 1))))
-                                   (ref/set 'signed-narrow r (fx+ offset middle-bytes wide-bytes)
-                                            (bitwise-arithmetic-shift-right arg ... (+ wide-bits middle-bits))))])])
-               (cond
-                 [(not (datum swap?))
+           (cond
+             [(not (datum swap?))
+              (with-syntax ([signed-wide (mk (datum signed) (datum wide-bits))]
+                            [unsigned-wide (mk 'unsigned (datum wide-bits))]
+                            [unsigned-middle (mk 'unsigned (datum middle-bits))]
+                            [signed-narrow (mk (datum signed) (datum narrow-bits))]
+                            [unsigned-narrow (mk 'unsigned (datum narrow-bits))]
+                            [wide-bytes (fxsrl (datum wide-bits) 3)]
+                            [middle-bytes (fxsrl (datum middle-bits) 3)]
+                            [narrow-bytes (fxsrl (datum narrow-bits) 3)])
+                (with-syntax ([big-case
+                               (cond
+                                 [(null? #'(arg ...))
+                                  ;; ref mode
+                                  #`(logor
+                                     (ash (ref/set 'signed-wide r offset) (+ narrow-bits wide-bits))
+                                     #,(if (zero? (datum middle-bits))
+                                           #`0
+                                           #`(ash (ref/set 'unsigned-middle r offset) narrow-bits))
+                                     (ref/set 'unsigned-narrow r (fx+ offset wide-bytes middle-bytes)))]
+                                 [else
+                                  ;; set mode
+                                  #`(begin
+                                      (ref/set 'signed-wide r offset
+                                               (bitwise-arithmetic-shift-right arg ... (+ narrow-bits middle-bits)))
+                                      #,(if (zero? (datum middle-bits))
+                                            #`(void)
+                                            #`(ref/set 'unsigned-middle r (fx+ offset wide-bytes)
+                                                       (logand (bitwise-arithmetic-shift-right arg ... narrow-bits)
+                                                               (- (expt 2 middle-bits) 1))))
+                                      (ref/set 'unsigned-narrow r (fx+ offset middle-bytes wide-bytes)
+                                               (logand arg ... (- (expt 2 narrow-bits) 1))))])]
+                              [little-case
+                               (cond
+                                 [(null? #'(arg ...))
+                                  ;; ref mode
+                                  #`(logor
+                                     (ref/set 'unsigned-wide r offset)
+                                     #,(if (zero? (datum middle-bits))
+                                           0
+                                           #`(ash (ref/set 'unsigned-middle r (fx+ offset wide-bytes)) wide-bits))
+                                     (ash (ref/set 'signed-narrow r (fx+ offset wide-bytes middle-bytes)) (+ wide-bits middle-bits)))]
+                                 [else
+                                  ;; set mode
+                                  #`(begin
+                                      (ref/set 'unsigned-wide r offset
+                                               (logand arg ... (- (expt 2 wide-bits) 1)))
+                                      #,(if (zero? (datum middle-bits))
+                                            #`(void)
+                                            #`(ref/set 'unsigned-middle r (fx+ offset wide-bytes)
+                                                       (logand (bitwise-arithmetic-shift-right arg ... wide-bits)
+                                                               (- (expt 2 middle-bits) 1))))
+                                      (ref/set 'signed-narrow r (fx+ offset middle-bytes wide-bytes)
+                                               (bitwise-arithmetic-shift-right arg ... (+ wide-bits middle-bits))))])])
                   #'(native-endianness-case
                      [(big) big-case]
-                     [(little) little-case])]
-                 [else
-                  #'(native-endianness-case
-                     [(big) little-case]
-                     [(little) big-case])]))))])))
+                     [(little) little-case])))]
+             [else
+              ;; For swap mode, perform a sequence of byte reads or writes
+              (let ([mk (lambda (big?)
+                          (let* ([bits (+ (datum wide-bits) (datum middle-bits) (datum narrow-bits))]
+                                 [bytes (fxsrl bits 3)])
+                            (let gen ([bits bits]
+                                      [type (mk (datum signed) 8)]
+                                      [shift (- bits 8)]
+                                      [delta (if big? 0 (- bytes 1))])
+                              (cond
+                                [(= bits 8)
+                                 (cond
+                                   [(null? #'(arg ...))
+                                    ;; ref mode
+                                    #`(ash (ref/set '#,type r (fx+ offset #,delta)) #,shift)]
+                                   [else
+                                    ;; set mode
+                                    #`(ref/set '#,type r (fx+ offset #,delta) (logand #xff (bitwise-arithmetic-shift-right arg ... #,shift)))])]
+                                [else
+                                 #`(#,(if (null? #'(arg ...)) #'logor #'begin)
+                                     #,(gen 8 type shift delta)
+                                     #,(gen (- bits 8) (mk 'unsigned 8) (- shift 8) (+ delta (if big? 1 -1))))]))))])
+                #`(native-endianness-case
+                   [(big) #,(mk #t)]
+                   [(little) #,(mk #f)]))]))])))
 
   ; $record is hand-coded and is defined in prims.ss
 
@@ -381,7 +402,7 @@
            (build-multi-int (#3%$swap-object-ref r offset) integer 16 8 #t)]
           [(_ unsigned-24 bytes pred)
            (not (constant unaligned-integers))
-           (build-multi-int (#3%$swap-object-ref r offset) unsigned 32 8 #t)]
+           (build-multi-int (#3%$swap-object-ref r offset) unsigned 16 8 #t)]
           [(_ integer-40 bytes pred)
            (not (constant unaligned-integers))
            (build-multi-int (#3%$swap-object-ref r offset) integer 32 8 #t)]
