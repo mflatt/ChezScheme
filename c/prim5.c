@@ -1553,7 +1553,16 @@ void S_dump_tc(ptr tc) {
 }
 
 static IBOOL s_native_little_endian() {
-  return 1; /* FIXME */
+#define big 0
+#define little 1
+#ifdef PORTABLE_BYTECODE
+# ifdef PORTABLE_BYTECODE_BIGENDIAN
+#  define unknown big
+# else
+#  define unknown little
+# endif
+#endif
+  return native_endianness == little;
 }
 
 #define proc2ptr(x) (ptr)(iptr)(x)

@@ -511,7 +511,7 @@ if [ "$disablecurses" = "yes" ]; then
 fi
 
 warningFlags="-Wpointer-arith -Wall -Wextra -Werror -Wno-implicit-fallthrough"
-if [ "$m" == "pb" ] ; then
+if [ "$m" = "pb" ] ; then
   # Disable pointer <-> int wanings, because we have many intentional
   # casts between `void*` and 64-bit `uptr` on a 32-bit platform:
   warningFlags="$warningFlags -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast"

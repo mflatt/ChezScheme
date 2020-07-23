@@ -678,6 +678,31 @@ ftype operators:
       (lambda (pargs->new)
         (lambda (whoid expr ftd pointer?)
           ((pargs->new expr) (syntax->datum whoid) ftd pointer?)))))
+
+  (define-syntax use-foreign
+    (syntax-rules ()
+      [(_ op type info fptr offset val)
+       (op 'type ($ftype-pointer-address fptr) offset val)]
+      [(_ op type fptr offset)
+       (op 'type ($ftype-pointer-address fptr) offset)]))
+  (define-syntax unaligned
+    (syntax-rules ()
+      [(_ op type (fast-op arg ...))
+       (constant-case unaligned-integers
+         [(#t) (fast-op info arg ...)]
+         [(#f) (use-foreign op type arg ...)])]))
+  (define-syntax wide
+    (syntax-rules ()
+      [(_ op type (fast-op info arg ...))
+       (constant-case ptr-bits
+         [(64) (fast-op info arg ...)]
+         [(32) (use-foreign op type arg ...)])]))
+  (define-syntax unaligned/wide
+    (syntax-rules ()
+      [(_ op type (fast-op info arg ...))
+       (constant-case ptr-bits
+         [(64) (unaligned op type (fast-op info arg ...))]
+         [(32) (use-foreign op type arg ...)])]))    
   (define-syntax swapped-endianness
     (lambda (stx)
       (syntax-case stx ()
@@ -1397,16 +1422,20 @@ ftype operators:
 
   (set! $fptr-ref-integer-24
     (lambda (fptr offset)
-      (#3%$fptr-ref-integer-24 fptr offset)))
+      (unaligned foreign-ref integer-24
+                 (#3%$fptr-ref-integer-24 fptr offset))))
   (set! $fptr-ref-unsigned-24
     (lambda (fptr offset)
-      (#3%$fptr-ref-unsigned-24 fptr offset)))
+      (unaligned foreign-ref unsigned-24
+                 (#3%$fptr-ref-unsigned-24 fptr offset))))
   (set! $fptr-ref-swap-integer-24
     (lambda (fptr offset)
-      (#3%$fptr-ref-swap-integer-24 fptr offset)))
+      (unaligned $foreign-swap-ref integer-24
+                 (#3%$fptr-ref-swap-integer-24 fptr offset))))
   (set! $fptr-ref-swap-unsigned-24
     (lambda (fptr offset)
-      (#3%$fptr-ref-swap-unsigned-24 fptr offset)))
+      (unaligned $foreign-swap-ref unsigned-24
+                 (#3%$fptr-ref-swap-unsigned-24 fptr offset))))
 
   (set! $fptr-ref-integer-32
     (lambda (fptr offset)
@@ -1423,42 +1452,54 @@ ftype operators:
 
   (set! $fptr-ref-integer-40
     (lambda (fptr offset)
-      (#3%$fptr-ref-integer-40 fptr offset)))
+      (unaligned foreign-ref integer-40
+                 (#3%$fptr-ref-integer-40 fptr offset))))
   (set! $fptr-ref-unsigned-40
     (lambda (fptr offset)
-      (#3%$fptr-ref-unsigned-40 fptr offset)))
+      (unaligned foreign-ref unsigned-40
+                 (#3%$fptr-ref-unsigned-40 fptr offset))))
   (set! $fptr-ref-swap-integer-40
     (lambda (fptr offset)
-      (#3%$fptr-ref-swap-integer-40 fptr offset)))
+      (unaligned $foreign-swap-ref integer-40
+                 (#3%$fptr-ref-swap-integer-40 fptr offset))))
   (set! $fptr-ref-swap-unsigned-40
     (lambda (fptr offset)
-      (#3%$fptr-ref-swap-unsigned-40 fptr offset)))
+      (unaligned $foreign-swap-ref unsigned-40
+                 (#3%$fptr-ref-swap-unsigned-40 fptr offset))))
 
   (set! $fptr-ref-integer-48
     (lambda (fptr offset)
-      (#3%$fptr-ref-integer-48 fptr offset)))
+      (unaligned foreign-ref integer-48
+                 (#3%$fptr-ref-integer-48 fptr offset))))
   (set! $fptr-ref-unsigned-48
     (lambda (fptr offset)
-      (#3%$fptr-ref-unsigned-48 fptr offset)))
+      (unaligned foreign-ref unsigned-48
+                 (#3%$fptr-ref-unsigned-48 fptr offset))))
   (set! $fptr-ref-swap-integer-48
     (lambda (fptr offset)
-      (#3%$fptr-ref-swap-integer-48 fptr offset)))
+      (unaligned $foreign-swap-ref integer-48
+                 (#3%$fptr-ref-swap-integer-48 fptr offset))))
   (set! $fptr-ref-swap-unsigned-48
     (lambda (fptr offset)
-      (#3%$fptr-ref-swap-unsigned-48 fptr offset)))
+      (unaligned $foreign-swap-ref unsigned-48
+                 (#3%$fptr-ref-swap-unsigned-48 fptr offset))))
 
   (set! $fptr-ref-integer-56
     (lambda (fptr offset)
-      (#3%$fptr-ref-integer-56 fptr offset)))
+      (unaligned foreign-ref integer-56
+                 (#3%$fptr-ref-integer-56 fptr offset))))
   (set! $fptr-ref-unsigned-56
     (lambda (fptr offset)
-      (#3%$fptr-ref-unsigned-56 fptr offset)))
+      (unaligned foreign-ref unsigned-56
+                 (#3%$fptr-ref-unsigned-56 fptr offset))))
   (set! $fptr-ref-swap-integer-56
     (lambda (fptr offset)
-      (#3%$fptr-ref-swap-integer-56 fptr offset)))
+      (unaligned $foreign-swap-ref integer-56
+                 (#3%$fptr-ref-swap-integer-56 fptr offset))))
   (set! $fptr-ref-swap-unsigned-56
     (lambda (fptr offset)
-      (#3%$fptr-ref-swap-unsigned-56 fptr offset)))
+      (unaligned $foreign-swap-ref unsigned-56
+                 (#3%$fptr-ref-swap-unsigned-56 fptr offset))))
 
   (set! $fptr-ref-integer-64
     (lambda (fptr offset)
@@ -1584,19 +1625,23 @@ ftype operators:
     (set! $fptr-set-integer-24!
       (lambda (info fptr offset val)
         (unless ($integer-24? val) (invalid-value info val))
-        (#3%$fptr-set-integer-24! info fptr offset val)))
+        (unaligned foreign-set! integer-24
+                   (#3%$fptr-set-integer-24! info fptr offset val))))
     (set! $fptr-set-unsigned-24!
       (lambda (info fptr offset val)
         (unless ($integer-24? val) (invalid-value info val))
-        (#3%$fptr-set-unsigned-24! info fptr offset val)))
+        (unaligned foreign-set! unsigned-24
+                   (#3%$fptr-set-unsigned-24! info fptr offset val))))
     (set! $fptr-set-swap-integer-24!
       (lambda (info fptr offset val)
         (unless ($integer-24? val) (invalid-value info val))
-        (#3%$fptr-set-swap-integer-24! info fptr offset val)))
+        (unaligned $foreign-swap-set! integer-24
+                   (#3%$fptr-set-swap-integer-24! info fptr offset val))))
     (set! $fptr-set-swap-unsigned-24!
       (lambda (info fptr offset val)
         (unless ($integer-24? val) (invalid-value info val))
-        (#3%$fptr-set-swap-unsigned-24! info fptr offset val)))
+        (unaligned $foreign-swap-set! unsigned-24
+                   (#3%$fptr-set-swap-unsigned-24! info fptr offset val))))
 
     (set! $fptr-set-integer-32!
       (lambda (info fptr offset val)
@@ -1618,134 +1663,86 @@ ftype operators:
     (set! $fptr-set-integer-40!
       (lambda (info fptr offset val)
         (unless ($integer-40? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-integer-40! info fptr offset val)]
-          [(32) (foreign-set! 'integer-40 ($ftype-pointer-address fptr) offset val)])))
+        (unaligned/wide foreign-set! integer-40
+                         (#3%$fptr-set-integer-40! info fptr offset val))))
     (set! $fptr-set-unsigned-40!
       (lambda (info fptr offset val)
         (unless ($integer-40? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-unsigned-40! info fptr offset val)]
-          [(32) (foreign-set! 'unsigned-40 ($ftype-pointer-address fptr) offset val)])))
+        (unaligned/wide foreign-set! unsigned-40
+                         (#3%$fptr-set-unsigned-40! info fptr offset val))))
     (set! $fptr-set-swap-integer-40!
       (lambda (info fptr offset val)
         (unless ($integer-40? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-swap-integer-40! info fptr offset val)]
-          [(32) (let ([bv (make-bytevector 8)])
-                  ($object-set! 'integer-40 bv (constant bytevector-data-disp) val)
-                  (foreign-set! 'unsigned-40 ($ftype-pointer-address fptr) offset
-                    (bytevector-u40-ref bv 0
-                      (swapped-endianness))))])))
+        (unaligned/wide $foreign-swap-set! integer-40
+                         (#3%$fptr-set-swap-integer-40! info fptr offset val))))
     (set! $fptr-set-swap-unsigned-40!
       (lambda (info fptr offset val)
         (unless ($integer-40? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-swap-unsigned-40! info fptr offset val)]
-          [(32) (let ([bv (make-bytevector 8)])
-                  ($object-set! 'unsigned-40 bv (constant bytevector-data-disp) val)
-                  (foreign-set! 'unsigned-40 ($ftype-pointer-address fptr) offset
-                    (bytevector-u40-ref bv 0
-                      (swapped-endianness))))])))
+        (unaligned/wide $foreign-swap-set! unsigned-40
+                         (#3%$fptr-set-swap-unsigned-40! info fptr offset val))))
 
     (set! $fptr-set-integer-48!
       (lambda (info fptr offset val)
         (unless ($integer-48? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-integer-48! info fptr offset val)]
-          [(32) (foreign-set! 'integer-48 ($ftype-pointer-address fptr) offset val)])))
+        (unaligned/wide foreign-set! integer-48
+                         (#3%$fptr-set-integer-48! info fptr offset val))))
     (set! $fptr-set-unsigned-48!
       (lambda (info fptr offset val)
         (unless ($integer-48? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-unsigned-48! info fptr offset val)]
-          [(32) (foreign-set! 'unsigned-48 ($ftype-pointer-address fptr) offset val)])))
+        (unaligned/wide foreign-set! unsigned-48
+                         (#3%$fptr-set-unsigned-48! info fptr offset val))))
     (set! $fptr-set-swap-integer-48!
       (lambda (info fptr offset val)
         (unless ($integer-48? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-swap-integer-48! info fptr offset val)]
-          [(32) (let ([bv (make-bytevector 8)])
-                  ($object-set! 'integer-48 bv (constant bytevector-data-disp) val)
-                  (foreign-set! 'unsigned-48 ($ftype-pointer-address fptr) offset
-                    (bytevector-u48-ref bv 0
-                      (swapped-endianness))))])))
+        (unaligned/wide $foreign-swap-set! integer-48
+                        (#3%$fptr-set-swap-integer-48! info fptr offset val))))
     (set! $fptr-set-swap-unsigned-48!
       (lambda (info fptr offset val)
         (unless ($integer-48? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-swap-unsigned-48! info fptr offset val)]
-          [(32) (let ([bv (make-bytevector 8)])
-                  ($object-set! 'unsigned-48 bv (constant bytevector-data-disp) val)
-                  (foreign-set! 'unsigned-48 ($ftype-pointer-address fptr) offset
-                    (bytevector-u48-ref bv 0
-                      (swapped-endianness))))])))
-
+        (unaligned/wide $foreign-swap-set! unsigned-48
+                        (#3%$fptr-set-swap-unsigned-48! info fptr offset val))))
+    
     (set! $fptr-set-integer-56!
       (lambda (info fptr offset val)
         (unless ($integer-56? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-integer-56! info fptr offset val)]
-          [(32) (foreign-set! 'integer-56 ($ftype-pointer-address fptr) offset val)])))
+        (unaligned/wide foreign-set! integer-56
+                        (#3%$fptr-set-integer-56! info fptr offset val))))
     (set! $fptr-set-unsigned-56!
       (lambda (info fptr offset val)
         (unless ($integer-56? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-unsigned-56! info fptr offset val)]
-          [(32) (foreign-set! 'unsigned-56 ($ftype-pointer-address fptr) offset val)])))
+        (unaligned/wide foreign-set! unsigned-56
+                        (#3%$fptr-set-unsigned-56! info fptr offset val))))
     (set! $fptr-set-swap-integer-56!
       (lambda (info fptr offset val)
         (unless ($integer-56? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-swap-integer-56! info fptr offset val)]
-          [(32) (let ([bv (make-bytevector 8)])
-                  ($object-set! 'integer-56 bv (constant bytevector-data-disp) val)
-                  (foreign-set! 'unsigned-56 ($ftype-pointer-address fptr) offset
-                    (bytevector-u56-ref bv 0
-                      (swapped-endianness))))])))
+        (unaligned/wide $foreign-swap-set! integer-56
+                        (#3%$fptr-set-swap-integer-56! info fptr offset val))))
     (set! $fptr-set-swap-unsigned-56!
       (lambda (info fptr offset val)
         (unless ($integer-56? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-swap-unsigned-56! info fptr offset val)]
-          [(32) (let ([bv (make-bytevector 8)])
-                  ($object-set! 'unsigned-56 bv (constant bytevector-data-disp) val)
-                  (foreign-set! 'unsigned-56 ($ftype-pointer-address fptr) offset
-                    (bytevector-u56-ref bv 0
-                      (swapped-endianness))))])))
+        (unaligned/wide $foreign-swap-set! unsigned-56
+                        (#3%$fptr-set-swap-unsigned-56! info fptr offset val))))
 
     (set! $fptr-set-integer-64!
       (lambda (info fptr offset val)
         (unless ($integer-64? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-integer-64! info fptr offset val)]
-          [(32) (foreign-set! 'integer-64 ($ftype-pointer-address fptr) offset val)])))
+        (wide foreign-set! integer-64
+              (#3%$fptr-set-integer-64! info fptr offset val))))
     (set! $fptr-set-unsigned-64!
       (lambda (info fptr offset val)
         (unless ($integer-64? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-unsigned-64! info fptr offset val)]
-          [(32) (foreign-set! 'unsigned-64 ($ftype-pointer-address fptr) offset val)])))
+        (wide foreign-set! unsigned-64
+              (#3%$fptr-set-unsigned-64! info fptr offset val))))
     (set! $fptr-set-swap-integer-64!
       (lambda (info fptr offset val)
         (unless ($integer-64? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-swap-integer-64! info fptr offset val)]
-          [(32) (let ([bv (make-bytevector 8)])
-                  ($object-set! 'integer-64 bv (constant bytevector-data-disp) val)
-                  (foreign-set! 'unsigned-64 ($ftype-pointer-address fptr) offset
-                    (bytevector-u64-ref bv 0
-                      (swapped-endianness))))])))
+        (wide $foreign-swap-set! integer-64
+              (#3%$fptr-set-swap-integer-64! info fptr offset val))))
     (set! $fptr-set-swap-unsigned-64!
       (lambda (info fptr offset val)
         (unless ($integer-64? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-swap-unsigned-64! info fptr offset val)]
-          [(32) (let ([bv (make-bytevector 8)])
-                  ($object-set! 'unsigned-64 bv (constant bytevector-data-disp) val)
-                  (foreign-set! 'unsigned-64 ($ftype-pointer-address fptr) offset
-                    (bytevector-u64-ref bv 0
-                      (swapped-endianness))))])))
+        (wide $foreign-swap-set! unsigned-64
+              (#3%$fptr-set-swap-unsigned-64! info fptr offset val))))
 
     (set! $fptr-set-double-float!
       (lambda (info fptr offset val)

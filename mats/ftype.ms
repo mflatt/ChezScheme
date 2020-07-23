@@ -1026,7 +1026,12 @@
 
  ; ----------------
   (begin
-    (define-ftype A (bits [x unsigned 3] [y unsigned 5]))
+    (meta-cond
+     [(eq? (machine-type) 'pb)
+      ;; avoid bit fields:
+      (define-ftype A (struct [x unsigned] [y unsigned]))]
+     [else
+      (define-ftype A (bits [x unsigned 3] [y unsigned 5]))])
     (define-ftype B (* A))
     (define a (make-ftype-pointer A (foreign-alloc (ftype-sizeof A))))
     (define b (make-ftype-pointer B (foreign-alloc (ftype-sizeof B))))
@@ -1465,6 +1470,14 @@
                            (f (fx- n 1)))))
                    (let ([s1 (statistics)])
                      (<= (- (sstats-bytes s1) (sstats-bytes s0)) 1000)))))))
+    (define-syntax $not-much-alloc/bitfields?
+      (lambda (stx)
+        (syntax-case stx ()
+          [(_ arg ...)
+           (not (eq? (machine-type) 'pb))
+           #'($not-much-alloc? arg ...)]
+          [_
+           #'#t])))
     #t)
 
   ; might should also check ftype-&ref, ftype-locked-decr!, ftype-init-lock,
@@ -1512,7 +1525,7 @@
     (fptr-free x)
     #t)
 
-  ($not-much-alloc? #t
+  ($not-much-alloc/bitfields? #t
     (let ()
       (define-ftype A (struct [x (array 10 int)] [y (bits [y1 unsigned 3] [y2 unsigned 12] [y3 signed 17])]))
       (define-ftype B (* A))
@@ -1538,7 +1551,7 @@
           (eqv? (ftype-ref A (y y2) (ftype-ref B () b)) 1037)
           (eqv? (ftype-ref A (y y3) (ftype-ref B () b)) 9493)))))
 
-  ($not-much-alloc? #t
+  ($not-much-alloc/bitfields? #t
     (let ()
       (define-ftype A (struct [x (array 10 int)] [y (bits [y1 unsigned 3] [y2 unsigned 12] [y3 signed 17])]))
       (define-ftype B (* A))
@@ -1568,7 +1581,7 @@
           (eqv? (ftype-ref A (y y2) (ftype-ref B () (ftype-&ref BB (b2) (ftype-ref BBB () bbb)))) 1037)
           (eqv? (ftype-ref A (y y3) (ftype-ref B () (ftype-&ref BB (b2) (ftype-ref BBB () bbb)))) 9493)))))
 
-  ($not-much-alloc? #t
+  ($not-much-alloc/bitfields? #t
     (let ()
       (define-ftype A (struct [x (array 10 int)] [y (bits [y1 unsigned 3] [y2 unsigned 12] [y3 signed 17])]))
       (define-ftype C (struct [c1 int] [c2 A]))
@@ -1581,7 +1594,7 @@
           (eqv? (ftype-set! A (x 7) (ftype-&ref C (c2) c) 71) (void))
           (eqv? (ftype-ref A (x 7) (ftype-&ref C (c2) c)) 71)))))
 
-  ($not-much-alloc? #t
+  ($not-much-alloc/bitfields? #t
     (let ()
       (define-ftype A (struct [x (array 10 int)] [y (bits [y1 unsigned 3] [y2 unsigned 12] [y3 signed 17])]))
       (define a (make-ftype-pointer A (foreign-alloc (ftype-sizeof A))))
@@ -1593,7 +1606,7 @@
           (eqv? (ftype-set! A (x 3) (make-ftype-pointer A (ftype-pointer-address a)) (- n 3)) (void))
           (eqv? (ftype-ref A (x 3) (make-ftype-pointer A a-addr)) (- n 3))))))
     
-  ($not-much-alloc? #t
+  ($not-much-alloc/bitfields? #t
     (let ()
       (define-ftype A iptr)
       (define-ftype B (* A))
@@ -2306,17 +2319,53 @@
 
 (mat ftype-inheritance
   (begin
+    (define-syntax define-ftype*
+      (lambda (stx)
+        (syntax-case stx ()
+          [(_ id type)
+           (eq? (machine-type) 'pb)
+           ;; Make some tests work by translating to `little` and
+           ;; `big` to `native` and `swapped` and by translating `bits`
+           ;; to `struct`.
+           (let ()
+             (define (filter-type t)
+               (syntax-case t (endian big little struct union bits)
+                 [(endian big t) (with-syntax ([t (filter-type #'t)])
+                                   (if (eq? 'big (native-endianness))
+                                       #'(endian native t)
+                                       #'(endian swapped t)))]
+                 [(endian little t) (with-syntax ([t (filter-type #'t)])
+                                      (if (eq? 'little (native-endianness))
+                                          #'(endian native t)
+                                          #'(endian swapped t)))]
+                 [(struct [name type] ...)
+                  (with-syntax ([(type ...) (map filter-type #'(type ...))])
+                    #'(struct [name type] ...))]
+                 [(union [name type] ...)
+                  (with-syntax ([(type ...) (map filter-type #'(type ...))])
+                    #'(union [name type] ...))]
+                 [(bits [name type n] ...)
+                  (with-syntax ([(type ...)
+                                 (map (lambda (type)
+                                        (syntax-case type (signed unsigned)
+                                          [signed #'integer-8]
+                                          [unsigned #'unsigned-8]))
+                                      #'(type ...))])
+                    (filter-type #'(struct [name type] ...)))]
+                 [_ t]))
+             #`(define-ftype id #,(filter-type #'type)))]
+          [(_ id type) #'(define-ftype id type)])))
     (define-ftype A (struct [a double] [b int]))
-    (define-ftype Bl (endian little (struct [a double] [b int])))
-    (define-ftype Bb (endian big (struct [a double] [b int])))
+    (define-ftype* Bl (endian little (struct [a double] [b int])))
+    (define-ftype* Bb (endian big (struct [a double] [b int])))
     (define-ftype C (union [a int] [b unsigned]))
     (define-ftype D double)
-    (define-ftype Dl (endian little double))
-    (define-ftype Db (endian big double))
+    (define-ftype* Dl (endian little double))
+    (define-ftype* Db (endian big double))
     (define-ftype E (packed (struct [a double] [b int])))
     (define-ftype G (packed (array 5 double)))
     (define-ftype Gu (array 5 double))
-    (define-ftype H (struct [a (endian big G)] [b int]))
+    (define-ftype* H (struct [a (endian big G)] [b int]))
     (define-ftype I (struct [a Gu] [b int]))
     (define a (make-ftype-pointer A (foreign-alloc (ftype-sizeof A))))
     (define bl (make-ftype-pointer Bl (foreign-alloc (ftype-sizeof Bl))))
@@ -2469,11 +2518,7 @@
 
 (mat ftype-lock-operations ; also tested in thread.ms
   (begin
-    (meta-cond
-      [(eq? (native-endianness) 'little)
-       (define-ftype swapped-iptr (endian big iptr))]
-      [else
-       (define-ftype swapped-iptr (endian little iptr))])
+    (define-ftype swapped-iptr (endian swapped iptr))
     (define-ftype A
       (struct
         [a double]
@@ -2913,6 +2958,10 @@
     (load "testfile-ftype5.so")
     (ftype-pointer? ftype5-A (make-ftype-pointer ftype5-A 0)))
 )
+
+(meta-cond
+ [(eq? (machine-type) 'pb) (begin)]
+ [else
 
 (mat ftype-bits
   (begin
@@ -3913,12 +3962,14 @@
     (fptr-free x)
     #t)
 
-)
+  )
+
+]) ; end not 'pb
 
 (mat ftype-endian
   (equal?
     (let ()
-      (define-ftype A (endian native double))
+      (define-ftype* A (endian native double))
       (define a (make-ftype-pointer A (foreign-alloc (ftype-sizeof A))))
       (free-after a
         (ftype-set! A () a 3.5)
@@ -3926,7 +3977,7 @@
     3.5)
   (equal?
     (let ()
-      (define-ftype A (endian big double))
+      (define-ftype* A (endian big double))
       (define a (make-ftype-pointer A (foreign-alloc (ftype-sizeof A))))
       (free-after a
         (ftype-set! A () a 3.5)
@@ -3934,7 +3985,7 @@
     3.5)
   (equal?
     (let ()
-      (define-ftype A (endian little double))
+      (define-ftype* A (endian little double))
       (define a (make-ftype-pointer A (foreign-alloc (ftype-sizeof A))))
       (free-after a
         (ftype-set! A () a 3.5)
@@ -3942,7 +3993,7 @@
     3.5)
   (equal?
     (let ()
-       (define-ftype A
+       (define-ftype* A
          (endian big
            (struct
              [a1 double]
@@ -4022,7 +4073,7 @@
       25000))
   (equal?
     (let ()
-       (define-ftype A
+       (define-ftype* A
          (endian little
            (struct
              [a1 double]
@@ -4102,7 +4153,7 @@
       25000))
   (equal?
     (let ()
-       (define-ftype A
+       (define-ftype* A
          (endian native
            (struct
              [a1 double]
@@ -4183,7 +4234,7 @@
 
  ; ----------------
   (begin
-    (define-ftype Aendian
+    (define-ftype* Aendian
       (union
         [a1 (endian native
               (struct
@@ -4262,7 +4313,7 @@
 
  ; ----------------
   (begin
-    (define-ftype Bendian
+    (define-ftype* Bendian
       (union
         [a1 (endian native
               (struct
@@ -4337,9 +4388,17 @@
     (fptr-free x)
     #t)
 
+  )
+
+(meta-cond
+ [(eq? (machine-type) 'pb) (begin)]
+ [else
+
+(mat ftype-endian-bits
+
  ; ----------------
   (begin
-    (define-ftype Abits
+    (define-ftype* Abits
       (endian little
         (union
           [a1 (struct
@@ -5354,7 +5413,7 @@
   (begin
     (fptr-free x)
     #t)
-)
+  )
 
 (mat ftype-inspection
   (begin
@@ -5573,11 +5632,13 @@
 
   (eq? (ftype-pointer-ftype (make-ftype-pointer A 0)) 'char)
   (eq? (ftype-pointer-ftype (make-ftype-pointer B 0)) 'char)
-)
+  )
+
+])
 
 (mat discarded-refs
   (begin
-    (define-ftype A
+    (define-ftype* A
       (endian big
         (struct
           [a1 double]
@@ -5648,7 +5709,7 @@
            x)))
     '(lambda (x) x))
   (begin
-    (define-ftype A
+    (define-ftype* A
       (endian little
         (struct
           [a1 double]
@@ -5719,7 +5780,7 @@
            x)))
     '(lambda (x) x))
   (begin
-    (define-ftype A
+    (define-ftype* A
       (endian big
         (union
           [a1 (struct
@@ -5781,7 +5842,7 @@
            x)))
     '(lambda (x) x))
   (begin
-    (define-ftype A
+    (define-ftype* A
       (endian little
         (union
           [a1 (struct

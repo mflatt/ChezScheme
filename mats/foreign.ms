@@ -24,7 +24,7 @@
       [(_) #'(void)])))
 
 (machine-case
- [(pb64el pb32el pb32eb)]
+ [(pb)]
  [else
 
 #;(define-syntax foreign-struct-mat
