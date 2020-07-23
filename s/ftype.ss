@@ -360,7 +360,11 @@ ftype operators:
                      ; a different rtd/ftd with the correct "extras" (including size and
                      ; alignment) when cross compiling between machines with different
                      ; base-type characteristics.
-                     (let ([pname (format "~a;~s" ty eness)])
+                     (let ([pname (format "~a~a" ty (case eness
+                                                      [(native) ""]
+                                                      [(swapped) "s"]
+                                                      [(big) "b"]
+                                                      [(little) "l"]))])
                        (let ([gstring (format "~aa9pth58056u34h517jsrqv-~s-~a" pname (constant machine-type-name) pname)])
                          ($intern3 gstring (string-length pname) (string-length gstring))))
                      (if (eq? eness 'native)

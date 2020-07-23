@@ -8218,7 +8218,7 @@
              [(quote ,d)
               (let ([type (filter-foreign-type d)])
                 (and (memq type (record-datatype list))
-                     (not (memq type '(char wchar boolean)))
+                     (not (memq type '(char wchar boolean single-float)))
                      (>= (constant ptr-bits) (type->width type))
                      (bind #f (e-offset e-value)
                        (build-swap-object-set! type
