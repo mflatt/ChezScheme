@@ -47,11 +47,10 @@ bootfiles:
 reset:
 	(cd $(workarea) && $(MAKE) reset)
 
-# Supply XM=<machine> to build boot files for <machine>
-.PHONY: boot
-boot: build
-	mkdir -p boot/$(XM)
-	(cd $(workarea) && $(MAKE) -f Mf-boot $(XM).boot)
+# <machine>.boot to build boot files for <machine>
+%.boot:
+	mkdir -p boot/$*
+	(cd $(workarea) && $(MAKE) -f Mf-boot $*.boot)
 
 # Supply ORIG=<dir> to build using existing at <dir>
 .PHONY: from-orig

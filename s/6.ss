@@ -71,7 +71,7 @@
 (let ()
   (define who 'mkdir)
 
-  (define fp (foreign-procedure "(cs)mkdir" (string uptr) ptr))
+  (define fp (foreign-procedure "(cs)mkdir" (string int) ptr))
 
   (define (do-mkdir path mode)
     (unless (string? path) ($oops who "~s is not a string" path))

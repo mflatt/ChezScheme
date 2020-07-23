@@ -49,11 +49,10 @@ bootfiles: build
 reset:
 	(cd s && $(MAKE) reset)
 
-# Supply XM=<machine> to build boot files for <machine>
-.PHONY: boot
-boot: build
-	mkdir -p ../boot/$(XM)
-	$(MAKE) -f Mf-boot $(XM).boot
+# <machine>.boot to build boot files for <machine>
+%.boot:
+	mkdir -p boot/$*
+	$(MAKE) -f Mf-boot $*.boot
 
 .PHONY: bintar
 bintar: build

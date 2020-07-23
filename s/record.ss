@@ -85,10 +85,10 @@
                                  [(null? #'(arg ...))
                                   ;; ref mode
                                   #`(logor
-                                     (ash (ref/set 'signed-wide r offset) (+ narrow-bits wide-bits))
+                                     (ash (ref/set 'signed-wide r offset) (+ narrow-bits middle-bits))
                                      #,(if (zero? (datum middle-bits))
                                            #`0
-                                           #`(ash (ref/set 'unsigned-middle r offset) narrow-bits))
+                                           #`(ash (ref/set 'unsigned-middle r (fx+ offset wide-bytes)) narrow-bits))
                                      (ref/set 'unsigned-narrow r (fx+ offset wide-bytes middle-bytes)))]
                                  [else
                                   ;; set mode
@@ -251,7 +251,7 @@
                  (define-syntax set
                    (syntax-rules (scheme-object char wchar boolean
                                                 integer-24 unsigned-24 integer-40 unsigned-40 integer-48 unsigned-48
-                                                integer-56 unsigned-56 integer-64 unsigned-64)
+                                                integer-56 unsigned-56 integer-64 unsigned-64 double-float single-float)
                      [(_ scheme-object bytes pred) ($oops who "cannot store scheme pointers into foreign memory")]
                      [(_ char bytes pred)
                       (begin
@@ -323,6 +323,21 @@
                       (begin
                         (unless (pred v) (value-err v ty))
                         (build-multi-int (#3%foreign-set! addr offset v) unsigned 32 32 swap?))]
+                     [(_ double-float bytes pred)
+                      (and swap? (< (constant ptr-bits) 64))
+                      (begin
+                        (unless (pred v) (value-err v ty))
+                        (let ([bv (make-bytevector 8)])
+                          (bytevector-ieee-double-native-set! bv 0 v)
+                          (foreign-set! 'unsigned-32 addr offset (bytevector-u32-native-ref bv 0))
+                          (foreign-set! 'unsigned-32 addr (fx+ offset 4) (bytevector-u32-native-ref bv 4))))]
+                     [(_ single-float bytes pred)
+                      swap?
+                      (begin
+                        (unless (pred v) (value-err v ty))
+                        (let ([bv (make-bytevector 4)])
+                          (bytevector-ieee-single-native-set! bv 0 v)
+                          (foreign-set! 'unsigned-32 addr offset (bytevector-u32-native-ref bv 0))))]
                      [(_ type bytes pred)
                       (begin
                         (unless (pred v) (value-err v ty))

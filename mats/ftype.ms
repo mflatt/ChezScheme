@@ -2431,9 +2431,11 @@
 
   (eqv? (ftype-ref Bb (a) bb) -3.14)
   (or (not (eq? (native-endianness) 'big))
+      (eq? (machine-type) 'pb)
       (eqv? (ftype-ref D () bb) -3.14))
   (eqv? (ftype-ref Db () bb) -3.14)
   (or (not (eq? (native-endianness) 'big))
+      (eq? (machine-type) 'pb)
       (eqv? (ftype-ref double () bb) -3.14))
   (error? ; invalid syntax
     (ftype-ref (endian big double) () bb))

@@ -4158,7 +4158,7 @@
                     (bind #f (base index)
                       (bind #t ([t (%constant-alloc type-flonum (constant size-flonum))])
                         (%seq
-                          (set! ,(%mref ,t ,(constant flonum-data-disp))
+                          (inline ,(make-info-load 'unsigned-32 #f) ,%store ,t ,%zero ,(%constant flonum-data-disp)
                             (inline ,(make-info-load 'unsigned-32 #t) ,%load ,base ,index
                               (immediate ,offset)))
                           (set! ,(%mref ,t ,%zero ,(constant flonum-data-disp) fp)
@@ -4289,8 +4289,8 @@
                    ,base ,index (immediate ,offset)
                    ,(%mref ,value ,(constant flonum-data-disp)))]
                ; 40-bit+ only on 64-bit machines
-               [(integer-16 integer-24 integer-32 integer-40 integer-48 integer-56 integer-64
-                 unsigned-16 unsigned-24 unsigned-32 unsigned-40 unsigned-48 unsigned-56 unsigned-64)
+               [(integer-8 integer-16 integer-24 integer-32 integer-40 integer-48 integer-56 integer-64
+                 unsigned-8 unsigned-16 unsigned-24 unsigned-32 unsigned-40 unsigned-48 unsigned-56 unsigned-64)
                 (build-int-store #t type base index offset (ptr->integer value (type->width type)))]
                [(fixnum)
                 `(inline ,(make-info-load ptr-type #t) ,%store ,base ,index (immediate ,offset)
@@ -8219,9 +8219,9 @@
               (let ([type (filter-foreign-type d)])
                 (and (memq type (record-datatype list))
                      (not (memq type '(char wchar boolean)))
-                     (or (>= (constant ptr-bits) (type->width type)) (eq? type 'double-float))
+                     (>= (constant ptr-bits) (type->width type))
                      (bind #f (e-offset e-value)
-                       (build-object-set! type
+                       (build-swap-object-set! type
                          (ptr->integer e-addr (constant ptr-bits))
                          e-offset
                          e-value))))]
