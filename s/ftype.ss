@@ -689,19 +689,19 @@ ftype operators:
     (syntax-rules ()
       [(_ op type (fast-op arg ...))
        (constant-case unaligned-integers
-         [(#t) (fast-op info arg ...)]
+         [(#t) (fast-op arg ...)]
          [(#f) (use-foreign op type arg ...)])]))
   (define-syntax wide
     (syntax-rules ()
-      [(_ op type (fast-op info arg ...))
+      [(_ op type (fast-op arg ...))
        (constant-case ptr-bits
-         [(64) (fast-op info arg ...)]
+         [(64) (fast-op arg ...)]
          [(32) (use-foreign op type arg ...)])]))
   (define-syntax unaligned/wide
     (syntax-rules ()
-      [(_ op type (fast-op info arg ...))
+      [(_ op type (fast-op arg ...))
        (constant-case ptr-bits
-         [(64) (unaligned op type (fast-op info arg ...))]
+         [(64) (unaligned op type (fast-op arg ...))]
          [(32) (use-foreign op type arg ...)])]))    
   (define-syntax swapped-endianness
     (lambda (stx)

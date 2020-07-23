@@ -8179,6 +8179,18 @@
                          (ptr->integer e-addr (constant ptr-bits))
                          e-offset))))]
              [else #f])])
+        (define-inline 3 $foreign-swap-ref
+          [(e-type e-addr e-offset)
+           (nanopass-case (L7 Expr) e-type
+             [(quote ,d)
+              (let ([type (filter-foreign-type d)])
+                (and (memq type (record-datatype list))
+                     (not (memq type '(char wchar boolean)))
+                     (bind #f (e-offset)
+                       (build-object-ref #t type
+                         (ptr->integer e-addr (constant ptr-bits))
+                         e-offset))))]
+             [else #f])])
         (define-inline 2 $object-set!
           [(type base offset value)
            (nanopass-case (L7 Expr) type
@@ -8190,6 +8202,20 @@
                      (build-object-set! type base offset value)))]
              [else #f])])
         (define-inline 3 foreign-set!
+          [(e-type e-addr e-offset e-value)
+           (nanopass-case (L7 Expr) e-type
+             [(quote ,d)
+              (let ([type (filter-foreign-type d)])
+                (and (memq type (record-datatype list))
+                     (not (memq type '(char wchar boolean)))
+                     (or (>= (constant ptr-bits) (type->width type)) (eq? type 'double-float))
+                     (bind #f (e-offset e-value)
+                       (build-object-set! type
+                         (ptr->integer e-addr (constant ptr-bits))
+                         e-offset
+                         e-value))))]
+             [else #f])])
+        (define-inline 3 $foreign-swap-set!
           [(e-type e-addr e-offset e-value)
            (nanopass-case (L7 Expr) e-type
              [(quote ,d)
