@@ -3547,13 +3547,13 @@
                        (if is-pariah?
                            #'`(seq (pariah) body)
                            #'`body)))))])))
-        (define-syntax when-unaligned-integer
+        (define-syntax when-known-endianness
           (lambda (stx)
             (syntax-case stx ()
               [(_ e ...)
-               #'(constant-case unaligned-integers
-                   [(#t) e ...]
-                   [(#f) (void)])])))
+               #'(constant-case native-endianness
+                   [(unknown) (void)]
+                   [else e ...])])))
         (define constant?
           (case-lambda
             [(x)
@@ -4012,6 +4012,7 @@
                 (values %zero (constant-value offset))
                 (values (build-unfix offset) 0))))
         (define-who build-int-load
+          ;; assumes aligned (if required) offset
           (lambda (swapped? type base index offset build-int)
             (case type
               [(integer-8 unsigned-8)
@@ -4019,9 +4020,9 @@
               [(integer-16 integer-32 unsigned-16 unsigned-32)
                (build-int `(inline ,(make-info-load type swapped?) ,%load ,base ,index (immediate ,offset)))]
               [(integer-64 unsigned-64)
+               ;; NB: doesn't handle unknown endiannesss for 32-bit machines
                (constant-case ptr-bits
                  [(32)
-                  (safe-assert (not (eq? (constant architecture) 'pb)))
                   (let-values ([(lo hi) (if (constant-case native-endianness [(little) swapped?] [(big) (not swapped?)])
                                             (values (+ offset 4) offset)
                                             (values offset (+ offset 4)))])
@@ -4032,9 +4033,9 @@
                  [(64)
                   (build-int `(inline ,(make-info-load type swapped?) ,%load ,base ,index (immediate ,offset)))])]
               [(integer-24 unsigned-24)
-               (constant-case unaligned-integers
-                 [(#t)
-                  (safe-assert (not (eq? (constant native-endianness) 'unknown)))
+               (constant-case native-endianness
+                 [(unknown) #f]
+                 [else
                   (let-values ([(lo hi) (if (constant-case native-endianness [(little) swapped?] [(big) (not swapped?)])
                                             (values (+ offset 1) offset)
                                             (values offset (+ offset 2)))])
@@ -4045,12 +4046,11 @@
                           ,(%inline sll
                              (inline ,(make-info-load hi-type #f) ,%load ,base ,index (immediate ,hi))
                              (immediate 16))
-                          (inline ,(make-info-load 'unsigned-16 swapped?) ,%load ,base ,index (immediate ,lo))))))]
-                 [(#f) #f])]
+                          (inline ,(make-info-load 'unsigned-16 swapped?) ,%load ,base ,index (immediate ,lo))))))])]
               [(integer-40 unsigned-40)
-               (constant-case unaligned-integers
-                 [(#t)
-                  (safe-assert (not (eq? (constant native-endianness) 'unknown)))
+               (constant-case native-endianness
+                 [(unknown) #f]
+                 [else
                   (let-values ([(lo hi) (if (constant-case native-endianness [(little) swapped?] [(big) (not swapped?)])
                                             (values (+ offset 1) offset)
                                             (values offset (+ offset 4)))])
@@ -4067,12 +4067,11 @@
                              ,(%inline sll
                                 (inline ,(make-info-load hi-type #f) ,%load ,base ,index (immediate ,hi))
                                 (immediate 32))
-                             (inline ,(make-info-load 'unsigned-32 swapped?) ,%load ,base ,index (immediate ,lo))))])))]
-                 [(#f) #f])]
+                             (inline ,(make-info-load 'unsigned-32 swapped?) ,%load ,base ,index (immediate ,lo))))])))])]
               [(integer-48 unsigned-48)
-               (constant-case unaligned-integers
-                 [(#t)
-                  (safe-assert (not (eq? (constant native-endianness) 'unknown)))
+               (constant-case native-endianness
+                 [(unknown) #f]
+                 [else
                   (let-values ([(lo hi) (if (constant-case native-endianness [(little) swapped?] [(big) (not swapped?)])
                                             (values (+ offset 2) offset)
                                             (values offset (+ offset 4)))])
@@ -4089,11 +4088,11 @@
                              ,(%inline sll
                                 (inline ,(make-info-load hi-type swapped?) ,%load ,base ,index (immediate ,hi))
                                 (immediate 32))
-                             (inline ,(make-info-load 'unsigned-32 swapped?) ,%load ,base ,index (immediate ,lo))))])))]
-                 [(#f) #f])]
+                             (inline ,(make-info-load 'unsigned-32 swapped?) ,%load ,base ,index (immediate ,lo))))])))])]
               [(integer-56 unsigned-56)
-               (constant-case unaligned-integers
-                 [(#t)
+               (constant-case native-endianness
+                 [(unknown) #f]
+                 [else
                   (safe-assert (not (eq? (constant native-endianness) 'unknown)))
                   (let-values ([(lo mi hi) (if (constant-case native-endianness [(little) swapped?] [(big) (not swapped?)])
                                                (values (+ offset 3) (+ offset 1) offset)
@@ -4119,10 +4118,10 @@
                                       (immediate 16))
                                    (inline ,(make-info-load 'unsigned-16 swapped?) ,%load ,base ,index (immediate ,mi)))
                                 (immediate 32))
-                             (inline ,(make-info-load 'unsigned-32 swapped?) ,%load ,base ,index (immediate ,lo))))])))]
-                 [(#f) #f])]
+                             (inline ,(make-info-load 'unsigned-32 swapped?) ,%load ,base ,index (immediate ,lo))))])))])]
               [else (sorry! who "unsupported type ~s" type)])))
         (define-who build-object-ref
+          ;; assumes aligned (if required) offset
           (case-lambda
             [(swapped? type base offset-expr)
              (let-values ([(index offset) (offset-expr->index+offset offset-expr)])
@@ -4192,6 +4191,7 @@
                [(fixnum) (build-fix `(inline ,(make-info-load ptr-type swapped?) ,%load ,base ,index (immediate ,offset)))]
                [else (sorry! who "unsupported type ~s" type)])]))
         (define-who build-int-store
+          ;; assumes aligned (if required) offset
           (lambda (swapped? type base index offset value)
             (case type
               [(integer-8 unsigned-8)
@@ -4199,9 +4199,9 @@
               [(integer-16 integer-32 integer-64 unsigned-16 unsigned-32 unsigned-64)
                `(inline ,(make-info-load type swapped?) ,%store ,base ,index (immediate ,offset) ,value)]
               [(integer-24 unsigned-24)
-               (constant-case unaligned-integers
-                 [(#t)
-                  (safe-assert (not (eq? (constant native-endianness) 'unknown)))
+               (constant-case native-endianness
+                 [(unknown) #f]
+                 [else
                   (let-values ([(lo hi) (if (constant-case native-endianness [(little) swapped?] [(big) (not swapped?)])
                                             (values (+ offset 1) offset)
                                             (values offset (+ offset 2)))])
@@ -4209,12 +4209,11 @@
                       (%seq
                         (inline ,(make-info-load 'unsigned-16 swapped?) ,%store ,base ,index (immediate ,lo) ,value)
                         (inline ,(make-info-load 'unsigned-8 #f) ,%store ,base ,index (immediate ,hi)
-                                ,(%inline srl ,value (immediate 16))))))]
-                 [(#f) #f])]
+                                ,(%inline srl ,value (immediate 16))))))])]
               [(integer-40 unsigned-40)
-               (constant-case unaligned-integers
-                 [(#t)
-                  (safe-assert (not (eq? (constant native-endianness) 'unknown)))
+               (constant-case native-endianness
+                 [(unknown) #f]
+                 [else
                   (let-values ([(lo hi) (if (constant-case native-endianness [(little) swapped?] [(big) (not swapped?)])
                                             (values (+ offset 1) offset)
                                             (values offset (+ offset 4)))])
@@ -4222,12 +4221,11 @@
                       (%seq
                         (inline ,(make-info-load 'unsigned-32 swapped?) ,%store ,base ,index (immediate ,lo) ,value)
                         (inline ,(make-info-load 'unsigned-8 #f) ,%store ,base ,index (immediate ,hi)
-                          ,(%inline srl ,value (immediate 32))))))]
-                 [(#f) #f])]
+                          ,(%inline srl ,value (immediate 32))))))])]
               [(integer-48 unsigned-48)
-               (constant-case unaligned-integers
-                 [(#t)
-                  (safe-assert (not (eq? (constant native-endianness) 'unknown)))
+               (constant-case native-endianness
+                 [(unknown) #f]
+                 [else
                   (let-values ([(lo hi) (if (constant-case native-endianness [(little) swapped?] [(big) (not swapped?)])
                                             (values (+ offset 2) offset)
                                             (values offset (+ offset 4)))])
@@ -4235,12 +4233,11 @@
                       (%seq
                         (inline ,(make-info-load 'unsigned-32 swapped?) ,%store ,base ,index (immediate ,lo) ,value)
                         (inline ,(make-info-load 'unsigned-16 swapped?) ,%store ,base ,index (immediate ,hi)
-                          ,(%inline srl ,value (immediate 32))))))]
-                 [(#f) #f])]
+                          ,(%inline srl ,value (immediate 32))))))])]
               [(integer-56 unsigned-56)
-               (constant-case unaligned-integers
-                 [(#t)
-                  (safe-assert (not (eq? (constant native-endianness) 'unknown)))
+               (constant-case native-endianness
+                 [(unknown) #f]
+                 [else
                   (let-values ([(lo mi hi) (if (constant-case native-endianness [(little) swapped?] [(big) (not swapped?)])
                                                (values (+ offset 3) (+ offset 1) offset)
                                                (values offset (+ offset 4) (+ offset 6)))])
@@ -4250,10 +4247,10 @@
                         (inline ,(make-info-load 'unsigned-16 swapped?) ,%store ,base ,index (immediate ,mi)
                           ,(%inline srl ,value (immediate 32)))
                         (inline ,(make-info-load 'unsigned-8 #f) ,%store ,base ,index (immediate ,hi)
-                          ,(%inline srl ,value (immediate 48))))))]
-                 [(#f) #f])]
+                          ,(%inline srl ,value (immediate 48))))))])]
               [else (sorry! who "unsupported type ~s" type)])))
         (define-who build-object-set!
+          ;; assumes aligned (if required) offset
           (case-lambda
             [(type base offset-expr value)
              (let-values ([(index offset) (offset-expr->index+offset offset-expr)])
@@ -8371,7 +8368,7 @@
             (define-fptr-ref-inline $fptr-ref-swap-integer-16 'integer-16 #t)
             (define-fptr-ref-inline $fptr-ref-swap-unsigned-16 'unsigned-16 #t)
 
-            (when-unaligned-integer
+            (when-known-endianness
              (define-fptr-ref-inline $fptr-ref-integer-24 'integer-24 #f)
              (define-fptr-ref-inline $fptr-ref-unsigned-24 'unsigned-24 #f)
              (define-fptr-ref-inline $fptr-ref-swap-integer-24 'integer-24 #t)
@@ -8382,7 +8379,7 @@
             (define-fptr-ref-inline $fptr-ref-swap-integer-32 'integer-32 #t)
             (define-fptr-ref-inline $fptr-ref-swap-unsigned-32 'unsigned-32 #t)
 
-            (when-unaligned-integer
+            (when-known-endianness
              (define-fptr-ref-inline $fptr-ref-integer-40 'integer-40 #f)
              (define-fptr-ref-inline $fptr-ref-unsigned-40 'unsigned-40 #f)
              (define-fptr-ref-inline $fptr-ref-swap-integer-40 'integer-40 #t)
@@ -8473,7 +8470,7 @@
             (define-fptr-set!-inline #f $fptr-set-swap-integer-16! 'integer-16 build-swap-object-set!)
             (define-fptr-set!-inline #f $fptr-set-swap-unsigned-16! 'unsigned-16 build-swap-object-set!)
 
-            (when-unaligned-integer
+            (when-known-endianness
              (define-fptr-set!-inline #f $fptr-set-integer-24! 'integer-24 build-object-set!)
              (define-fptr-set!-inline #f $fptr-set-unsigned-24! 'unsigned-24 build-object-set!)
              (define-fptr-set!-inline #f $fptr-set-swap-integer-24! 'integer-24 build-swap-object-set!)
@@ -8484,7 +8481,7 @@
             (define-fptr-set!-inline #f $fptr-set-swap-integer-32! 'integer-32 build-swap-object-set!)
             (define-fptr-set!-inline #f $fptr-set-swap-unsigned-32! 'unsigned-32 build-swap-object-set!)
 
-            (when-unaligned-integer
+            (when-known-endianness
              (define-fptr-set!-inline #t $fptr-set-integer-40! 'integer-40 build-object-set!)
              (define-fptr-set!-inline #t $fptr-set-unsigned-40! 'unsigned-40 build-object-set!)
              (define-fptr-set!-inline #t $fptr-set-swap-integer-40! 'integer-40 build-swap-object-set!)
@@ -8567,7 +8564,7 @@
             (define-fptr-bits-ref-inline $fptr-ref-ibits-swap-unsigned-16 #t unsigned-16 #t)
             (define-fptr-bits-ref-inline $fptr-ref-ubits-swap-unsigned-16 #f unsigned-16 #t)
 
-            (when-unaligned-integer
+            (when-known-endianness
              (define-fptr-bits-ref-inline $fptr-ref-ibits-unsigned-24 #t unsigned-24 #f)
              (define-fptr-bits-ref-inline $fptr-ref-ubits-unsigned-24 #f unsigned-24 #f)
              (define-fptr-bits-ref-inline $fptr-ref-ibits-swap-unsigned-24 #t unsigned-24 #t)
@@ -8578,7 +8575,7 @@
             (define-fptr-bits-ref-inline $fptr-ref-ibits-swap-unsigned-32 #t unsigned-32 #t)
             (define-fptr-bits-ref-inline $fptr-ref-ubits-swap-unsigned-32 #f unsigned-32 #t)
 
-            (when-unaligned-integer
+            (when-known-endianness
              (define-fptr-bits-ref-inline $fptr-ref-ibits-unsigned-40 #t unsigned-40 #f)
              (define-fptr-bits-ref-inline $fptr-ref-ubits-unsigned-40 #f unsigned-40 #f)
              (define-fptr-bits-ref-inline $fptr-ref-ibits-swap-unsigned-40 #t unsigned-40 #t)
@@ -8630,14 +8627,14 @@
             (define-fptr-bits-set-inline #f $fptr-set-bits-unsigned-16! unsigned-16 #f)
             (define-fptr-bits-set-inline #f $fptr-set-bits-swap-unsigned-16! unsigned-16 #t)
 
-            (when-unaligned-integer
+            (when-known-endianness
              (define-fptr-bits-set-inline #f $fptr-set-bits-unsigned-24! unsigned-24 #f)
              (define-fptr-bits-set-inline #f $fptr-set-bits-swap-unsigned-24! unsigned-24 #t))
 
             (define-fptr-bits-set-inline #f $fptr-set-bits-unsigned-32! unsigned-32 #f)
             (define-fptr-bits-set-inline #f $fptr-set-bits-swap-unsigned-32! unsigned-32 #t)
 
-            (when-unaligned-integer
+            (when-known-endianness
              (define-fptr-bits-set-inline #f $fptr-set-bits-unsigned-40! unsigned-40 #f)
              (define-fptr-bits-set-inline #f $fptr-set-bits-swap-unsigned-40! unsigned-40 #t)
 
@@ -9716,7 +9713,6 @@
                        [(e-bv e-offset e-eness)
                         (and (or (constant unaligned-integers)
                                  (and #,(p2? (fx+ (datum mask) 1)) (bv-offset-okay? e-offset mask)))
-                             (not (eq? (constant native-endianness) 'unknown))
                              (constant? (lambda (x) (memq x '(big little))) e-eness)
                              (let-values ([(e-index imm-offset) (bv-index-offset e-offset)])
                                (build-object-ref (not (eq? (constant-value e-eness) (constant native-endianness)))
@@ -9725,14 +9721,14 @@
             (define-bv-int-ref-inline bytevector-s16-ref integer-16 1)
             (define-bv-int-ref-inline bytevector-u16-ref unsigned-16 1)
 
-            (when-unaligned-integer
+            (when-known-endianness
              (define-bv-int-ref-inline bytevector-s24-ref integer-24 1)
              (define-bv-int-ref-inline bytevector-u24-ref unsigned-24 1))
 
             (define-bv-int-ref-inline bytevector-s32-ref integer-32 3)
             (define-bv-int-ref-inline bytevector-u32-ref unsigned-32 3)
 
-            (when-unaligned-integer
+            (when-known-endianness
              (define-bv-int-ref-inline bytevector-s40-ref integer-40 3)
              (define-bv-int-ref-inline bytevector-u40-ref unsigned-40 3)
 

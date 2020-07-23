@@ -204,28 +204,28 @@
                         [(32) (not (eq? (#3%foreign-ref 'integer-32 addr offset) 0))]
                         [(64) (not (eq? (#3%foreign-ref 'integer-64 addr offset) 0))])]
                      [(_ integer-24 bytes pred)
-                      (not (constant unaligned-integers))
+                      (eq? 'unknown (constant native-endianness))
                       (build-multi-int (#3%foreign-ref addr offset) integer 16 8 swap?)]
                      [(_ unsigned-24 bytes pred)
-                      (not (constant unaligned-integers))
+                      (eq? 'unknown (constant native-endianness))
                       (build-multi-int (#3%foreign-ref addr offset) unsigned 16 8 swap?)]
                      [(_ integer-40 bytes pred)
-                      (not (constant unaligned-integers))
+                      (eq? 'unknown (constant native-endianness))
                       (build-multi-int (#3%foreign-ref addr offset) integer 32 8 swap?)]
                      [(_ unsigned-40 bytes pred)
-                      (not (constant unaligned-integers))
+                      (eq? 'unknown (constant native-endianness))
                       (build-multi-int (#3%foreign-ref addr offset) unsigned 32 8 swap?)]
                      [(_ integer-48 bytes pred)
-                      (not (constant unaligned-integers))
+                      (eq? 'unknown (constant native-endianness))
                       (build-multi-int (#3%foreign-ref addr offset) integer 32 16 swap?)]
                      [(_ unsigned-48 bytes pred)
-                      (not (constant unaligned-integers))
+                      (eq? 'unknown (constant native-endianness))
                       (build-multi-int (#3%foreign-ref addr offset) unsigned 32 16 swap?)]
                      [(_ integer-56 bytes pred)
-                      (not (constant unaligned-integers))
+                      (eq? 'unknown (constant native-endianness))
                       (build-multi-int (#3%foreign-ref addr offset) integer 32 16 8 swap?)]
                      [(_ unsigned-56 bytes pred)
-                      (not (constant unaligned-integers))
+                      (eq? 'unknown (constant native-endianness))
                       (build-multi-int (#3%foreign-ref addr offset) unsigned 32 16 8 swap?)]
                      [(_ integer-64 bytes pred)
                       (< (constant ptr-bits) 64)
@@ -268,48 +268,48 @@
                         [(32) (#3%foreign-set! 'integer-32 addr offset (if v 1 0))]
                         [(64) (#3%foreign-set! 'integer-64 addr offset (if v 1 0))])]
                      [(_ integer-24 bytes pred)
-                      (not (constant unaligned-integers))
+                      (eq? 'unknown (constant native-endianness))
                       (begin
                         (unless (pred v) (value-err v ty))
                         (build-multi-int (#3%foreign-set! addr offset v) integer 16 8 swap?))]
                      [(_ unsigned-24 bytes pred)
-                      (not (constant unaligned-integers))
+                      (eq? 'unknown (constant native-endianness))
                       (begin
                         (unless (pred v) (value-err v ty))
                         (build-multi-int (#3%foreign-set! addr offset v) unsigned 16 8 swap?))]
                      [(_ integer-40 bytes pred)
                       (or (< (constant ptr-bits) 64)
-                          (not (constant unaligned-integers)))
+                          (eq? 'unknown (constant native-endianness)))
                       (begin
                         (unless (pred v) (value-err v ty))
                         (build-multi-int (#3%foreign-set! addr offset v) integer 32 8 swap?))]
                      [(_ unsigned-40 bytes pred)
                       (or (< (constant ptr-bits) 64)
-                          (not (constant unaligned-integers)))
+                          (eq? 'unknown (constant native-endianness)))
                       (begin
                         (unless (pred v) (value-err v ty))
                         (build-multi-int (#3%foreign-set! addr offset v) unsigned 32 8 swap?))]
                      [(_ integer-48 bytes pred)
                       (or (< (constant ptr-bits) 64)
-                          (not (constant unaligned-integers)))
+                          (eq? 'unknown (constant native-endianness)))
                       (begin
                         (unless (pred v) (value-err v ty))
                         (build-multi-int (#3%foreign-set! addr offset v) integer 32 16 swap?))]
                      [(_ unsigned-48 bytes pred)
                       (or (< (constant ptr-bits) 64)
-                          (not (constant unaligned-integers)))
+                          (eq? 'unknown (constant native-endianness)))
                       (begin
                         (unless (pred v) (value-err v ty))
                         (build-multi-int (#3%foreign-set! addr offset v) unsigned 32 16 swap?))]
                      [(_ integer-56 bytes pred)
                       (or (< (constant ptr-bits) 64)
-                          (not (constant unaligned-integers)))
+                          (eq? 'unknown (constant native-endianness)))
                       (begin
                         (unless (pred v) (value-err v ty))
                         (build-multi-int (#3%foreign-set! addr offset v) integer 32 16 8 swap?))]
                      [(_ unsigned-56 bytes pred)
                       (or (< (constant ptr-bits) 64)
-                          (not (constant unaligned-integers)))
+                          (eq? 'unknown (constant native-endianness)))
                       (begin
                         (unless (pred v) (value-err v ty))
                         (build-multi-int (#3%foreign-set! addr offset v) unsigned 32 16 8 swap?))]
@@ -355,28 +355,28 @@
              [(32) (not (eq? (#3%$object-ref 'integer-32 r offset) 0))]
              [(64) (not (eq? (#3%$object-ref 'integer-64 r offset) 0))])]
           [(_ integer-24 bytes pred)
-           (not (constant unaligned-integers))
+           (eq? 'unknown (constant native-endianness))
            (build-multi-int (#3%$object-ref r offset) integer 16 8 #f)]
           [(_ unsigned-24 bytes pred)
-           (not (constant unaligned-integers))
+           (eq? 'unknown (constant native-endianness))
            (build-multi-int (#3%$object-ref r offset) unsigned 16 8 #f)]
           [(_ integer-40 bytes pred)
-           (not (constant unaligned-integers))
+           (eq? 'unknown (constant native-endianness))
            (build-multi-int (#3%$object-ref r offset) integer 32 8 #f)]
           [(_ unsigned-40 bytes pred)
-           (not (constant unaligned-integers))
+           (eq? 'unknown (constant native-endianness))
            (build-multi-int (#3%$object-ref r offset) unsigned 32 8 #f)]
           [(_ integer-48 bytes pred)
-           (not (constant unaligned-integers))
+           (eq? 'unknown (constant native-endianness))
            (build-multi-int (#3%$object-ref r offset) integer 32 16 #f)]
           [(_ unsigned-48 bytes pred)
-           (not (constant unaligned-integers))
+           (eq? 'unknown (constant native-endianness))
            (build-multi-int (#3%$object-ref r offset) unsigned 32 16 #f)]
           [(_ integer-56 bytes pred)
-           (not (constant unaligned-integers))
+           (eq? 'unknown (constant native-endianness))
            (build-multi-int (#3%$object-ref r offset) integer 32 16 8 #f)]
           [(_ unsigned-56 bytes pred)
-           (not (constant unaligned-integers))
+           (eq? 'unknown (constant native-endianness))
            (build-multi-int (#3%$object-ref r offset) unsigned 32 16 8 #f)]
           [(_ type bytes pred) (#3%$object-ref 'type r offset)]))
       (record-datatype cases (filter-foreign-type ty) ref
@@ -398,28 +398,28 @@
              [(32) (not (eq? (#3%$swap-object-ref 'integer-32 r offset) 0))]
              [(64) (not (eq? (#3%$swap-object-ref 'integer-64 r offset) 0))])]
           [(_ integer-24 bytes pred)
-           (not (constant unaligned-integers))
+           (eq? 'unknown (constant native-endianness))
            (build-multi-int (#3%$swap-object-ref r offset) integer 16 8 #t)]
           [(_ unsigned-24 bytes pred)
-           (not (constant unaligned-integers))
+           (eq? 'unknown (constant native-endianness))
            (build-multi-int (#3%$swap-object-ref r offset) unsigned 16 8 #t)]
           [(_ integer-40 bytes pred)
-           (not (constant unaligned-integers))
+           (eq? 'unknown (constant native-endianness))
            (build-multi-int (#3%$swap-object-ref r offset) integer 32 8 #t)]
           [(_ unsigned-40 bytes pred)
-           (not (constant unaligned-integers))
+           (eq? 'unknown (constant native-endianness))
            (build-multi-int (#3%$swap-object-ref r offset) unsigned 16 8 #t)]
           [(_ integer-48 bytes pred)
-           (not (constant unaligned-integers))
+           (eq? 'unknown (constant native-endianness))
            (build-multi-int (#3%$swap-object-ref r offset) integer 32 16 #t)]
           [(_ unsigned-48 bytes pred)
-           (not (constant unaligned-integers))
+           (eq? 'unknown (constant native-endianness))
            (build-multi-int (#3%$swap-object-ref r offset) unsigned 16 16 #t)]
           [(_ integer-56 bytes pred)
-           (not (constant unaligned-integers))
+           (eq? 'unknown (constant native-endianness))
            (build-multi-int (#3%$swap-object-ref r offset) integer 32 16 8 #t)]
           [(_ unsigned-56 bytes pred)
-           (not (constant unaligned-integers))
+           (eq? 'unknown (constant native-endianness))
            (build-multi-int (#3%$swap-object-ref r offset) unsigned 32 16 8 #t)]
           [(_ type bytes pred) (#3%$swap-object-ref 'type r offset)]))
       (record-datatype cases (filter-foreign-type ty) ref
@@ -442,34 +442,34 @@
              [(32) (#3%$object-set! 'integer-32 r offset (if v 1 0))]
              [(64) (#3%$object-set! 'integer-64 r offset (if v 1 0))])]
           [(_ integer-24 bytes pred)
-           (not (constant unaligned-integers))
+           (eq? 'unknown (constant native-endianness))
            (build-multi-int (#3%$object-set! r offset v) integer 16 8 #f)]
           [(_ unsigned-24 bytes pred)
-           (not (constant unaligned-integers))
+           (eq? 'unknown (constant native-endianness))
            (build-multi-int (#3%$object-set! r offset v) unsigned 16 8 #f)]
           [(_ integer-40 bytes pred)
            (or (< (constant ptr-bits) 64)
-               (not (constant unaligned-integers)))
+               (eq? 'unknown (constant native-endianness)))
            (build-multi-int (#3%$object-set! r offset v) integer 32 8 #f)]
           [(_ unsigned-40 bytes pred)
            (or (< (constant ptr-bits) 64)
-               (not (constant unaligned-integers)))
+               (eq? 'unknown (constant native-endianness)))
            (build-multi-int (#3%$object-set! r offset v) unsigned 32 8 #f)]
           [(_ integer-48 bytes pred)
            (or (< (constant ptr-bits) 64)
-               (not (constant unaligned-integers)))
+               (eq? 'unknown (constant native-endianness)))
            (build-multi-int (#3%$object-set! r offset v) integer 32 16 #f)]
           [(_ unsigned-48 bytes pred)
            (or (< (constant ptr-bits) 64)
-               (not (constant unaligned-integers)))
+               (eq? 'unknown (constant native-endianness)))
            (build-multi-int (#3%$object-set! r offset v) unsigned 32 16 #f)]
           [(_ integer-56 bytes pred)
            (or (< (constant ptr-bits) 64)
-               (not (constant unaligned-integers)))
+               (eq? 'unknown (constant native-endianness)))
            (build-multi-int (#3%$object-set! r offset v) integer 32 16 8 #f)]
           [(_ unsigned-56 bytes pred)
            (or (< (constant ptr-bits) 64)
-               (not (constant unaligned-integers)))
+               (eq? 'unknown (constant native-endianness)))
            (build-multi-int (#3%$object-set! r offset v) unsigned 32 16 8 #f)]
           [(_ integer-64 bytes pred)
            (< (constant ptr-bits) 64)

@@ -700,23 +700,23 @@ ftype operators:
        (op 'type ($ftype-pointer-address fptr) offset val)]
       [(_ op type fptr offset)
        (op 'type ($ftype-pointer-address fptr) offset)]))
-  (define-syntax unaligned
+  (define-syntax multi-int
     (syntax-rules ()
       [(_ op type (fast-op arg ...))
-       (constant-case unaligned-integers
-         [(#t) (fast-op arg ...)]
-         [(#f) (use-foreign op type arg ...)])]))
+       (constant-case native-endianness
+         [(unknown) (use-foreign op type arg ...)]
+         [else (fast-op arg ...)])]))
   (define-syntax wide
     (syntax-rules ()
       [(_ op type (fast-op arg ...))
        (constant-case ptr-bits
          [(64) (fast-op arg ...)]
          [(32) (use-foreign op type arg ...)])]))
-  (define-syntax unaligned/wide
+  (define-syntax multi-int/wide
     (syntax-rules ()
       [(_ op type (fast-op arg ...))
        (constant-case ptr-bits
-         [(64) (unaligned op type (fast-op arg ...))]
+         [(64) (multi-int op type (fast-op arg ...))]
          [(32) (use-foreign op type arg ...)])]))    
   (define-syntax swapped-endianness
     (lambda (stx)
@@ -1481,19 +1481,19 @@ ftype operators:
 
   (set! $fptr-ref-integer-24
     (lambda (fptr offset)
-      (unaligned foreign-ref integer-24
+      (multi-int foreign-ref integer-24
                  (#3%$fptr-ref-integer-24 fptr offset))))
   (set! $fptr-ref-unsigned-24
     (lambda (fptr offset)
-      (unaligned foreign-ref unsigned-24
+      (multi-int foreign-ref unsigned-24
                  (#3%$fptr-ref-unsigned-24 fptr offset))))
   (set! $fptr-ref-swap-integer-24
     (lambda (fptr offset)
-      (unaligned $foreign-swap-ref integer-24
+      (multi-int $foreign-swap-ref integer-24
                  (#3%$fptr-ref-swap-integer-24 fptr offset))))
   (set! $fptr-ref-swap-unsigned-24
     (lambda (fptr offset)
-      (unaligned $foreign-swap-ref unsigned-24
+      (multi-int $foreign-swap-ref unsigned-24
                  (#3%$fptr-ref-swap-unsigned-24 fptr offset))))
 
   (set! $fptr-ref-integer-32
@@ -1511,53 +1511,53 @@ ftype operators:
 
   (set! $fptr-ref-integer-40
     (lambda (fptr offset)
-      (unaligned foreign-ref integer-40
+      (multi-int foreign-ref integer-40
                  (#3%$fptr-ref-integer-40 fptr offset))))
   (set! $fptr-ref-unsigned-40
     (lambda (fptr offset)
-      (unaligned foreign-ref unsigned-40
+      (multi-int foreign-ref unsigned-40
                  (#3%$fptr-ref-unsigned-40 fptr offset))))
   (set! $fptr-ref-swap-integer-40
     (lambda (fptr offset)
-      (unaligned $foreign-swap-ref integer-40
+      (multi-int $foreign-swap-ref integer-40
                  (#3%$fptr-ref-swap-integer-40 fptr offset))))
   (set! $fptr-ref-swap-unsigned-40
     (lambda (fptr offset)
-      (unaligned $foreign-swap-ref unsigned-40
+      (multi-int $foreign-swap-ref unsigned-40
                  (#3%$fptr-ref-swap-unsigned-40 fptr offset))))
 
   (set! $fptr-ref-integer-48
     (lambda (fptr offset)
-      (unaligned foreign-ref integer-48
+      (multi-int foreign-ref integer-48
                  (#3%$fptr-ref-integer-48 fptr offset))))
   (set! $fptr-ref-unsigned-48
     (lambda (fptr offset)
-      (unaligned foreign-ref unsigned-48
+      (multi-int foreign-ref unsigned-48
                  (#3%$fptr-ref-unsigned-48 fptr offset))))
   (set! $fptr-ref-swap-integer-48
     (lambda (fptr offset)
-      (unaligned $foreign-swap-ref integer-48
+      (multi-int $foreign-swap-ref integer-48
                  (#3%$fptr-ref-swap-integer-48 fptr offset))))
   (set! $fptr-ref-swap-unsigned-48
     (lambda (fptr offset)
-      (unaligned $foreign-swap-ref unsigned-48
+      (multi-int $foreign-swap-ref unsigned-48
                  (#3%$fptr-ref-swap-unsigned-48 fptr offset))))
 
   (set! $fptr-ref-integer-56
     (lambda (fptr offset)
-      (unaligned foreign-ref integer-56
+      (multi-int foreign-ref integer-56
                  (#3%$fptr-ref-integer-56 fptr offset))))
   (set! $fptr-ref-unsigned-56
     (lambda (fptr offset)
-      (unaligned foreign-ref unsigned-56
+      (multi-int foreign-ref unsigned-56
                  (#3%$fptr-ref-unsigned-56 fptr offset))))
   (set! $fptr-ref-swap-integer-56
     (lambda (fptr offset)
-      (unaligned $foreign-swap-ref integer-56
+      (multi-int $foreign-swap-ref integer-56
                  (#3%$fptr-ref-swap-integer-56 fptr offset))))
   (set! $fptr-ref-swap-unsigned-56
     (lambda (fptr offset)
-      (unaligned $foreign-swap-ref unsigned-56
+      (multi-int $foreign-swap-ref unsigned-56
                  (#3%$fptr-ref-swap-unsigned-56 fptr offset))))
 
   (set! $fptr-ref-integer-64
@@ -1685,22 +1685,22 @@ ftype operators:
     (set! $fptr-set-integer-24!
       (lambda (info fptr offset val)
         (unless ($integer-24? val) (invalid-value info val))
-        (unaligned foreign-set! integer-24
+        (multi-int foreign-set! integer-24
                    (#3%$fptr-set-integer-24! info fptr offset val))))
     (set! $fptr-set-unsigned-24!
       (lambda (info fptr offset val)
         (unless ($integer-24? val) (invalid-value info val))
-        (unaligned foreign-set! unsigned-24
+        (multi-int foreign-set! unsigned-24
                    (#3%$fptr-set-unsigned-24! info fptr offset val))))
     (set! $fptr-set-swap-integer-24!
       (lambda (info fptr offset val)
         (unless ($integer-24? val) (invalid-value info val))
-        (unaligned $foreign-swap-set! integer-24
+        (multi-int $foreign-swap-set! integer-24
                    (#3%$fptr-set-swap-integer-24! info fptr offset val))))
     (set! $fptr-set-swap-unsigned-24!
       (lambda (info fptr offset val)
         (unless ($integer-24? val) (invalid-value info val))
-        (unaligned $foreign-swap-set! unsigned-24
+        (multi-int $foreign-swap-set! unsigned-24
                    (#3%$fptr-set-swap-unsigned-24! info fptr offset val))))
 
     (set! $fptr-set-integer-32!
@@ -1723,64 +1723,64 @@ ftype operators:
     (set! $fptr-set-integer-40!
       (lambda (info fptr offset val)
         (unless ($integer-40? val) (invalid-value info val))
-        (unaligned/wide foreign-set! integer-40
+        (multi-int/wide foreign-set! integer-40
                          (#3%$fptr-set-integer-40! info fptr offset val))))
     (set! $fptr-set-unsigned-40!
       (lambda (info fptr offset val)
         (unless ($integer-40? val) (invalid-value info val))
-        (unaligned/wide foreign-set! unsigned-40
+        (multi-int/wide foreign-set! unsigned-40
                          (#3%$fptr-set-unsigned-40! info fptr offset val))))
     (set! $fptr-set-swap-integer-40!
       (lambda (info fptr offset val)
         (unless ($integer-40? val) (invalid-value info val))
-        (unaligned/wide $foreign-swap-set! integer-40
+        (multi-int/wide $foreign-swap-set! integer-40
                          (#3%$fptr-set-swap-integer-40! info fptr offset val))))
     (set! $fptr-set-swap-unsigned-40!
       (lambda (info fptr offset val)
         (unless ($integer-40? val) (invalid-value info val))
-        (unaligned/wide $foreign-swap-set! unsigned-40
+        (multi-int/wide $foreign-swap-set! unsigned-40
                          (#3%$fptr-set-swap-unsigned-40! info fptr offset val))))
 
     (set! $fptr-set-integer-48!
       (lambda (info fptr offset val)
         (unless ($integer-48? val) (invalid-value info val))
-        (unaligned/wide foreign-set! integer-48
+        (multi-int/wide foreign-set! integer-48
                          (#3%$fptr-set-integer-48! info fptr offset val))))
     (set! $fptr-set-unsigned-48!
       (lambda (info fptr offset val)
         (unless ($integer-48? val) (invalid-value info val))
-        (unaligned/wide foreign-set! unsigned-48
+        (multi-int/wide foreign-set! unsigned-48
                          (#3%$fptr-set-unsigned-48! info fptr offset val))))
     (set! $fptr-set-swap-integer-48!
       (lambda (info fptr offset val)
         (unless ($integer-48? val) (invalid-value info val))
-        (unaligned/wide $foreign-swap-set! integer-48
+        (multi-int/wide $foreign-swap-set! integer-48
                         (#3%$fptr-set-swap-integer-48! info fptr offset val))))
     (set! $fptr-set-swap-unsigned-48!
       (lambda (info fptr offset val)
         (unless ($integer-48? val) (invalid-value info val))
-        (unaligned/wide $foreign-swap-set! unsigned-48
+        (multi-int/wide $foreign-swap-set! unsigned-48
                         (#3%$fptr-set-swap-unsigned-48! info fptr offset val))))
     
     (set! $fptr-set-integer-56!
       (lambda (info fptr offset val)
         (unless ($integer-56? val) (invalid-value info val))
-        (unaligned/wide foreign-set! integer-56
+        (multi-int/wide foreign-set! integer-56
                         (#3%$fptr-set-integer-56! info fptr offset val))))
     (set! $fptr-set-unsigned-56!
       (lambda (info fptr offset val)
         (unless ($integer-56? val) (invalid-value info val))
-        (unaligned/wide foreign-set! unsigned-56
+        (multi-int/wide foreign-set! unsigned-56
                         (#3%$fptr-set-unsigned-56! info fptr offset val))))
     (set! $fptr-set-swap-integer-56!
       (lambda (info fptr offset val)
         (unless ($integer-56? val) (invalid-value info val))
-        (unaligned/wide $foreign-swap-set! integer-56
+        (multi-int/wide $foreign-swap-set! integer-56
                         (#3%$fptr-set-swap-integer-56! info fptr offset val))))
     (set! $fptr-set-swap-unsigned-56!
       (lambda (info fptr offset val)
         (unless ($integer-56? val) (invalid-value info val))
-        (unaligned/wide $foreign-swap-set! unsigned-56
+        (multi-int/wide $foreign-swap-set! unsigned-56
                         (#3%$fptr-set-swap-unsigned-56! info fptr offset val))))
 
     (set! $fptr-set-integer-64!
