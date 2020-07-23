@@ -13,6 +13,18 @@
 ;;; See the License for the specific language governing permissions and
 ;;; limitations under the License.
 
+(define dynamic-native-endianness?
+  (case (machine-type)
+    [(pb) #t]
+    [else #f]))
+
+(define test-endian-sensitive-cp0-expansion
+  (if dynamic-native-endianness?
+      (case-lambda
+       [(expr expected) #t]
+       [(equiv? expr expected) #t])
+      test-cp0-expansion))
+
 (mat native-endianness
  ; wrong argument count
   (error? (native-endianness 'big))

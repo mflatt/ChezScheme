@@ -45,9 +45,15 @@ coverage:
 bootfiles: build
 	$(MAKE) -f Mf-boot
 
-.PHONY reset
+.PHONY: reset
 reset:
 	(cs s && $(MAKE) reset)
+
+# Supply XM=<machine> to build boot files for <machine>
+.PHONY: boot
+boot: build
+	mkdir -p ../boot/$(XM)
+	$(MAKE) -f Mf-boot $(XM).boot
 
 .PHONY: bintar
 bintar: build

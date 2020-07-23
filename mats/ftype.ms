@@ -1133,7 +1133,7 @@
       (syntax-rules ()
         [(_ type)
          (let ()
-           (define-ftype A (endian big type))
+           (define-ftype* A (endian big type))
            (define x (make-ftype-pointer A (foreign-alloc (ftype-sizeof A))))
            (guard (c [#t (fptr-free x) (raise c)])
              (ftype-set! A () x 'oops)))]))
@@ -1174,7 +1174,7 @@
       (syntax-rules ()
         [(_ type)
          (let ()
-           (define-ftype A (endian little type))
+           (define-ftype* A (endian little type))
            (define x (make-ftype-pointer A (foreign-alloc (ftype-sizeof A))))
            (guard (c [#t (fptr-free x) (raise c)])
              (ftype-set! A () x 'oops)))]))
@@ -2325,11 +2325,10 @@
           [(_ id type)
            (eq? (machine-type) 'pb)
            ;; Make some tests work by translating to `little` and
-           ;; `big` to `native` and `swapped` and by translating `bits`
-           ;; to `struct`.
+           ;; `big` to `native` and `swapped`
            (let ()
              (define (filter-type t)
-               (syntax-case t (endian big little struct union bits)
+               (syntax-case t (endian big little struct union)
                  [(endian big t) (with-syntax ([t (filter-type #'t)])
                                    (if (eq? 'big (native-endianness))
                                        #'(endian native t)
@@ -2344,14 +2343,6 @@
                  [(union [name type] ...)
                   (with-syntax ([(type ...) (map filter-type #'(type ...))])
                     #'(union [name type] ...))]
-                 [(bits [name type n] ...)
-                  (with-syntax ([(type ...)
-                                 (map (lambda (type)
-                                        (syntax-case type (signed unsigned)
-                                          [signed #'integer-8]
-                                          [unsigned #'unsigned-8]))
-                                      #'(type ...))])
-                    (filter-type #'(struct [name type] ...)))]
                  [_ t]))
              #`(define-ftype id #,(filter-type #'type)))]
           [(_ id type) #'(define-ftype id type)])))
@@ -5634,8 +5625,6 @@
   (eq? (ftype-pointer-ftype (make-ftype-pointer B 0)) 'char)
   )
 
-])
-
 (mat discarded-refs
   (begin
     (define-ftype* A
@@ -5904,3 +5893,5 @@
            x)))
     '(lambda (x) x))
 )
+
+])

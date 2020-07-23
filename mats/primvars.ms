@@ -23,7 +23,7 @@
            *fuzz* ~= fl~= cfl~= == nan pi +pi +pi/2 +pi/4 -pi -pi/2 -pi/4 +e -e
            separate-eval-tools separate-compile separate-eval run-script patch-exec-path $record->vector
            $cat_flush
-           test-cp0-expansion dynamic-native-endianness? test-endian-sensitive-cp0-expansion
+           test-cp0-expansion
            mkfile rm-rf touch
            heap-check-interval
            preexisting-profile-dump-entry?

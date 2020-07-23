@@ -516,18 +516,6 @@
            (errorf 'test-cp0-expansion "expected ~s for ~s, got ~s\n" expected expr actual))
          #t)])))
 
-(define dynamic-native-endianness?
-  (case (machine-type)
-    [(pb) #t]
-    [else #f]))
-
-(define test-endian-sensitive-cp0-expansion
-  (if dynamic-native-endianness?
-      (case-lambda
-       [(expr expected) #t]
-       [(equiv? expr expected) #t])
-      test-cp0-expansion))
-
 (define rm-rf
   (lambda (path)
     (when (file-exists? path)
