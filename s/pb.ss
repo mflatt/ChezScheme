@@ -1,5 +1,57 @@
 ;;; pb.ss
 
+;; The pb (portable bytecode) interpreter is implemented by "pb.c".
+;; The intent is that the machine uses 64-bit Scheme object
+;; representations and a runtime-determined endianness, so code
+;; compiled as portable bytecode can run on any machine (as long as
+;; the C compiler supports 64-bit integers for the kernel's
+;; implementation, where care is taken for the conversion between C
+;; pointers and Scheme object addresses). That way, a single set of pb
+;; boot files can be used to bootstrap the compiler for any supporrted
+;; platform.
+
+;; The pb machine can be configured (through ".def") for 32-bit Scheme
+;; object representations and a specific endianness, but that's not
+;; the main intended use.
+
+;; In all configurations, the pb machine uses 32-bit instructions. The
+;; fasl format of instructuctions is always little-endian, and the
+;; machine-code content is swapped on load for a big-endian
+;; environment.
+
+;; The pb binstruction set is load--store and vaguely similar to Arm.
+;; One difference is that there's a single flag for branching:
+;; signalling arithemtic, bitwise, and comparison operations set the
+;; flag for a specific condition, such as "overflow" or "equal", and
+;; the branch variants are "branch if true" or "branch if false".
+
+;; Each 32-bit instruction has one of these formats, shown in byte
+;; order for a little-endian machine:
+;;
+;;     low byte                        high byte
+;;        8          8          8          8 
+;;  -----------------------------------------------
+;;  |    op    |      reg |      immed/reg        |
+;;  -----------------------------------------------
+;;  -----------------------------------------------
+;;  |    op    | reg  reg |      immed/reg        |
+;;  -----------------------------------------------
+;;  -----------------------------------------------
+;;  |    op    |              immed               |
+;;  -----------------------------------------------
+;;
+;; Integer and floating-point registers (up to 16 of each) are
+;; different, and an `op` determines which bank is meant for a `reg`
+;; reference. The low-bits `reg` in the byte after the `op` tends to
+;; be the destination register. The long `immed` form is mainly for
+;; branches. See "cmacros.ss" for the `op` constructions.
+
+;; Foreign-procedure calls are supported only for specific prototypes,
+;; which are generally the ones for functions implemented the Chez
+;; Scheme kernel. Supported prototypes are specified in "cmacros.ss".
+;; Foreign callables are not supported. All foreign-call arguments and
+;; results are passed in registers.
+
 ;;; SECTION 1: registers
 
 (define-registers
@@ -487,23 +539,6 @@
   (define-instruction effect (invoke-prelude)
     [(op) '()])
 )
-
-;; Bytecode format:
-;;
-;;   Every instruction is 32 bits, with an opcode in
-;;   the high byte. Formats:
-;;
-;;     low byte                        high byte
-;;        8          8         8          8 
-;;  ----------------------------------------------
-;;  |    op    |    reg   |      immed/reg        |
-;;  ----------------------------------------------
-;;  ----------------------------------------------
-;;  |    op    | reg  reg |      immed/reg        |
-;;  ----------------------------------------------
-;;  ----------------------------------------------
-;;  |    op    |              immed               |
-;;  ----------------------------------------------
 
 ;;; SECTION 3: assembler
 (module asm-module (; required exports

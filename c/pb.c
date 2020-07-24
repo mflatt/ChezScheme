@@ -2,6 +2,8 @@
 #include <string.h>
 #include <math.h>
 
+/* Interpreter for portable bytecode. See "pb.ss". */
+
 typedef uint32_t instruction_t;
 
 #define INSTR_op(instr)       ((instr) & 0xFF)
