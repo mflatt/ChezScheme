@@ -20,7 +20,7 @@ mdclib = -lm -ldl ${ncursesLib} ${threadLibs} -lrt -luuid
 C = ${CC} ${CPPFLAGS} -m64 -msse2 ${warningFlags} ${optFlags} ${threadFlags} ${CFLAGS}
 o = o
 mdsrc ?= i3le.c
-mdobj = i3le.o
+mdobj ?= i3le.o
 
 .SUFFIXES:
 .SUFFIXES: .c .o

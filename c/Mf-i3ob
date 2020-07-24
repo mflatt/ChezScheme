@@ -21,7 +21,7 @@ mdclib = -L/usr/local/lib -liconv -lm ${ncursesLib} ${threadLibs} -lossp-uuid
 C = ${CC} ${CPPFLAGS} ${warningFlags} ${optFlags} ${threadFlags} ${CFLAGS}
 o = o
 mdsrc ?= i3le.c
-mdobj = i3le.o
+mdobj ?= i3le.o
 
 .SUFFIXES:
 .SUFFIXES: .c .o

@@ -20,7 +20,7 @@ mdclib = -lnsl -ldl -lm ${cursesLib} ${threadLibs} -lrt
 C = ${CC} ${CFLAGS} -m32 ${warningFlags} ${optFlags} ${threadFlags} ${CPPFLAGS}
 o = o
 mdsrc ?= i3le.c
-mdobj = i3le.o
+mdobj ?= i3le.o
 
 .SUFFIXES:
 .SUFFIXES: .c .o
