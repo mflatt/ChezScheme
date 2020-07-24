@@ -2965,7 +2965,7 @@
 ;; ---------------------------------------------------------------------
 ;; Portable bytecode - see "pb.ss"
 
-(machine-case
+(constant-case architecture
  [(pb)
 
   ;; Enumerated constants can be multiplied by the width of another
