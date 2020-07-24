@@ -79,8 +79,14 @@
 #endif
 
 #if (machine_type == machine_type_pb)
+# if defined(__powerpc__) && !defined(__powerpc64__)
+#  define PORTABLE_BYTECODE_BIGENDIAN
+# endif
 # if defined(__linux__)
 #  define OS_ANY_LINUX
+#  ifndef PORTABLE_BYTECODE_BIGENDIAN
+#   define LITTLE_ENDIAN_IEEE_DOUBLE
+#  endif
 # elif defined(__NetBSD__)
 #  define OS_ANY_NETBSD
 # elif defined(__OpenBSD__) && !defined(__Bitrig__)
@@ -91,9 +97,6 @@
 #   define OS_ANY_WINDOWS
 # elif __APPLE__
 #   define OS_ANY_MACOSX
-# endif
-# if defined(__powerpc__) && !defined(__powerpc64__)
-#  define PORTABLE_BYTECODE_BIGENDIAN
 # endif
 #endif
 
