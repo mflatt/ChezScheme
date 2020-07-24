@@ -74,19 +74,6 @@ typedef int IFASLCODE;      /* fasl type codes */
 #define SBUFSIZ BUFSIZ
 #endif
 
-/* The `uptr` and `ptr` types are the same width, but `ptr`
-   can be either an integer type or a pointer type; it may
-   be larger than a pointer type.
-   Use `TO_VOIDP` to get from the `uptr`/`ptr` world to the
-   C pointer worlds, and use `TO_PTR` to go the other way. */
-#ifdef PORTABLE_BYTECODE
-# define TO_VOIDP(p) ((void *)(intptr_t)(p))
-# define TO_PTR(p) ((ptr)(intptr_t)(p))
-#else
-# define TO_VOIDP(p) ((void *)(p))
-# define TO_PTR(p) ((ptr)(p))
-#endif
-
 #define ALREADY_PTR(p) (p)
 
 /* inline allocation --- mutex required */

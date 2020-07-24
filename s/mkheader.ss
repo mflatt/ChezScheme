@@ -238,6 +238,20 @@
         (pr "typedef ptr xptr;~%")
 
         (nl)
+        (comment "The `uptr` and `ptr` types are the same width, but `ptr`")
+        (comment "can be either an integer type or a pointer type; it may")
+        (comment "be larger than a pointer type.")
+        (comment "Use `TO_VOIDP` to get from the `uptr`/`ptr` world to the")
+        (comment "C pointer worlds, and use `TO_PTR` to go the other way.")
+        (pr "#ifdef PORTABLE_BYTECODE~%")
+        (pr "# define TO_VOIDP(p) ((void *)(intptr_t)(p))~%")
+        (pr "# define TO_PTR(p) ((ptr)(intptr_t)(p))~%")
+        (pr "#else~%")
+        (pr "# define TO_VOIDP(p) ((void *)(p))~%")
+        (pr "# define TO_PTR(p) ((ptr)(p))~%")
+        (pr "#endif~%")
+
+        (nl)
         (comment "String elements are 32-bit tagged char objects")
         (pr "typedef ~a string_char;~%" (constant typedef-string-char))
   
