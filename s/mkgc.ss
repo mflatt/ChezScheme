@@ -2281,7 +2281,7 @@
      (if (memq 'no-clear flags)
          (format "~a  /* no clearing needed */" inset)
          (format "~a  memset(~a->marked_mask, 0, segment_bitmap_bytes);" inset si))
-     (format "~aS_G.bitmask_overhead[~a->generation] += ptr_align(segment_bitmap_bytes);" inset si)
+     (format "~a  S_G.bitmask_overhead[~a->generation] += ptr_align(segment_bitmap_bytes);" inset si)
      (format "~a}" inset)))
 
   (define (just-mark-bit-space? sp)

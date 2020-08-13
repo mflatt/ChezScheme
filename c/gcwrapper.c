@@ -1063,7 +1063,7 @@ ptr S_gc(ptr tc, IGEN max_cg, IGEN min_tg, IGEN max_tg, ptr count_roots) {
     return S_gc_oce(tc, max_cg, min_tg, max_tg, count_roots);
   else if (max_cg == 0 && min_tg == 1 && max_tg == 1) {
     S_gc_011(tc);
-    return Sfalse;
+    return Svoid;
   } else
     return S_gc_ocd(tc, max_cg, min_tg, max_tg, Sfalse);
 }

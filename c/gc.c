@@ -429,6 +429,8 @@ static int flonum_is_forwarded_p(ptr p, seginfo *si) {
         _pg = TARGET_GENERATION(_si);                                   \
       } else if (marked(_si, _pp)) {                                    \
         _pg = TARGET_GENERATION(_si);                                   \
+      } else if (_si->use_marks) {                                      \
+        _pg = mark_object(_pp, _si);                                    \
       } else {                                                          \
         _pg = copy(_pp, _si, _ppp);                                     \
       }                                                                 \
