@@ -152,8 +152,8 @@ static void add_trigger_guardians_to_recheck PROTO((ptr ls));
 static void add_ephemeron_to_pending PROTO((ptr p));
 static void add_trigger_ephemerons_to_pending PROTO((ptr p));
 static void check_triggers PROTO((seginfo *si));
-static void check_ephemeron PROTO((ptr pe, IGEN from_g));
-static void check_pending_ephemerons PROTO((IGEN from_g));
+static void check_ephemeron PROTO((ptr pe));
+static void check_pending_ephemerons PROTO(());
 static int check_dirty_ephemeron PROTO((ptr pe, int youngest));
 static void finish_pending_ephemerons PROTO((seginfo *si));
 static void init_fully_marked_mask(IGEN g);
@@ -1580,8 +1580,7 @@ static void sweep_generation(ptr tc) {
        segment-specific trigger or gets triggered for recheck, but
        it doesn't change the worst-case complexity. */
     if (!change)
-      for (from_g = MIN_TG; from_g <= MAX_TG; from_g += 1)
-        check_pending_ephemerons(from_g);
+      check_pending_ephemerons();
   } while (change);
 }
 
@@ -2074,13 +2073,16 @@ static void add_trigger_ephemerons_to_pending(ptr pe) {
   ephemeron_add(&pending_ephemerons, pe);
 }
 
-static void check_ephemeron(ptr pe, IGEN from_g) {
+static void check_ephemeron(ptr pe) {
   ptr p;
   seginfo *si;
+  IGEN from_g;
   PUSH_BACKREFERENCE(pe);
 
   EPHEMERONNEXT(pe) = 0;
   EPHEMERONPREVREF(pe) = 0;
+
+  from_g = GENERATION(pe);
 
   p = Scar(pe);
   if (!IMMEDIATE(p) && (si = MaybeSegInfo(ptr_get_segment(p))) != NULL && si->old_space) {
@@ -2101,14 +2103,14 @@ static void check_ephemeron(ptr pe, IGEN from_g) {
   POP_BACKREFERENCE();
 }
 
-static void check_pending_ephemerons(IGEN from_g) {
+static void check_pending_ephemerons() {
   ptr pe, next_pe;
 
   pe = pending_ephemerons;
   pending_ephemerons = 0;
   while (pe != 0) {
     next_pe = EPHEMERONNEXT(pe);
-    check_ephemeron(pe, from_g);
+    check_ephemeron(pe);
     pe = next_pe;
   }
 }
