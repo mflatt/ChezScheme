@@ -280,7 +280,7 @@ void S_record_new_dirty_card(ptr *ppp, IGEN to_g) {
     if (to_g < ndc->youngest) ndc->youngest = to_g;
   } else {
     dirtycardinfo *next = ndc;
-    find_room(space_new, 0, typemod, ptr_align(sizeof(dirtycardinfo)), ndc);
+    find_room_voidp(space_new, 0, ptr_align(sizeof(dirtycardinfo)), ndc);
     ndc->card = card;
     ndc->youngest = to_g;
     ndc->next = next;

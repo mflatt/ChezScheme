@@ -3238,6 +3238,7 @@
     [uptr int32 int32 uptr uptr]
     [uptr int32 void* uptr uptr]
     [uptr uptr uptr uptr uptr]
+    [uptr int32 int32 int32 uptr]
     [uptr uptr void* uptr uptr]
     [uptr uptr uptr uptr uptr int32]
     [uptr uptr uptr uptr uptr uptr]
