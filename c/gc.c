@@ -186,10 +186,6 @@ static void check_pending_measure_ephemerons();
 # endif
 #endif
 
-#ifndef NO_DIRTY_NEWSPACE_POINTERS
-static void record_new_dirty_card PROTO((ptr *ppp, IGEN to_g));
-#endif /* !NO_DIRTY_NEWSPACE_POINTERS */
-
 /* #define DEBUG */
 
 /* initialized and used each gc cycle.  any others should be defined in globals.h */
@@ -398,7 +394,7 @@ static int flonum_is_forwarded_p(ptr p, seginfo *si) {
       if (SI->old_space)                                                \
         relocate_impure_help_help(ppp, pp, from_g, SI);                 \
       ELSE_MEASURE_NONOLDSPACE(pp)                                      \
-        }                                                               \
+    }                                                                   \
   } while (0)
 
 #define relocate_impure_help_help(ppp, pp, from_g, si) do {             \
@@ -406,10 +402,10 @@ static int flonum_is_forwarded_p(ptr p, seginfo *si) {
     if (FORWARDEDP(pp, si)) {                                           \
       *ppp = GET_FWDADDRESS(pp);                                        \
       __to_g = TARGET_GENERATION(si);                                   \
-      if (__to_g < from_g) record_new_dirty_card(ppp, __to_g);          \
+      if (__to_g < from_g) S_record_new_dirty_card(ppp, __to_g);        \
     } else if (!marked(si, pp)) {                                       \
       mark_or_copy_impure(__to_g, ppp, pp, from_g, si);                 \
-      if (__to_g < from_g) record_new_dirty_card(ppp, __to_g);          \
+      if (__to_g < from_g) S_record_new_dirty_card(ppp, __to_g);        \
     }                                                                   \
   } while (0)
 
@@ -419,30 +415,6 @@ static int flonum_is_forwarded_p(ptr p, seginfo *si) {
     else                                                         \
       to_g = copy(p, si, dest);                                  \
   } while (0)
-
-typedef struct _dirtycardinfo {
-  uptr card;
-  IGEN youngest;
-  struct _dirtycardinfo *next;
-} dirtycardinfo;
-
-static dirtycardinfo *new_dirty_cards;
-
-static void record_new_dirty_card(ptr *ppp, IGEN to_g) {
-  uptr card = (uptr)ppp >> card_offset_bits;
-
-  dirtycardinfo *ndc = new_dirty_cards;
-  if (ndc != NULL && ndc->card == card) {
-    if (to_g < ndc->youngest) ndc->youngest = to_g;
-  } else {
-    dirtycardinfo *next = ndc;
-    find_room(space_new, 0, typemod, ptr_align(sizeof(dirtycardinfo)), ndc);
-    ndc->card = card;
-    ndc->youngest = to_g;
-    ndc->next = next;
-    new_dirty_cards = ndc;
-  }
-}
 
 #endif /* !NO_DIRTY_NEWSPACE_POINTERS */
 
@@ -627,7 +599,7 @@ ptr GCENTRY(ptr tc, ptr count_roots_ls) {
     tlcs_to_rehash = Snil;
     conts_to_promote = Snil;
 #ifndef NO_DIRTY_NEWSPACE_POINTERS
-    new_dirty_cards = NULL;
+    S_G.new_dirty_cards = NULL;
 #endif /* !NO_DIRTY_NEWSPACE_POINTERS */
 
     for (ls = S_threads; ls != Snil; ls = Scdr(ls)) {
@@ -682,6 +654,14 @@ ptr GCENTRY(ptr tc, ptr count_roots_ls) {
     for (g = 0; g <= MAX_CG; g += 1) {
       IBOOL maybe_mark = ((g >= S_G.min_mark_gen) && (g >= MIN_TG));
       for (s = 0; s <= max_real_space; s += 1) {
+        seginfo *saved;
+
+        if (s == space_weakpair) {
+          saved = oldspacesegments;
+          oldspacesegments = oldweakspacesegments;
+        } else
+          saved = NULL;
+
         for (si = S_G.occupied_segments[g][s]; si != NULL; si = nextsi) {
           nextsi = si->next;
           si->next = oldspacesegments;
@@ -704,12 +684,20 @@ ptr GCENTRY(ptr tc, ptr count_roots_ls) {
           si->min_dirty_byte = 0; /* prevent registering as dirty while GCing */
         }
         S_G.occupied_segments[g][s] = NULL;
+
+        if (s == space_weakpair) {
+          oldweakspacesegments = oldspacesegments;
+          oldspacesegments = saved;
+        }
       }
-      if (s == space_weakpair) {
-        /* prefix of oldweakspacesegments is for weak pairs */
-        oldweakspacesegments = oldspacesegments;
-      }
-    }          
+    }
+    if (oldweakspacesegments) {
+      /* make oldweakspacesegments a prefix of weakspacesegments */
+      seginfo *p;
+      for (p = oldweakspacesegments; p->next; p = p->next);
+      p->next = oldspacesegments;
+      oldspacesegments = oldweakspacesegments;
+    }
 
 #ifdef ENABLE_OBJECT_COUNTS
    /* clear object counts & bytes for copied generations; bump timestamp */
@@ -1042,20 +1030,17 @@ ptr GCENTRY(ptr tc, ptr count_roots_ls) {
                   }
                 } else {
                 /* if tconc was old it's been forwarded */
-                  IGEN tg;
-
                   tconc = GUARDIANTCONC(ls);
 
                   WITH_TOP_BACKREFERENCE(tconc, relocate_pure(&rep));
 
-                  tg = GENERATION(tconc);
-
                   old_end = Scdr(tconc);
-                  /* allocate new_end in tg, in case `tconc` is on a marked segment */
-                  new_end = S_cons_in(space_impure, tg, FIX(0), FIX(0));
+                  new_end = S_cons_in(space_impure, 0, FIX(0), FIX(0));
 #ifdef ENABLE_OBJECT_COUNTS
-                  S_G.countof[tg][countof_pair] += 1;
+                  S_G.countof[0][countof_pair] += 1;
 #endif /* ENABLE_OBJECT_COUNTS */
+
+                  /* These assignments may trigger card marking or additions to `new_dirty_cards`: */
                   SETCAR(old_end,rep);
                   SETCDR(old_end,new_end);
                   SETCDR(tconc,new_end);
@@ -1306,7 +1291,7 @@ ptr GCENTRY(ptr tc, ptr count_roots_ls) {
 #endif
       } else {
         chunkinfo *chunk = si->chunk;
-        if (si->generation != static_generation) S_G.number_of_nonstatic_segments -= 1;
+        S_G.number_of_nonstatic_segments -= 1;
         S_G.number_of_empty_segments += 1;
         si->space = space_empty;
         si->next = chunk->unused_segs;
@@ -1334,11 +1319,10 @@ ptr GCENTRY(ptr tc, ptr count_roots_ls) {
 
     S_flush_instruction_cache(tc);
 
-
 #ifndef NO_DIRTY_NEWSPACE_POINTERS
     /* mark dirty those newspace cards to which we've added wrong-way pointers */
     { dirtycardinfo *ndc;
-      for (ndc = new_dirty_cards; ndc != NULL; ndc = ndc->next)
+      for (ndc = S_G.new_dirty_cards; ndc != NULL; ndc = ndc->next)
         S_mark_card_dirty(ndc->card, ndc->youngest);
     }
 #endif /* !NO_DIRTY_NEWSPACE_POINTERS */
@@ -1715,21 +1699,31 @@ static void sweep_dirty() {
               if (pp <= nl && nl < ppend) ppend = nl;
 
               if (dirty_si->dirty_bytes[d] <= MAX_CG) {
-                /* assume we won't find any wrong-way pointers */
+                /* start out with assumption that we won't find any wrong-way pointers */
                 youngest = 0xff;
 
                 if ((s == space_impure) || (s == space_immobile_impure)
                     || (s == space_impure_typed_object) || (s == space_count_impure)
                     || (s == space_closure)) {
-                  while (pp < ppend && *pp != forward_marker) {
-                    /* handle two pointers at a time */
-                    if (!dirty_si->marked_mask || marked(dirty_si, TO_PTR(pp))) {
+                  if (dirty_si->marked_mask) {
+                    while (pp < ppend) {
+                      /* handle two pointers at a time */
+                      if (marked(dirty_si, TO_PTR(pp))) {
+                        relocate_dirty(pp,youngest);
+                        pp += 1;
+                        relocate_dirty(pp,youngest);
+                        pp += 1;
+                      } else
+                        pp += 2;
+                    }
+                  } else {
+                    while (pp < ppend && *pp != forward_marker) {
+                      /* handle two pointers at a time */
                       relocate_dirty(pp,youngest);
                       pp += 1;
                       relocate_dirty(pp,youngest);
                       pp += 1;
-                    } else
-                      pp += 2;
+                    }
                   }
                 } else if (s == space_symbol) {
                   /* old symbols cannot overlap segment boundaries
@@ -1742,7 +1736,8 @@ static void sweep_dirty() {
                      (size_symbol / sizeof(ptr))) *
                     (size_symbol / sizeof(ptr));
 
-                  while (pp < ppend && *pp != forward_marker) { /* might overshoot card by part of a symbol.  no harm. */
+                  /* might overshoot card by part of a symbol.  no harm. */
+                  while (pp < ppend && (dirty_si->marked_mask || (*pp != forward_marker))) {
                     ptr p = TYPE(TO_PTR(pp), type_symbol);
 
                     if (!dirty_si->marked_mask || marked(dirty_si, p))
@@ -1761,7 +1756,8 @@ static void sweep_dirty() {
                      (size_port / sizeof(ptr))) *
                     (size_port / sizeof(ptr));
 
-                  while (pp < ppend && *pp != forward_marker) { /* might overshoot card by part of a port.  no harm. */
+                  /* might overshoot card by part of a port.  no harm. */
+                  while (pp < ppend && (dirty_si->marked_mask || (*pp != forward_marker))) {
                     ptr p = TYPE(TO_PTR(pp), type_typed_object);
 
                     if (!dirty_si->marked_mask || marked(dirty_si, p))
@@ -1848,9 +1844,6 @@ static void sweep_dirty() {
                         /* skip unmarked words */
                         p = (ptr)((uptr)p + byte_alignment);
                       } else {
-                        /* quit on end of segment */
-                        if (FWDMARKER(p) == forward_marker) break;
-
                         youngest = sweep_dirty_record(p, youngest);
                         p = (ptr)((iptr)p +
                             size_record_inst(UNFIX(RECORDDESCSIZE(
@@ -1904,7 +1897,7 @@ static void sweep_dirty() {
                     }
                   }
                 } else if (s == space_weakpair) {
-                  while (pp < ppend && *pp != forward_marker) {
+                  while (pp < ppend && (dirty_si->marked_mask || (*pp != forward_marker))) {
                     /* skip car field and handle cdr field */
                     if (!dirty_si->marked_mask || marked(dirty_si, TO_PTR(pp))) {
                       pp += 1;
@@ -1914,7 +1907,7 @@ static void sweep_dirty() {
                       pp += 2;
                   }
                 } else if (s == space_ephemeron) {
-                  while (pp < ppend && *pp != forward_marker) {
+                  while (pp < ppend && (dirty_si->marked_mask || (*pp != forward_marker))) {
                     ptr p = TYPE(TO_PTR(pp), type_pair);
                     if (!dirty_si->marked_mask || marked(dirty_si, p))
                       youngest = check_dirty_ephemeron(p, youngest);

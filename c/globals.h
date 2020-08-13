@@ -142,6 +142,7 @@ EXTERN struct S_G_struct {
     ptr gcbackreference[static_generation+1];
     IGEN prcgeneration;
     uptr bytes_finalized;
+    dirtycardinfo *new_dirty_cards;
 
   /* intern.c */
     iptr oblist_length;
