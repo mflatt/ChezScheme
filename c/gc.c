@@ -293,6 +293,7 @@ uptr list_length(ptr ls) {
 #define init_mask(dest, tg, init) {                                     \
     find_room_voidp(space_data, tg, ptr_align(segment_bitmap_bytes), dest); \
     memset(dest, init, segment_bitmap_bytes);                           \
+    S_G.bitmask_overhead[tg] += ptr_align(segment_bitmap_bytes);        \
   }
 
 #define marked(si, p) (si->marked_mask && (si->marked_mask[segment_bitmap_byte(p)] & segment_bitmap_bit(p)))
@@ -627,6 +628,7 @@ ptr GCENTRY(ptr tc, ptr count_roots_ls) {
         S_G.next_loc[g][s] = FIX(0);
         S_G.bytes_left[g][s] = 0;
         S_G.bytes_of_space[g][s] = 0;
+        S_G.bitmask_overhead[g] = 0;
       }
     }
 
@@ -2242,6 +2244,7 @@ void copy_and_clear_list_bits(seginfo *oldspacesegments) {
               find_room_voidp(space_data, bits_si->generation, ptr_align(segment_bitmap_bytes), copied_bits);
               memcpy_aligned(copied_bits, si->list_bits, segment_bitmap_bytes);
               si->list_bits = copied_bits;
+              S_G.bitmask_overhead[bits_si->generation] += ptr_align(segment_bitmap_bytes);
             }
           }
 

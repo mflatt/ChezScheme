@@ -102,6 +102,7 @@ EXTERN struct S_G_struct {
     iptr bytes_left[static_generation+1][max_real_space+1];
     uptr bytes_of_space[static_generation+1][max_real_space+1];
     uptr bytes_of_generation[static_generation+1];
+    uptr bitmask_overhead[static_generation+1];
     uptr g0_bytes_after_last_gc;
     uptr collect_trip_bytes;
     ptr nonprocedure_code;

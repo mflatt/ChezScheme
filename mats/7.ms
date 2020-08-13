@@ -5605,6 +5605,7 @@ evaluating module init
       (let ([b2 (bytes-allocated)])
         (collect (collect-maximum-generation))
         (let ([b3 (bytes-allocated)])
+          (printf "WE GOT ~s ~s ~s\n" b1 b2 b3)
           (and (> b2 b1) (< b3 b2))))))
   (error? ; invalid generation
     (collect 'static 1 'static))

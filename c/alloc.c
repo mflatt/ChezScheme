@@ -157,6 +157,10 @@ ptr S_compute_bytes_allocated(xg, xs) ptr xg; ptr xs; {
      /* add in bytes in active segments */
       if (next_loc != FIX(0))
         n += (uptr)next_loc - (uptr)S_G.base_loc[g][s];
+      if (s == space_data) {
+        /* don't count space used for bitmaks */
+        n -= S_G.bitmask_overhead[g];
+      }
     }
     if (g == S_G.max_nonstatic_generation)
       g = static_generation;
