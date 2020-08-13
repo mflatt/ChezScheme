@@ -136,7 +136,7 @@ static uptr size_object PROTO((ptr p));
 static iptr sweep_typed_object PROTO((ptr tc, ptr p, IGEN from_g));
 static void sweep_symbol PROTO((ptr p, IGEN from_g));
 static void sweep_port PROTO((ptr p, IGEN from_g));
-static void sweep_thread PROTO((ptr p, IGEN from_g));
+static void sweep_thread PROTO((ptr p));
 static void sweep_continuation PROTO((ptr p, IGEN from_g));
 static void sweep_record PROTO((ptr x, IGEN from_g));
 static IGEN sweep_dirty_record PROTO((ptr x, IGEN youngest));
@@ -894,14 +894,13 @@ ptr GCENTRY(ptr tc, ptr count_roots_ls) {
 
   /* sweep non-oldspace threads, since any thread may have an active stack */
     for (ls = S_threads; ls != Snil; ls = Scdr(ls)) {
-      ptr thread; seginfo *thread_si;
+      ptr thread;
 
     /* someone may have their paws on the list */
       if (FWDMARKER(ls) == forward_marker) ls = FWDADDRESS(ls);
 
       thread = Scar(ls);
-      thread_si = SegInfo(ptr_get_segment(thread));
-      if (!thread_si->old_space) sweep_thread(thread, thread_si->generation);
+      if (!OLDSPACE(thread)) sweep_thread(thread);
     }
     relocate_pure(&S_threads);
 
@@ -1419,13 +1418,14 @@ ptr GCENTRY(ptr tc, ptr count_roots_ls) {
     nlp = &S_G.next_loc[from_g][s];                     \
     if (*slp == 0) *slp = S_G.first_loc[from_g][s];     \
     pp = TO_VOIDP(*slp);                                \
-    while (pp != (nl = (ptr *)*nlp))                    \
-      do                                                \
+    while (pp != (nl = (ptr *)*nlp)) {                  \
+      do {                                              \
         if ((p = *pp) == forward_marker)                \
           pp = TO_VOIDP(*(pp + 1));                     \
         else                                            \
           body                                          \
-      while (pp != nl);                                 \
+      } while (pp != nl);                               \
+    }                                                   \
     *slp = TO_PTR(pp);                                  \
   }
 
@@ -1618,7 +1618,7 @@ static iptr sweep_typed_object(ptr tc, ptr p, IGEN from_g) {
     sweep_record(p, from_g);
     return size_record_inst(UNFIX(RECORDDESCSIZE(RECORDINSTTYPE(p))));
   } else if (TYPEP(tf, mask_thread, type_thread)) {
-    sweep_thread(p, from_g);
+    sweep_thread(p);
     return size_thread;
   } else {
     /* We get here only if backreference mode pushed other typed objects into
