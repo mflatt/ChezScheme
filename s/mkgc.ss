@@ -221,7 +221,7 @@
                                   (& (continuation-stack-length _))
                                   (continuation-stack-clength _))))]
              [else])
-            (count countof-stack (continuation-stack-length _) 1 [sweep measure])
+            (count countof-stack (continuation-stack-length _) 1 [measure])
             (trace-pure continuation-link)
             (trace-return continuation-return-address (continuation-return-address _))
             (case-mode
@@ -607,13 +607,11 @@
       [(&& (!= cdr_p _)
            (&& (== (TYPEBITS cdr_p) type_pair)
                (&& (!= (set! qsi (MaybeSegInfo (ptr_get_segment cdr_p))) NULL)
-                   (&& (-> qsi old_space)
-                       (&& (== (-> qsi space) (-> si space))
-                           (&& (!= (FWDMARKER cdr_p) forward_marker)
-                               (&& (! (-> qsi use_marks))
-                                   ;; Checking `marked_mask`, too, in
-                                   ;; case the pair is locked
-                                   (! (-> qsi marked_mask)))))))))
+                   (&& (== qsi si)
+                       (&& (!= (FWDMARKER cdr_p) forward_marker)
+                           ;; Checking `marked_mask`, in
+                           ;; case the pair is locked
+                           (! (-> qsi marked_mask)))))))
        (check_triggers qsi)
        (size size-pair 2)
        (define new_cdr_p : ptr (cast ptr (+ (cast uptr _copy_) size_pair)))
@@ -914,7 +912,6 @@
               (set! (tc-scheme-stack tc) (copy_stack old_stack
                                                      (& (tc-scheme-stack-size tc))
                                                      (+ clength (sizeof ptr))))
-              (count countof-stack (tc-scheme-stack-size tc) 1 sweep)
               (set! (tc-sfp tc) (cast ptr (+ (cast uptr (tc-scheme-stack tc)) clength)))
               (set! (tc-esp tc) (cast ptr (- (+ (cast uptr (tc-scheme-stack tc))
                                                 (tc-scheme-stack-size tc))
@@ -1359,9 +1356,7 @@
                [(sweep)
                 (cond
                   [(lookup 'as-dirty? config #f) ", IGEN youngest"]
-                  [(and (lookup 'from-g-only-counting? config #f)
-                        (not (lookup 'counts? config #f)))
-                   ", IGEN UNUSED(from_g)"]
+                  [(lookup 'no-from-g? config #f) ""]
                   [else ", IGEN from_g"])]
                [else ""]))
      (let ([body
@@ -2286,6 +2281,7 @@
      (if (memq 'no-clear flags)
          (format "~a  /* no clearing needed */" inset)
          (format "~a  memset(~a->marked_mask, 0, segment_bitmap_bytes);" inset si))
+     (format "~a  S_G.bitmask_overhead[~a->generation] += ptr_align(segment_bitmap_bytes);" inset si)
      (format "~a}" inset)))
 
   (define (just-mark-bit-space? sp)
@@ -2486,7 +2482,7 @@
                                                 (as-dirty? #t)))
          (sweep1 'symbol)
          (sweep1 'symbol "sweep_dirty_symbol" '((as-dirty? #t)))
-         (sweep1 'thread "sweep_thread" '((from-g-only-counting? #t)))
+         (sweep1 'thread "sweep_thread" '((no-from-g? #t)))
          (sweep1 'port)
          (sweep1 'port "sweep_dirty_port" '((as-dirty? #t)))
          (sweep1 'closure "sweep_continuation" '((code-relocated? #t)
