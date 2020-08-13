@@ -1968,25 +1968,27 @@ static void resweep_dirty_weak_pairs() {
           if (dirty_si->dirty_bytes[d] <= MAX_CG) {
             youngest = ls->youngest[d];
             while (pp < ppend) {
-              p = *pp;
-              seginfo *si;
+              if (!dirty_si->marked_mask || marked(dirty_si, TO_PTR(pp))) {
+                p = *pp;
+                seginfo *si;
 
-              /* handle car field */
-              if (!IMMEDIATE(p) && (si = MaybeSegInfo(ptr_get_segment(p))) != NULL) {
-                if (si->old_space) {
-                  if (marked(si, p)) {
-                    youngest = TARGET_GENERATION(si);
-                  } else if (FORWARDEDP(p, si)) {
-                    IGEN newpg;
-                    *pp = FWDADDRESS(p);
-                    newpg = TARGET_GENERATION(si);
-                    if (newpg < youngest) youngest = newpg;
+                /* handle car field */
+                if (!IMMEDIATE(p) && (si = MaybeSegInfo(ptr_get_segment(p))) != NULL) {
+                  if (si->old_space) {
+                    if (marked(si, p)) {
+                      youngest = TARGET_GENERATION(si);
+                    } else if (FORWARDEDP(p, si)) {
+                      IGEN newpg;
+                      *pp = FWDADDRESS(p);
+                      newpg = TARGET_GENERATION(si);
+                      if (newpg < youngest) youngest = newpg;
+                    } else {
+                      *pp = Sbwp_object;
+                    }
                   } else {
-                    *pp = Sbwp_object;
+                    IGEN pg = si->generation;
+                    if (pg < youngest) youngest = pg;
                   }
-                } else {
-                  IGEN pg = si->generation;
-                  if (pg < youngest) youngest = pg;
                 }
               }
 
