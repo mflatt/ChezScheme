@@ -870,7 +870,7 @@ static void check_dirty() {
             S_checkheap_errors += 1;
             printf("!!! (check_dirty): dirty byte = %d for segment "PHtx" in %d -> %d dirty list\n", mingval, (ptrdiff_t)(si->number), from_g, to_g);
           }
-          if (s != space_new && s != space_impure && s != space_symbol && s != space_port
+          if (s != space_new && s != space_impure && s != space_count_impure && s != space_symbol && s != space_port
               && s != space_impure_record && s != space_impure_typed_object && s != space_immobile_impure 
               && s != space_weakpair && s != space_ephemeron) {
             S_checkheap_errors += 1;
