@@ -672,7 +672,10 @@ void S_check_heap(aftergc, mcg) IBOOL aftergc; IGEN mcg; {
                     if (psi != NULL) {
                       if ((psi->space == space_empty)
                           || psi->old_space
-                          || (psi->marked_mask && !(psi->marked_mask[segment_bitmap_byte(p)] & segment_bitmap_bit(p)))) {
+                          || (psi->marked_mask && !(psi->marked_mask[segment_bitmap_byte(p)] & segment_bitmap_bit(p))
+                              /* corner case: a continuation in space_count_pure can refer to code via CLOSENTRY
+                                 where the entry point doesn't have a mark bit: */
+                              && !((s == space_count_pure) && (psi->space == space_code)))) {
                         S_checkheap_errors += 1;
                         printf("!!! dangling reference at "PHtx" to "PHtx"%s\n", (ptrdiff_t)pp1, (ptrdiff_t)p, (aftergc ? " after gc" : ""));
                         printf("from: "); segment_tell(seg);
