@@ -18,6 +18,7 @@
 ;; Currently supported traversal modes:
 ;;   - copy
 ;;   - sweep
+;;   - sweep-in-old ; like sweep, but don't update impure
 ;;   - mark
 ;;   - self-test   : check immediate pointers only for self references
 ;;   - size        : immediate size, so does not recur
@@ -214,7 +215,7 @@
            [(== (continuation-stack-length _) scaled-shot-1-shot-flag)]
            [else
             (case-mode
-             [sweep
+             [(sweep)
               (when (OLDSPACE (continuation-stack _))
                 (set! (continuation-stack _)
                       (copy_stack (continuation-stack _)
@@ -670,7 +671,7 @@
   (case-mode
    [(copy vfasl-copy)
     (SETCLOSCODE _copy_ code)]
-   [(sweep)
+   [(sweep sweep-in-old)
     (unless-code-relocated
      (SETCLOSCODE _copy_ code))]
    [(vfasl-sweep)
@@ -698,7 +699,7 @@
   (case-mode
    [(copy measure)
     (trace ref)]
-   [sweep
+   [(sweep sweep-in-old)
     (trace ref) ; can't trace `val` directly, because we need an impure relocate
     (define val : ptr (ref _))]
    [vfasl-copy
@@ -707,7 +708,7 @@
 
 (define-trace-macro (trace-symcode symbol-pvalue val)
   (case-mode
-   [sweep
+   [(sweep sweep-in-old)
     (define code : ptr (cond
                          [(Sprocedurep val) (CLOSCODE val)]
                          [else (SYMCODE _)]))
@@ -778,7 +779,7 @@
           [on]
           [off
            (case-mode
-            [(sweep self-test)
+            [(sweep sweep-in-old self-test)
              ;; Bignum pointer mask may need forwarding
              (trace-pure (record-type-pm rtd))
              (set! num (record-type-pm rtd))]
@@ -893,6 +894,9 @@
                           (cast iptr (port-buffer _))))
       (trace port-buffer)
       (set! (port-last _) (cast ptr (+ (cast iptr (port-buffer _)) n))))]
+   [sweep-in-old
+    (when (& (cast uptr _tf_) flag)
+      (trace port-buffer))]
    [else
     (trace-nonself port-buffer)]))
 
@@ -904,7 +908,7 @@
     (define tc : ptr (cast ptr (offset _)))
     (when (!= tc (cast ptr 0))
       (case-mode
-       [sweep
+       [(sweep)
         (let* ([old_stack : ptr (tc-scheme-stack tc)])
           (when (OLDSPACE old_stack)
             (let* ([clength : iptr (- (cast uptr (SFP tc)) (cast uptr old_stack))])
@@ -1024,11 +1028,14 @@
   (define co : iptr (+ (ENTRYOFFSET xcp) (- (cast uptr xcp) (cast uptr (TO_PTR (ENTRYOFFSETADDR xcp))))))
   (define c_p : ptr (cast ptr (- (cast uptr xcp) co)))
   (case-mode
-   [sweep
+   [(sweep sweep-in-old)
     (define x_si : seginfo* (SegInfo (ptr_get_segment c_p)))
     (when (-> x_si old_space)
       (relocate_code c_p x_si)
-      (set! field (cast ptr (+ (cast uptr c_p) co))))]
+      (case-mode
+       [sweep-in-old]
+       [else
+        (set! field (cast ptr (+ (cast uptr c_p) co)))]))]
    [else
     (trace-pure (just c_p))]))
 
@@ -1039,7 +1046,7 @@
    [else
     (define t : ptr (code-reloc _))
     (case-mode
-     [(sweep vfasl-sweep)
+     [(sweep sweep-in-old vfasl-sweep)
       (define m : iptr (reloc-table-size t))
       (define oldco : ptr (reloc-table-code t))]
      [else
@@ -1151,7 +1158,7 @@
 
 (define-trace-macro (and-purity-sensitive-mode e)
   (case-mode
-   [sweep e]
+   [(sweep sweep-in-old) e]
    [else 0]))
 
 (define-trace-macro (when-vfasl e)
@@ -1339,6 +1346,7 @@
                [(sweep) (if (lookup 'as-dirty? config #f)
                             "IGEN"
                             "void")]
+               [(sweep-in-old) "void"]
                [else "void"])
              name
              (case (lookup 'mode config)
@@ -1524,7 +1532,7 @@
             (code (case (and (not (lookup 'as-dirty? config #f))
                              (not (lookup 'rtd-relocated? config #f))
                              (lookup 'mode config))
-                    [(copy sweep mark)
+                    [(copy sweep sweep-in-old mark)
                      (code
                       "/* Relocate to make sure we aren't using an oldspace descriptor"
                       "   that has been overwritten by a forwarding marker, but don't loop"
@@ -1633,7 +1641,7 @@
                (statements (cons `(copy-bytes ,offset (* ptr_bytes ,len))
                                  (cdr l))
                            config)]
-              [(sweep measure vfasl-sweep)
+              [(sweep measure sweep-in-old vfasl-sweep)
                (code
                 (loop-over-pointers
                  (field-expression offset config "p" #t)
@@ -2052,6 +2060,7 @@
     (define mode (lookup 'mode config))
     (cond
       [(or (eq? mode 'sweep)
+           (eq? mode 'sweep-in-old)
            (eq? mode 'vfasl-sweep)
            (and early? (or (eq? mode 'copy)
                            (eq? mode 'mark))))
@@ -2070,6 +2079,10 @@
     (case mode
       [(vfasl-sweep)
        (format "vfasl_relocate(vfi, &~a);" e)]
+      [(sweep-in-old)
+       (if (eq? purity 'pure)
+           (format "relocate_pure(&~a);" e)
+           (format "relocate_indirect(~a);" e))]
       [else
        (if (lookup 'as-dirty? config #f)
            (begin
@@ -2460,6 +2473,9 @@
                              `((mode sweep)
                                (maybe-backreferences? ,count?)
                                (counts? ,count?))))
+       (print-code (generate "sweep_object_in_old"
+                             `((mode sweep-in-old)
+                               (maybe-backreferences? ,count?))))
        (print-code (generate "sweep_dirty_object"
                              `((mode sweep)
                                (maybe-backreferences? ,count?)

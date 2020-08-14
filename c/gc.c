@@ -124,7 +124,8 @@
 static IGEN copy PROTO((ptr pp, seginfo *si, ptr *dest));
 static IGEN mark_object PROTO((ptr pp, seginfo *si));
 static void sweep PROTO((ptr tc, ptr p, IGEN from_g));
-static void sweep_in_old PROTO((ptr tc, ptr p));
+static void sweep_in_old PROTO((ptr p));
+static void sweep_object_in_old PROTO((ptr p));
 static IBOOL object_directly_refers_to_self PROTO((ptr p));
 static ptr copy_stack PROTO((ptr old, iptr *length, iptr clength));
 static void resweep_weak_pairs PROTO((seginfo *oldweakspacesegments));
@@ -442,6 +443,10 @@ static int flonum_is_forwarded_p(ptr p, seginfo *si) {
 # define is_counting_root(si, p) (si->counting_mask && (si->counting_mask[segment_bitmap_byte(p)] & segment_bitmap_bit(p)))
 #endif
 
+static void relocate_indirect(ptr p) {
+  relocate_pure(&p);
+}
+
 FORCEINLINE void check_triggers(seginfo *si) {
   /* Registering ephemerons and guardians to recheck at the
      granularity of a segment means that the worst-case complexity of
@@ -476,7 +481,7 @@ FORCEINLINE void check_triggers(seginfo *si) {
    set to a forwarding marker and pointer. To handle that problem,
    sweep_in_old() is allowed to copy the object, since the object
    is going to get copied anyway. */
-static void sweep_in_old(ptr tc, ptr p) {
+static void sweep_in_old(ptr p) {
   /* Detect all the cases when we need to give up on in-place
      sweeping: */
   if (object_directly_refers_to_self(p)) {
@@ -485,10 +490,10 @@ static void sweep_in_old(ptr tc, ptr p) {
   }
 
   /* We've determined that `p` won't refer immediately back to itself,
-     so it's ok to use sweep(). Supply 0 as the source generation,
-     because we don't want to mark any cards; that will happen later,
-     potentially after `p` is copied. */
-  sweep(tc, p, 0);
+     so it's ok to sweep(), but only update `p` for pure relocations;
+     impure oness must that will happen later, after `p` is
+     potentially copied, so the card updates will be right. */
+  sweep_object_in_old(p);
 }
 
 static void sweep_dirty_object_if_space_new(ptr p) {
@@ -1027,8 +1032,10 @@ ptr GCENTRY(ptr tc, ptr count_roots_ls) {
                   } else {
                     seginfo *si;
                     if (!IMMEDIATE(rep) && (si = MaybeSegInfo(ptr_get_segment(rep))) != NULL && si->old_space) {
-                      PUSH_BACKREFERENCE(rep)
-                      sweep_in_old(tc, rep);
+                      /* mark things reachable from `rep`, but not `rep` itself, unless
+                         `rep` is immediately reachable from itself */
+                      PUSH_BACKREFERENCE(ls)
+                      sweep_in_old(rep);
                       POP_BACKREFERENCE()
                     }
                     INITGUARDIANNEXT(ls) = maybe_final_ordered_ls;
