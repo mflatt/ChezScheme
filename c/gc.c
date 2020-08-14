@@ -124,7 +124,7 @@
 static IGEN copy PROTO((ptr pp, seginfo *si, ptr *dest));
 static IGEN mark_object PROTO((ptr pp, seginfo *si));
 static void sweep PROTO((ptr tc, ptr p, IGEN from_g));
-static void sweep_in_old PROTO((ptr tc, ptr p, IGEN from_g));
+static void sweep_in_old PROTO((ptr tc, ptr p));
 static IBOOL object_directly_refers_to_self PROTO((ptr p));
 static ptr copy_stack PROTO((ptr old, iptr *length, iptr clength));
 static void resweep_weak_pairs PROTO((seginfo *oldweakspacesegments));
@@ -476,7 +476,7 @@ FORCEINLINE void check_triggers(seginfo *si) {
    set to a forwarding marker and pointer. To handle that problem,
    sweep_in_old() is allowed to copy the object, since the object
    is going to get copied anyway. */
-static void sweep_in_old(ptr tc, ptr p, IGEN from_g) {
+static void sweep_in_old(ptr tc, ptr p) {
   /* Detect all the cases when we need to give up on in-place
      sweeping: */
   if (object_directly_refers_to_self(p)) {
@@ -485,8 +485,10 @@ static void sweep_in_old(ptr tc, ptr p, IGEN from_g) {
   }
 
   /* We've determined that `p` won't refer immediately back to itself,
-     so it's ok to use sweep(). */
-  sweep(tc, p, from_g);
+     so it's ok to use sweep(). Supply 0 as the source generation,
+     because we don't want to mark any cards; that will happen later,
+     potentially after `p` is copied. */
+  sweep(tc, p, 0);
 }
 
 static void sweep_dirty_object_if_space_new(ptr p) {
@@ -1026,7 +1028,7 @@ ptr GCENTRY(ptr tc, ptr count_roots_ls) {
                     seginfo *si;
                     if (!IMMEDIATE(rep) && (si = MaybeSegInfo(ptr_get_segment(rep))) != NULL && si->old_space) {
                       PUSH_BACKREFERENCE(rep)
-                      sweep_in_old(tc, rep, si->generation);
+                      sweep_in_old(tc, rep);
                       POP_BACKREFERENCE()
                     }
                     INITGUARDIANNEXT(ls) = maybe_final_ordered_ls;
@@ -2086,8 +2088,16 @@ static void check_ephemeron(ptr pe) {
   p = Scar(pe);
   if (!IMMEDIATE(p) && (si = MaybeSegInfo(ptr_get_segment(p))) != NULL && si->old_space) {
     if (marked(si, p)) {
+#ifndef NO_DIRTY_NEWSPACE_POINTERS
+      IGEN tg = TARGET_GENERATION(si);
+      if (tg < from_g) S_record_new_dirty_card(&INITCAR(pe), tg);
+#endif
       relocate_impure(&INITCDR(pe), from_g);
     } else if (FORWARDEDP(p, si)) {
+#ifndef NO_DIRTY_NEWSPACE_POINTERS
+      IGEN tg = TARGET_GENERATION(si);
+      if (tg < from_g) S_record_new_dirty_card(&INITCAR(pe), tg);
+#endif
       INITCAR(pe) = FWDADDRESS(p);
       relocate_impure(&INITCDR(pe), from_g);
     } else {

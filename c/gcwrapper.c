@@ -512,6 +512,7 @@ static void segment_tell(seg) uptr seg; {
   if ((si = MaybeSegInfo(seg)) == NULL) {
     printf(" out of heap bounds\n");
   } else {
+    printf(" si=%p", si);
     printf(" generation=%d", si->generation);
     s = si->space;
     s1 = si->space;
