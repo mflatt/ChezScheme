@@ -429,7 +429,7 @@
      `(asm ,info ,asm-fpmove-single ,x ,y)])
 
   (define-instruction value (load-single)
-    [(op (x fpur) (y fpmem fpur))
+    [(op (x fpur) (y fpmem))
      `(set! ,(make-live-info) ,x (asm ,info ,asm-fpmove-single ,y))])
 
   (define-instruction value (single->double double->single)
