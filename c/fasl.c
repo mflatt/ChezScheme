@@ -1478,12 +1478,10 @@ void S_set_code_obj(char *who, IFASLCODE typ, ptr p, iptr n, ptr x, iptr o) {
 #endif /* SPARC */
 #ifdef RISCV64
         case reloc_riscv64_abs:
+        case reloc_riscv64_call:
           riscv64_set_abs(address, item);
           break;
         case reloc_riscv64_jump:
-          riscv64_set_jump(address, item);
-          break;
-        case reloc_riscv64_call:
           riscv64_set_jump(address, item);
           break;
 #endif /* RISCV64 */
@@ -1569,10 +1567,10 @@ ptr S_get_code_obj(IFASLCODE typ, ptr p, iptr n, iptr o) {
 #endif /* SPARC */
 #ifdef RISCV64 //@ todo
         case reloc_riscv64_abs:
+        case reloc_riscv64_call:
           item = riscv64_get_abs(address);
           break;
         case reloc_riscv64_jump:
-        case reloc_riscv64_call:
           item = riscv64_get_jump(address);
           break;
 #endif /* RISCV64 */
@@ -1990,7 +1988,7 @@ static void sparc64_set_literal(void* address, uptr item) {
 #ifdef RISCV64
 static uptr riscv64_get_abs(void* address)
 {
-  return *((I64 *)((I32 *)address + 3));
+  return *((I64 *)((I32 *)address + 4));
 }
 
 static uptr riscv64_get_jump(void* address)
@@ -1998,26 +1996,53 @@ static uptr riscv64_get_jump(void* address)
   return *((I64 *)((I32 *)address + 3));
 }
 
+#define AUIPC_INSTR(dest, offset)   (0x17 | ((dest) << 7) | ((offset) << 12))
+#define LD_INSTR(dest, src, offset) (0x03 | ((dest) << 7) | (3 << 12) | ((src) << 15) | ((offset) << 20))
+#define JAL_INSTR(dest, offset)     (0x6F | ((dest) << 7) | ((offset) << 20))
+#define REAL_ZERO_REG 0
+#define JUMP_REG 30
+
 static void riscv64_set_abs(void* address, uptr item)
 {
   /*
-    [0]auipc
-    [1]ld
-    [2]jal
-    [3]8-bytes of addr
-   */
-  (*((I64 *)((I32 *)address + 3))) = item;
+     Code sequence:
+
+     [0] auipc dest, 0
+     [1] ld dest, dest, 16
+     [2] jal %real-zero, 16
+     [3] dest (as data)
+     [4-5] 8-bytes of addr
+     [6] jalr - in case of call
+
+     We distinguish linked versus unlinked because vfasl may have
+     overwrriten the first word, so putting the register in the third
+     instruction keeps track of what the first wo instructions should
+     be.
+  */
+  int reg = ((I32 *)address)[3];
+  ((I32 *)address)[0] = AUIPC_INSTR(reg, 0);
+  ((I32 *)address)[1] = LD_INSTR(reg, reg, 16);
+
+  (*((I64 *)((I32 *)address + 4))) = item;
 }
 
 static void riscv64_set_jump(void* address, uptr item)
 {
   /*
-    [0]auipc
-    [1]ld
-    [2]jal
-    [3]8-bytes of addr
-    [5]jalr
+     Code sequence:
+
+    [0] auipc %jump, 0
+    [1] ld %jump, %jump, 12
+    [2] jal %real_zero, 12
+    [3] 8-bytes of addr
+    [5] jalr
+
+    Although vfasl may have overwritten the first word, the first two
+    intsructions are always the same, so we can reconstruct them.
   */
+  ((I32 *)address)[0] = AUIPC_INSTR(JUMP_REG, 0);
+  ((I32 *)address)[1] = LD_INSTR(JUMP_REG, JUMP_REG, 12);
+
   (*((I64 *)((I32 *)address + 3))) = item;
 }
 #endif /* RISCV64 */

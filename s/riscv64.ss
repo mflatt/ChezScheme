@@ -1312,10 +1312,11 @@
   (define ax-mov64
     (lambda (dest n code*)
       (emit auipc dest 0
-            (emit ld dest dest 12
-                  (emit jal %real-zero 12
-                        (cons* `(quad . ,n)
-                               (aop-cons* `(asm "quad:" ,n) code*)))))))
+            (emit ld dest dest 16
+                  (emit jal %real-zero 16
+                        (cons* `(long . ,(ax-ea-reg-code dest)) ; to help linker after vfasl
+                               (cons* `(quad . ,n)
+                                      (aop-cons* `(asm "quad:" ,n) code*))))))))
 
   (define-who asm-move
     (lambda (code* dest src)
@@ -1493,7 +1494,6 @@
                        (let ([disp (fx- next-addr offset)])
                          (cond
                           [(eqv? disp 0) '()]
-                          ;;@ todo add jal for 12-bit offset?
                           [(jump-disp? disp) (emit auipc %jump (upper20 (fx+ disp 8))
                                                    ;;@ todo disp is recomputed in munge? yes
                                                    ;; 8 is obtained from debugging
@@ -1707,12 +1707,13 @@
       (maybe-save-ra code*
                      (lambda (code*)
                        (emit auipc tmp 0
-                             (emit ld tmp tmp 12
-                                   (emit jal %real-zero 12
-                                         (cons* `(quad . 0)
-                                                (aop-cons* `(asm "quad call addr")
-                                                           (emit jalr %ra tmp 0
-                                                                 (asm-helper-relocation code* reloc)))))))))))
+                             (emit ld tmp tmp 16
+                                   (emit jal %real-zero 16
+                                         (cons* `(long . ,(ax-ea-reg-code tmp)) ; to help linker after vfasl
+                                                (cons* `(quad . 0)
+                                                       (aop-cons* `(asm "quad call addr")
+                                                                  (emit jalr %ra tmp 0
+                                                                        (asm-helper-relocation code* reloc))))))))))))
 
   (define asm-kill
     (lambda (code* dest)
