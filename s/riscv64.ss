@@ -1171,16 +1171,18 @@
 
   (define asm-lock ;;@ check operands of sc.d, see if can be used in both places
     ;;    lr.d tmp, [addr]
-    ;;    bne  tmp, %real-zero, L
+    ;;    bne  tmp, %real-zero, L # if tmp != 0, will look the same as sc.d failure
     ;;    addi tmp, %real-zero, 1
     ;;    sc.d tmp, tmp, [addr]
+    ;;    sltui %cond, tmp, 1 # set %cond if tmp=0, meaning success
     ;;L:
     (lambda (code* addr t0)
       (Trivit (addr t0)
               (emit lr.d t0 addr '()
                     (emit bne t0 %real-zero 12
                           (emit addi t0 %real-zero 1
-                                (emit sc.d t0 addr t0 code*)))))))
+                                (emit sc.d t0 addr t0
+                                      (emit sltiu %cond t0 1 code*))))))))
 
   (define-who asm-lock+/-
     ;;S:
@@ -1984,9 +1986,9 @@
                     (lambda (x) ; requires var
                       (memory-to-memory %sp offset x from-offset size %scratch1)))]
                  [load-indirect-reg
-                  (lambda (reg size)
+                  (lambda (reg size unsigned?)
                     (lambda (x) ; requires var
-                      (memory-to-reg reg x 0 size #t %scratch1)))]
+                      (memory-to-reg reg x 0 size unsigned? %scratch1)))]
                  [load-indirect-two-regs
                   (lambda (reg1 reg2 size)
                     (lambda (x) ; requires var
@@ -2041,7 +2043,7 @@
                                                           ;; by reference
                                                           (load-int-reg (car int-regs))
                                                           ;; copy to stack
-                                                          (load-indirect-reg (car int-regs) ($ftd-size ftd)))
+                                                          (load-indirect-reg (car int-regs) ($ftd-size ftd) ($ftd-unsigned? ftd)))
                                                       (load-indirect-two-regs (car int-regs) (cadr int-regs) ($ftd-size ftd)))
                                                   locs)
                                             (append int-regs regs) isp))]
@@ -2379,14 +2381,14 @@
                          (cond
                            [(null? (cdr regs))
                             (lambda ()
-                              ;; we don't have to be careful about the size, because we
-                              ;; allocated a multiple of a word size for the synthesized pointer
-                              `(set! ,(car regs) ,(%mref ,%sp ,return-offset)))]
+                              (memory-to-reg (car regs) %sp return-offset ($ftd-size ftd) ($ftd-unsigned? ftd) %scratch1))]
                            [else
                             (lambda ()
                               (%seq
                                (set! ,(car regs) ,(%mref ,%sp ,return-offset))
-                               ;; we don't have to be careful about the size, same as above
+                               ;; we don't have to be careful about the size, because we
+                               ;; allocated a multiple of a word size for the synthesized pointer,
+                               ;; and sign extension is not relevant
                                (set! ,(cadr regs) ,(%mref ,%sp ,(fx+ return-offset 8)))))])]
                         [else
                          ($oops 'assembler-internal "unexpected result place")])])]

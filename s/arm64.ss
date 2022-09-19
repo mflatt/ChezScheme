@@ -3264,7 +3264,7 @@
 					       %tc %sfp %ap %trap
 					       ;; allocable:
 					       (get-allocable-callee-save-regs 'uptr)))
-            (define callee-save-fpregs  (get-callee-save-regs 'fp))
+            (define callee-save-fpregs  (get-allocable-callee-save-regs 'fp))
             (define isaved (length callee-save-regs+lr))
             (define fpsaved (length callee-save-fpregs))
             (let* ([arg-type* (info-foreign-arg-type* info)]
