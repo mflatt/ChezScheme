@@ -184,8 +184,14 @@
 
   (define cpnanopass-src-files
     ;; files that are `include`d by "cpnanopass.ss" and "cpprim.ss"
-    (list arch.ss "np-languages.ss" "fxmap.ss" "cptypes-lattice.ss"
-          "np-register.ss" "np-info.ss" "np-help.ss"))
+    (append
+     (cond
+       [(or (equal? arch "arm64")
+            (equal? arch "riscv64"))
+        (list "ffi-help.ss")]
+       [else '()])
+     (list arch.ss "np-languages.ss" "fxmap.ss" "cptypes-lattice.ss"
+           "np-register.ss" "np-info.ss" "np-help.ss")))
   (define cpnanopass-srcs
     (map at-source cpnanopass-src-files))
 

@@ -49,7 +49,8 @@
    [%Cfparg5 %f14           #f  14 fp]
    [%Cfparg6 %f15           #f  15 fp]
    [%Cfparg7 %f16           #f  16 fp]
-   [%Cfparg8 %f17           #f  17 fp]))
+   [%Cfparg8 %f17           #f  17 fp]
+   [%fpscratch %f7          #f  7 fp]))
 
 ;;; SECTION 2: instructions
 (module (md-handle-jump
@@ -1724,12 +1725,170 @@
       (cons* reloc (aop-cons* `(asm "relocation:" ,reloc) code*))))
 
   (module (asm-foreign-call asm-foreign-callable)
-    (define make-vint (lambda () (vector %Carg1 %Carg2 %Carg3 %Carg4 %Carg5 %Carg6 %Carg7 %Carg8)))
-    (define make-vfp (lambda () (vector %Cfparg1 %Cfparg2 %Cfparg3 %Cfparg4 %Cfparg5 %Cfparg6 %Cfparg7 %Cfparg8)))
+    (define int-argument-regs (vector %Carg1 %Carg2 %Carg3 %Carg4 %Carg5 %Carg6 %Carg7 %Carg8))
+    (define fp-argument-regs (vector %Cfparg1 %Cfparg2 %Cfparg3 %Cfparg4 %Cfparg5 %Cfparg6 %Cfparg7 %Cfparg8))
     (define align
       (lambda (b x)
         (let ([k (fx- b 1)])
           (fxlogand (fx+ x k) (fxlognot k)))))
+
+    (define-record-type cat
+      (nongenerative #{cat ker6am0odx7w7wg5n44fxof76-0})
+      (sealed #t)
+      (fields place            ; 'int, 'fp, or 'stack
+              regs             ; list of registers
+              size             ; size in bytes
+              by-reference?))
+
+    (define categorize-arguments
+      (lambda (types varargs-after)
+        (let loop ([types types] [i 0] [fpi 0] [varargs-after varargs-after])
+          (let ([next-varargs-after (and varargs-after (if (fx> varargs-after 0) (fx- varargs-after 1) 0))])
+            (define (fp-arg)
+              ;; `double` and `float` arguments go into floating-point registers,
+              ;; unless they're varargs or we've run out of fp registers; next
+              ;; best is an integer register; if neither of those, on the stack
+              (cond
+                [(and (< fpi 8)
+                      (not (eqv? varargs-after 0)))
+                 (cons (make-cat 'fp (list (vector-ref fp-argument-regs fpi)) 8 #f)
+                       (loop (cdr types) i (fx+ fpi 1) next-varargs-after))]
+                [(< i 8)
+                 (cons (make-cat 'int (list (vector-ref int-argument-regs i)) 8 #f)
+                       (loop (cdr types) (fx+ i 1) fpi next-varargs-after))]
+                [else
+                 (cons (make-cat 'stack '() 8 #f)
+                       (loop (cdr types) i fpi next-varargs-after))]))
+            (if (null? types)
+                '()
+                (nanopass-case (Ltype Type) (car types)
+                  [(fp-double-float) (fp-arg)]
+                  [(fp-single-float) (fp-arg)]
+                  [(fp-ftd& ,ftd)
+                   ;; A compound value of size no more than a word is treated
+                   ;; like an word-sized integer.
+                   ;; A compound value up more than one work and less than
+                   ;; two can use two registers, even-aligned, if available.
+                   (let* ([size ($ftd-size ftd)])
+                     (cond
+                       [(and (< fpi 8)
+                             (not ($ftd-compound? ftd))
+                             (let ([members ($ftd->members ftd)])
+                               (and (null? (cdr members))
+                                    (eq? (caar members) 'float))))
+                        ;; in one fp register
+                        (cons (make-cat 'fp (list (vector-ref fp-argument-regs fpi)) 8 #f)
+                              (loop (cdr types) i (fx+ fpi 1) next-varargs-after))]
+                       [(and (> size (constant ptr-bytes))
+                             (<= size (* 2 (constant ptr-bytes)))
+                             (<= i 6))
+                        ;; in two int registers
+                        (let ([i (align 2 i)])
+                          (cons (make-cat 'int (list (vector-ref int-argument-regs i)
+                                                     (vector-ref int-argument-regs (fx+ i 1)))
+                                          16 #f)
+                                (loop (cdr types) (fx+ i 2) fpi next-varargs-after)))]
+                       [(and (or (<= size (constant ptr-bytes))
+                                 (> size (* 2 (constant ptr-bytes))))
+                             (< i 8))
+                        ;; in one int register, by-reference if more than size 16
+                        (cons (make-cat 'int (list (vector-ref int-argument-regs i)) 8
+                                        (> size (* 2 (constant ptr-bytes))))
+                              (loop (cdr types) (fx+ i 1) fpi next-varargs-after))]
+                       [else
+                        ;; on stack, and by-reference if more than size 16
+                        (let ([stk-size (if (<= size (* 2 (constant ptr-bytes)))
+                                            (align 8 size)
+                                            8)])
+                          (cons (make-cat 'stack '() stk-size (> size (* 2 (constant ptr-bytes))))
+                                (loop (cdr types) i fpi next-varargs-after)))]))]
+                  [else
+                   ;; integers, scheme-object, etc. --- always in a register,
+                   ;; unless we've run out
+                   (cond
+                     [(>= i 8)
+                      (cons (make-cat 'stack '() 8 #f)
+                            (loop (cdr types) i fpi next-varargs-after))]
+                     [else
+                      (cons (make-cat 'int (list (vector-ref int-argument-regs i)) 8 #f)
+                            (loop (cdr types) (fx+ i 1) fpi next-varargs-after))])]))))))
+
+    (define (result-via-pointer-argument? type)
+      (nanopass-case (Ltype Type) type
+        [(fp-ftd& ,ftd) (> ($ftd-size ftd) 16)]
+        [else #f]))
+
+    (define (categorize-result type)
+      (nanopass-case (Ltype Type) type
+        [(fp-ftd& ,ftd)
+         ;; Special case for floating point: no unions involved, and flattened
+         ;; components are exactly 1 or 2 floating points: in fp registers if
+         ;; available (falling back to int registers, and then indirect).
+         ;; Note that the special case for floating point applies even
+         ;; if one component is a `float` and the other is `double`.
+         (let* ([size ($ftd-size ftd)]
+                [members ($ftd->members ftd)])
+           (cond
+             [(and (null? (cdr members))
+                   (eq? 'float (caar members))
+                   (not ($ftd-union? ftd)))
+              (values (list %Cfpretval) (list (cadar members)) #t)]
+             [(and (pair? (cdr members))
+                   (null? (cddr members))
+                   (eq? 'float (caar members))
+                   (eq? 'float (caadr members))
+                   (not ($ftd-union? ftd)))
+              (values (list %Cfpretval %Cfparg2) (list (cadar members) (cadadr members)) #t)]
+             [(<= size 8)
+              (values (list %Cretval) (list size) #f)]
+             [(<= size 16)
+              (values (list %Cretval %Carg2) (list 8 (fx- size 8)) #f)]
+             [else
+              ;; result corresponds to the first argument, effectively a void result
+              (values '() '() #f)]))]
+        [(fp-double-float) (values (list %Cfpretval) '(8) #t)]
+        [(fp-single-float) (values (list %Cfpretval) '(4) #t)]
+        [(fp-void) (values '() '() #f)]
+        [else (values (list %Cretval) '(8) #f)]))
+
+    (define register-save-or-restore
+      (lambda (regs offset save?)
+        (safe-assert (andmap reg? regs))
+        (with-output-language (L13 Effect)
+          (cond
+            [(null? regs) `(nop)]
+            [else
+             (let ([n (length regs)])
+               (define (set-each-reg set-one)
+                 (let loop ([regs regs] [offset offset])
+                   (cond
+                     [(null? (cdr regs))
+                      (set-one (with-output-language (L13 Lvalue)
+                                 (if (eq? (reg-type (car regs)) 'fp)
+                                     (%mref ,%sp ,%zero ,offset fp)
+                                     (%mref ,%sp ,offset)))
+                               (car regs))]
+                     [else
+                      (%seq
+                       ,(loop (list (car regs)) offset)
+                       ,(loop (cdr regs) (fx+ offset (constant ptr-bytes))))])))
+               (if save?
+                   (set-each-reg (lambda (mem reg) `(set! ,mem ,reg)))
+                   (set-each-reg (lambda (mem reg) `(set! ,reg ,mem)))))]))))
+
+    (define save-and-restore
+      (lambda (regs e)
+        (safe-assert (andmap reg? regs))
+	(with-output-language (L13 Effect)
+          (let ([n (length regs)])
+            (%seq
+             (set! ,%sp ,(%inline - ,%sp (immediate ,(* n (constant ptr-bytes)))))
+             ,(register-save-or-restore regs 0 #t)
+             ,e
+             ,(register-save-or-restore regs 0 #f)
+             (set! ,%sp ,(%inline + ,%sp (immediate ,(* n (constant ptr-bytes))))))))))
+
+    (include "ffi-help.ss")
 
     ;; Currently:
     ;; no foreign-callable
@@ -1758,53 +1917,162 @@
                   (lambda (fpreg)
                     (lambda (x) ; unboxed
                       `(set! ,fpreg ,(%inline double->single ,x))))]
+                 [load-double-into-int-reg
+                  (lambda (reg)
+                    (lambda (x) ; unboxed
+                      `(set! ,reg ,(%inline fpcastto ,x))))]
+                 [load-single-into-int-reg
+                  (lambda (reg)
+                    (lambda (x) ; unboxed
+                      `(seq
+                        (set! ,%fpscratch ,(%inline double->single ,x))
+                        (set! ,reg ,(%inline fpcastto ,%fpscratch)))))]
+                 [load-double-indirect-reg
+                  (lambda (fpreg)
+                    (lambda (x)
+                      `(set! ,fpreg ,(%mref ,x ,%zero ,0 fp))))]
+                 [load-single-indirect-reg
+                  (lambda (fpreg)
+                    (lambda (x)
+                      `(set! ,fpreg ,(%inline load-single ,(%mref ,x ,%zero ,0 fp)))))]
                  [load-int-reg
                   (lambda (ireg)
                     (lambda (x)
                       `(set! ,ireg ,x)))]
+                 [load-indirect-stack
+                  (lambda (offset from-offset size)
+                    (lambda (x) ; requires var
+                      (memory-to-memory %sp offset x from-offset size %scratch1)))]
+                 [load-indirect-reg
+                  (lambda (reg size)
+                    (lambda (x) ; requires var
+                      (memory-to-reg reg x 0 size #t %scratch1)))]
+                 [load-indirect-two-regs
+                  (lambda (reg1 reg2 size)
+                    (lambda (x) ; requires var
+                      (%seq
+                       (set! ,reg1 ,(%mref ,x 0))
+                       ,(memory-to-reg reg2 x 8 (fx- size 8) #t %scratch1))))]
                  [do-args
-                  (lambda (types vint vfp)
-                    (let loop ([types types] [locs '()] [regs '()] [fp-regs '()] [iint 0] [ifp 0] [isp 0])
-                      (if (null? types)
-                          (values isp ifp locs regs fp-regs)
-                          (nanopass-case (Ltype Type) (car types)
-                            [(fp-double-float)
-                             (if (< ifp 8)
-                                 (loop (cdr types)
-                                       (cons (load-double-reg (vector-ref vfp ifp)) locs)
-                                       regs (cons (vector-ref vfp ifp) fp-regs) iint (fx+ ifp 1) isp)
-                                 (loop (cdr types)
-                                       (cons (load-double-stack isp) locs)
-                                       regs fp-regs iint ifp (fx+ isp 8)))]
-                            [(fp-single-float)
-                             (if (< ifp 8)
-                                 (loop (cdr types)
-                                       (cons (load-single-reg (vector-ref vfp ifp)) locs)
-                                       regs (cons (vector-ref vfp ifp) fp-regs) iint (fx+ ifp 1) isp)
-                                 (loop (cdr types)
-                                       (cons (load-single-stack isp) locs)
-                                       regs fp-regs iint ifp (fx+ isp 8)))]
-                            [(fp-ftd& ,ftd) (sorry! who "indirect arguments not supported")]
-                            [else
-                             (if (< iint 8)
-                                 (loop (cdr types)
-                                       (cons (load-int-reg (vector-ref vint iint)) locs)
-                                       (cons (vector-ref vint iint) regs) fp-regs
-                                       (fx+ iint 1) ifp isp)
-                                 (loop (cdr types)
-                                       (cons (load-int-stack isp) locs)
-                                       regs fp-regs iint ifp (fx+ isp 8)))]))))])
+                  (lambda (types varargs-after)
+                    (let* ([cats (categorize-arguments types varargs-after)])
+                      (let loop ([types types] [cats cats] [locs '()] [regs '()] [fp-regs '()] [isp 0])
+                        (if (null? types)
+                            (values (reverse locs) (append regs fp-regs) isp)
+                            (let* ([cat (car cats)]
+                                   [reg (and (pair? (cat-regs cat))
+                                             (car (cat-regs cat)))])
+                              (define use-fp-reg
+                                (lambda (load-reg) (loop (cdr types) (cdr cats)
+                                                         (cons load-reg locs)
+                                                         regs (cons reg fp-regs) isp)))
+                              (define use-int-reg
+                                (lambda (load-reg) (loop (cdr types) (cdr cats)
+                                                         (cons load-reg locs)
+                                                         (cons reg regs) fp-regs isp)))
+                              (define use-stack
+                                (lambda (load-stack) (loop (cdr types) (cdr cats)
+                                                           (cons load-stack locs)
+                                                           regs fp-regs (fx+ isp 8))))
+                              (nanopass-case (Ltype Type) (car types)
+                                [(fp-double-float)
+                                 (case (cat-place cat)
+                                   [(fp) (use-fp-reg (load-double-reg reg))]
+                                   [(int) (use-int-reg (load-double-into-int-reg reg))]
+                                   [else (use-stack (load-double-stack isp))])]
+                                [(fp-single-float)
+                                 (case (cat-place cat)
+                                   [(fp) (use-fp-reg (load-single-reg reg))]
+                                   [(int) (use-int-reg (load-single-into-int-reg reg))]
+                                   [else (use-stack (load-single-stack isp))])]
+                                [(fp-ftd& ,ftd)
+                                 (case (cat-place cat)
+                                   [(fp)
+                                    ;; must be a single register
+                                    (if (= ($ftd-size ftd) 8)
+                                        (use-fp-reg (load-double-indirect-reg reg))
+                                        (use-fp-reg (load-single-indirect-reg reg)))]
+                                   [(int)
+                                    ;; can be 1 or 2 registers
+                                    (let ([int-regs (cat-regs cat)])
+                                      (loop (cdr types) (cdr cats)
+                                            (cons (if (null? (cdr int-regs))
+                                                      (if (cat-by-reference? cat)
+                                                          ;; by reference
+                                                          (load-int-reg (car int-regs))
+                                                          ;; copy to stack
+                                                          (load-indirect-reg (car int-regs) ($ftd-size ftd)))
+                                                      (load-indirect-two-regs (car int-regs) (cadr int-regs) ($ftd-size ftd)))
+                                                  locs)
+                                            (append int-regs regs) fp-regs isp))]
+                                   [else
+                                    (cond
+                                      [(cat-by-reference? cat)
+                                       ;; pass by reference on stack
+                                       (use-stack (load-int-stack isp))]
+                                      [else
+                                       ;; copy to stack
+                                       (let ([size ($ftd-size ftd)])
+                                         (loop (cdr types) (cdr cats)
+                                               (cons (load-indirect-stack isp 0 size) locs)
+                                               regs fp-regs (fx+ isp (align 8 size))))])])]
+                                [else
+                                 (case (cat-place cat)
+                                   [(int) (use-int-reg (load-int-reg reg))]
+                                   [else (use-stack (load-int-stack isp))])]))))))]
+                 [add-fill-result
+                  (lambda (needed? regs sizes fp? frame-size e)
+                    (cond
+                      [needed? (%seq
+                                ,e
+                                ;; get stashed pointer:
+                                (set! ,%Carg3 ,(%mref ,%sp ,frame-size))
+                                ,(cond
+                                   [(and fp? (null? (cdr regs)))
+                                    (if (fx= 4 (car sizes))
+                                        (%inline store-single ,(%mref ,%Carg3 ,%zero 0 fp) ,(car regs))
+                                        `(set! ,(%mref ,%Carg3 ,%zero 0 fp) ,(car regs)))]
+                                   [fp?
+                                    ;; can be a mixture of double and single!
+                                    (let ([aligned-size (if (and (fx= 4 (car sizes))
+                                                                 (fx= 4 (cadr sizes)))
+                                                            4 ; compact two `float`s from double-sized registers
+                                                            8)])
+                                      (%seq
+                                       ,(if (fx= 4 (car sizes))
+                                            (%inline store-single ,(%mref ,%Carg3 ,%zero 0 fp) ,(car regs))
+                                            `(set! ,(%mref ,%Carg3 ,%zero 0 fp) ,(car regs)))
+                                       ,(if (fx= 4 (cadr sizes))
+                                            (%inline store-single ,(%mref ,%Carg3 ,%zero ,aligned-size fp) ,(cadr regs))
+                                            `(set! ,(%mref ,%Carg3 ,%zero ,aligned-size fp) ,(cadr regs)))))]
+                                   [(pair? (cdr regs))
+                                    (%seq
+                                     (set! ,(%mref ,%Carg3 0) ,(car regs)) ; first size must be 8
+                                     ,(reg-to-memory %Carg3 8 (cadr sizes) (cadr regs)))]
+                                   [else
+                                    (reg-to-memory %Carg3 0 (car sizes) (car regs))]))]
+                      [else e]))]
+                 [add-deactivate
+                  (lambda (adjust-active? t0 live* result-live* k)
+                    (cond
+                      [adjust-active?
+                       (%seq
+			(set! ,%ac0 ,t0)
+                        ,(save-and-restore live* (%inline deactivate-thread))
+                        ,(k %ac0)
+                        ,(save-and-restore result-live* `(set! ,%Cretval ,(%inline activate-thread))))]
+                      [else (k t0)]))])
           (define returnem
             (lambda (frame-size locs ccall r-loc)
-                                        ; need to maintain 16-byte alignment, ignoring the return address
-                                        ; pushed by call instruction, which counts as part of callee's frame
-                                        ; tc is callee-save; no need to save
+              ;; need to maintain 16-byte alignment, ignoring the return address
+              ;; pushed by call instruction, which counts as part of callee's frame
+              ;; tc is callee-save; no need to save
               (let ([frame-size (align 16 frame-size)])
                 (values (lambda ()
                           (if (fx= frame-size 0)
                               `(nop)
                               `(set! ,%sp ,(%inline - ,%sp (immediate ,frame-size)))))
-                        (reverse locs)
+                        locs
                         ccall
                         r-loc
                         (lambda ()
@@ -1815,13 +2083,36 @@
             (safe-assert (reg-callee-save? %tc)) ; no need to save-restore
             (let* ([conv* (info-foreign-conv* info)]
                    [arg-type* (info-foreign-arg-type* info)]
-                   [result-type (info-foreign-result-type info)])
-              (with-values (do-args arg-type* (make-vint) (make-vfp))
-                (lambda (frame-size nfp locs live* fp-live*)
-                  (returnem frame-size
-                            locs
+                   [result-type (info-foreign-result-type info)]
+                   [ftd-result? (nanopass-case (Ltype Type) result-type
+                                  [(fp-ftd& ,ftd) #t]
+                                  [else #f])]
+                   [pass-result-ptr? (result-via-pointer-argument? result-type)]
+                   [arg-type* (if (and ftd-result?
+                                       (not pass-result-ptr?))
+                                  (cdr arg-type*)
+                                  arg-type*)]
+                   [adjust-active? (if-feature pthreads (memq 'adjust-active conv*) #f)])
+              (with-values (do-args arg-type* (extract-varargs-after-conv conv*))
+                (lambda (locs live* frame-size)
+                  (returnem (if (and ftd-result?
+                                     (not pass-result-ptr?))
+                                (fx+ frame-size 8)
+                                frame-size)
+                            (cond
+                              [(and ftd-result?
+                                    (not pass-result-ptr?))
+                               ;; stash extra argument on the stack to be retrieved after call and filled with the result:
+                               (cons (load-int-stack frame-size) locs)]
+                              [else locs])
                             (lambda (t0 not-varargs?)
-                              `(inline ,(make-info-kill*-live* (add-caller-save-registers (reg-list %Cretval)) live*) ,%c-call ,t0))
+                              (let-values ([(result-reg* size* fp?) (categorize-result result-type)])
+                                (add-fill-result
+                                 (and ftd-result? (not pass-result-ptr?)) result-reg* size* fp? frame-size
+                                 (add-deactivate
+                                  adjust-active? t0 live* result-reg*
+                                  (lambda (t0)
+                                    `(inline ,(make-info-kill*-live* (add-caller-save-registers result-reg*) live*) ,%c-call ,t0))))))
                             (nanopass-case (Ltype Type) result-type
                               [(fp-double-float)
                                (lambda (lvalue) ; unboxed
@@ -1850,9 +2141,266 @@
                               [else (lambda (lvalue) `(set! ,lvalue ,%Cretval))])))))))))
 
     (define-who asm-foreign-callable
-      (lambda (info)
-        (sorry! who "foreign-callable not supported")
-        (values 'c-init 'c-args 'c-result 'c-return)))
+      #|
+        Frame Layout
+                   +---------------------------+
+                   |    incoming stack args    |
+                   +---------------------------+<- 16-byte boundary
+                   |       saved reg args      | 
+                   +---------------------------+<- 8-byte boundary
+                   |    by-reference copies    |
+                   +---------------------------+<- 8-byte boundary
+                   |     activatation state    | 
+                   |       if necessary        |
+                   +---------------------------+<- 8-byte boundary
+                   |      &-return space       |
+                   |       if necessary        |
+                   +---------------------------+<- 8-byte boundary
+                   |   callee-save regs + ra   | 
+                   +---------------------------+<- 8-byte boundary
+                   |      maybe padding        |
+                   +---------------------------+<- 16-byte boundary
+      |#
+      (with-output-language (L13 Effect)
+        (let ()
+          (define load-double-stack
+            (lambda (offset)
+              (lambda (x) ; requires var
+                `(set! ,(%mref ,x ,%zero ,(constant flonum-data-disp) fp)
+                       ,(%mref ,%sp ,%zero ,offset fp)))))
+          (define load-single-stack
+            (lambda (offset)
+              (lambda (x) ; requires var
+                `(set! ,(%mref ,x ,%zero ,(constant flonum-data-disp) fp)
+                       ,(%inline load-single->double ,(%mref ,%sp ,%zero ,offset fp))))))
+          (define load-word-stack
+            (lambda (offset)
+              (lambda (lvalue)
+                `(set! ,lvalue ,(%mref ,%sp ,offset)))))
+          (define load-int-stack
+            (lambda (type offset)
+              (lambda (lvalue)
+                (nanopass-case (Ltype Type) type
+                  [(fp-integer ,bits)
+                   (case bits
+                     [(8) `(set! ,lvalue (inline ,(make-info-load 'integer-8 #f) ,%load ,%sp ,%zero (immediate ,offset)))]
+                     [(16) `(set! ,lvalue (inline ,(make-info-load 'integer-16 #f) ,%load ,%sp ,%zero (immediate ,offset)))]
+                     [(32) `(set! ,lvalue (inline ,(make-info-load 'integer-32 #f) ,%load ,%sp ,%zero (immediate ,offset)))]
+                     [(64) `(set! ,lvalue ,(%mref ,%sp ,offset))]
+                     [else (sorry! who "unexpected load-int-stack fp-integer size ~s" bits)])]
+                  [(fp-unsigned ,bits)
+                   (case bits
+                     [(8) `(set! ,lvalue (inline ,(make-info-load 'unsigned-8 #f) ,%load ,%sp ,%zero (immediate ,offset)))]
+                     [(16) `(set! ,lvalue (inline ,(make-info-load 'unsigned-16 #f) ,%load ,%sp ,%zero (immediate ,offset)))]
+                     [(32) `(set! ,lvalue (inline ,(make-info-load 'unsigned-32 #f) ,%load ,%sp ,%zero (immediate ,offset)))]
+                     [(64) `(set! ,lvalue ,(%mref ,%sp ,offset))]
+                     [else (sorry! who "unexpected load-int-stack fp-unsigned size ~s" bits)])]
+                  [else `(set! ,lvalue ,(%mref ,%sp ,offset))]))))
+	  (define load-stack-address
+	    (lambda (offset)
+	      (lambda (lvalue)
+		`(set! ,lvalue ,(%inline + ,%sp (immediate ,offset))))))
+          (define do-args
+            ;; all of the args are on the stack at this point, and in argument order
+            ;; for registers, and stack arguments separate
+            (lambda (arg-type* arg-cat* reg-offset stack-arg-offset return-offset copy-offset
+                               synthesize-first? ftd-result?)
+              (let loop ([types arg-type*]
+                         [cats arg-cat*]
+                         [locs '()]
+                         [reg-offset reg-offset]
+                         [stack-arg-offset stack-arg-offset]
+                         [copy-offset copy-offset])
+                  (if (null? types)
+                      (let ([locs (reverse locs)])
+                        (cond
+                          [synthesize-first?
+                           (cons (load-stack-address return-offset) locs)]
+                          [else locs]))
+                      (let ([cat (car cats)]
+                            [type (car types)])
+                        (define use-reg
+                          (lambda (load-reg)
+                            (loop (cdr types) (cdr cats) (cons load-reg locs) (fx+ reg-offset 8) stack-arg-offset copy-offset)))
+                        (define use-stack
+                          (lambda (load-stack)
+                            (loop (cdr types) (cdr cats) (cons load-stack locs) reg-offset (fx+ stack-arg-offset 8) copy-offset)))
+                        (nanopass-case (Ltype Type) type
+                          [(fp-double-float)
+                           (case (cat-place cat)
+                             [(fp int) (use-reg (load-double-stack reg-offset))]
+                             [else (use-stack (load-double-stack stack-arg-offset))])]
+                          [(fp-single-float)
+                           (case (cat-place cat)
+                             [(fp int) (use-reg (load-single-stack reg-offset))]
+                             [else (use-stack (load-single-stack stack-arg-offset))])]
+                          [(fp-ftd& ,ftd)
+                           (cond
+                             [(cat-by-reference? cat)
+                              ;; register or stack contains pointer to data; we
+                              ;; copy to ensure that Scheme side doesn't mutate caller's data
+                              (let* ([load (lambda (x)
+                                             (%seq
+                                              ,(if (eq? (cat-place cat) 'stack)
+                                                   ((load-word-stack stack-arg-offset) x)
+                                                   ((load-word-stack reg-offset) x))
+                                              ,(memory-to-memory %sp copy-offset x 0 ($ftd-size ftd) %scratch1)
+                                              (set! ,x ,(%inline + ,%sp (immediate ,copy-offset)))))])
+                                (if (eq? (cat-place cat) 'stack)
+                                    (use-stack load)
+                                    (use-reg load)))]
+                             [else
+                              ;; point to argument on stack; even in the case of two registers,
+                              ;; they'll have been copied there in sequence
+                              (case (cat-place cat)
+                                [(int fp) (use-reg (load-stack-address reg-offset))]
+                                [else (use-reg (load-stack-address stack-arg-offset))])])]
+                          [else
+                           ;; integer, scheme-object, etc.
+                           (case (cat-place cat)
+                             [(int) (use-reg (load-int-stack type reg-offset))]
+                             [else (use-stack (load-int-stack type stack-arg-offset))])]))))))
+          (define do-result
+            (lambda (result-type result-regs result-sizes result-fp? synthesize-first? return-offset)
+              (nanopass-case (Ltype Type) result-type
+                [(fp-double-float)
+		 (lambda (rhs) ; boxed
+                   `(set! ,(car result-regs) ,(%mref ,rhs ,%zero ,(constant flonum-data-disp) fp)))]
+		[(fp-single-float)
+                 (lambda (rhs) ; boxed
+                   `(set! ,(car result-regs) ,(%inline double->single ,(%mref ,rhs ,%zero ,(constant flonum-data-disp) fp))))]
+                [(fp-void)
+                 (lambda () `(nop))]
+                [(fp-ftd& ,ftd)
+                 (cond
+                   [(not synthesize-first?)
+                    ;; we passed the pointer to be filled, so nothing more to do here
+                    (safe-assert (null? result-regs))
+                    (lambda () `(nop))]
+                   [(and result-fp? (null? (cdr result-regs)))
+                    (if (fx= 4 (car result-sizes))
+                        (lambda ()
+                          `(set! ,(car result-regs) ,(%inline load-single ,(%mref ,%sp ,%zero ,return-offset fp))))
+                        (lambda ()
+                          `(set! ,(car result-regs) ,(%mref ,%sp ,%zero ,return-offset fp))))]
+                   [result-fp?
+                    ;; can be a mixture of double and single!
+                    (let ([aligned-size (if (and (fx= 4 (car result-sizes))
+                                                 (fx= 4 (cadr result-sizes)))
+                                            4 ; compact two `float`s from double-sized registers
+                                            8)])
+                      (lambda ()
+                        (%seq
+                         ,(if (fx= 4 (car result-sizes))
+                              `(set! ,(car result-regs) ,(%inline load-single ,(%mref ,%sp ,%zero ,return-offset fp)))
+                              `(set! ,(car result-regs) ,(%mref ,%sp ,%zero ,return-offset fp)))
+                         ,(if (fx= 4 (cadr result-sizes))
+                              `(set! ,(cadr result-regs) ,(%inline load-single ,(%mref ,%sp ,%zero ,(fx+ return-offset aligned-size) fp)))
+                              `(set! ,(cadr result-regs) ,(%mref ,%sp ,%zero ,(fx+ return-offset aligned-size) fp))))))]
+                   [(pair? (cdr result-regs))
+                    (lambda ()
+                      (%seq
+                       (set! ,(car result-regs) ,(%mref ,%sp ,return-offset))
+                       ;; we don't have to be careful about the size, same as below
+                       (set! ,(cadr result-regs) ,(%mref ,%sp ,(fx+ return-offset 8)))))]
+                   [else
+                    (lambda ()
+                      ;; we don't have to be careful about the size, because we
+                      ;; allocated a multiple of a word size for the synthesized pointer
+                      `(set! ,(car result-regs) ,(%mref ,%sp ,return-offset)))])]
+                [else
+                 ;; integer, scheme-object, etc.
+                 (lambda (x)
+                   `(set! ,(car result-regs) ,x))])))
+          (lambda (info)
+            (define callee-save-regs+ra (cons* %ra
+					       ;; reserved:
+					       %tc %sfp %ap %trap
+					       ;; allocable:
+					       (get-allocable-callee-save-regs 'all)))
+            (let ([arg-type* (info-foreign-arg-type* info)]
+                  [result-type (info-foreign-result-type info)])
+              (let-values ([(result-regs result-sizes result-fp?) (categorize-result result-type)])
+                (let* ([ftd-result? (nanopass-case (Ltype Type) result-type
+                                      [(fp-ftd& ,ftd) #t]
+                                      [else #f])]
+                       [pass-result-ptr? (result-via-pointer-argument? result-type)]
+                       [synthesize-first? (and ftd-result?
+                                               (not pass-result-ptr?))]
+                       [arg-type* (if synthesize-first?
+                                      (cdr arg-type*)
+                                      arg-type*)]
+		       [conv* (info-foreign-conv* info)]
+                       [arg-cat* (categorize-arguments arg-type* (extract-varargs-after-conv conv*))]
+                       [adjust-active? (if-feature pthreads (memq 'adjust-active conv*) #f)]
+                       [arg-regs (apply append (map cat-regs arg-cat*))])
+                  (let* ([arg-reg-bytes (fx* (length arg-regs) 8)]
+                         [copy-bytes (apply + (map (lambda (cat)
+                                                     (if (> (cat-size cat) 8)
+                                                         (cat-size cat)
+                                                         0))
+                                                   arg-cat*))]
+                         [active-state-bytes (if adjust-active? 8 0)]
+                         [return-bytes (if synthesize-first?
+                                           (fx* (length result-regs) 8)
+                                           0)]
+                         [callee-save-bytes (fx* 8 (length callee-save-regs+ra))]
+                         [total-unpadded-bytes (fx+ arg-reg-bytes copy-bytes active-state-bytes return-bytes callee-save-bytes)]
+                         [total-bytes (align 16 total-unpadded-bytes)])
+                    (let* ([callee-save-offset (fx- total-bytes total-unpadded-bytes)]
+                           [return-offset (fx+ callee-save-offset callee-save-bytes)]
+                           [active-state-offset (fx+ return-offset return-bytes)]
+                           [copy-offset (fx+ active-state-offset active-state-bytes)]
+                           [arg-regs-offset (fx+ copy-offset copy-bytes)]
+                           [args-offset total-bytes])
+                      (values
+                       (lambda ()
+                         (%seq
+                          (set! ,%sp ,(%inline - ,%sp (immediate ,total-bytes)))
+                          ;; save argument register values to the stack so we don't lose the values
+                          ;; across possible calls to C while setting up the tc and allocating memory
+                          ,(register-save-or-restore arg-regs arg-regs-offset #t)
+                          ;; save the callee save registers & return address
+                          ,(register-save-or-restore callee-save-regs+ra callee-save-offset #t)
+                          ;; maybe activate
+                          ,(if adjust-active?
+                               `(seq
+                                 (set! ,%Cretval ,(%inline activate-thread))
+                                 (set! ,(%mref ,%sp ,active-state-offset) ,%Cretval))
+                               `(nop))
+                          ;; set up tc for benefit of argument-conversion code, which might allocate
+                          ,(if-feature pthreads
+                             (%seq 
+                              (set! ,%Cretval ,(%inline get-tc))
+                              (set! ,%tc ,%Cretval))
+                             `(set! ,%tc (literal ,(make-info-literal #f 'entry (lookup-c-entry thread-context) 0))))))
+                       ;; list of procedures that marshal arguments from their C stack locations
+                       ;; to the Scheme argument locations
+                       (do-args arg-type* arg-cat* arg-regs-offset args-offset return-offset copy-offset
+                                synthesize-first? ftd-result?)
+                       (do-result result-type result-regs result-sizes result-fp? synthesize-first? return-offset)
+                       (lambda ()
+                         (in-context
+                          Tail
+                          (%seq
+                           ,(if adjust-active?
+                                (%seq
+                                 ;; We need *(sp+active-state-offset) in %Carg1,
+                                 ;; but that can also be a return register.
+                                 ;; Meanwhle, sp may change before we call unactivate.
+                                 ;; So, move to %scratch1 for now, then %Carg1 later:
+                                 (set! ,%scratch1 ,(%mref ,%sp ,active-state-offset))
+                                 ,(save-and-restore
+                                   result-regs
+                                   `(seq
+                                     (set! ,%Carg1 ,%scratch1)
+                                     ,(%inline unactivate-thread ,%Carg1))))
+                                `(nop))
+                           ;; restore the callee save registers
+                           ,(register-save-or-restore callee-save-regs+ra callee-save-offset #f)
+                           (set! ,%sp ,(%inline + ,%sp (immediate ,total-bytes)))
+                           ;; done
+                           (asm-c-return ,null-info ,callee-save-regs+ra ... ,result-regs ...))))))))))))))
 
     ) ;; foreign
   )
