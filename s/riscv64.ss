@@ -1737,8 +1737,8 @@
       (sealed #t)
       (fields place            ; 'int, 'fp, or 'stack
               regs             ; list of registers
-              size             ; size in bytes
-              by-reference?))
+              size/s           ; size in bytes for 'stack, list of sizes for register
+              by-reference))   ; #f or size of referenced data
 
     (define categorize-arguments
       (lambda (types varargs-after)
@@ -1751,10 +1751,10 @@
               (cond
                 [(and (< fpi 8)
                       (not (eqv? varargs-after 0)))
-                 (cons (make-cat 'fp (list (vector-ref fp-argument-regs fpi)) 8 #f)
+                 (cons (make-cat 'fp (list (vector-ref fp-argument-regs fpi)) '(8) #f)
                        (loop (cdr types) i (fx+ fpi 1) next-varargs-after))]
                 [(< i 8)
-                 (cons (make-cat 'int (list (vector-ref int-argument-regs i)) 8 #f)
+                 (cons (make-cat 'int (list (vector-ref int-argument-regs i)) '(8) #f)
                        (loop (cdr types) (fx+ i 1) fpi next-varargs-after))]
                 [else
                  (cons (make-cat 'stack '() 8 #f)
@@ -1767,40 +1767,58 @@
                   [(fp-ftd& ,ftd)
                    ;; A compound value of size no more than a word is treated
                    ;; like an word-sized integer.
-                   ;; A compound value up more than one work and less than
-                   ;; two can use two registers, even-aligned, if available.
-                   (let* ([size ($ftd-size ftd)])
+                   ;; A compound value of more than one word and less than
+                   ;; two can use two registers, if available.
+                   ;; A non-union that has exactly one or two floating-point members
+                   ;; is put in floating-point registers, if available.
+                   (let* ([size ($ftd-size ftd)]
+                          [members ($ftd->members ftd)])
                      (cond
                        [(and (< fpi 8)
-                             (not ($ftd-compound? ftd))
-                             (let ([members ($ftd->members ftd)])
-                               (and (null? (cdr members))
-                                    (eq? (caar members) 'float))))
+                             (not ($ftd-union? ftd))
+                             (and (null? (cdr members))
+                                  (eq? (caar members) 'float)))
                         ;; in one fp register
-                        (cons (make-cat 'fp (list (vector-ref fp-argument-regs fpi)) 8 #f)
+                        (cons (make-cat 'fp (list (vector-ref fp-argument-regs fpi)) (list (cadar members)) #f)
                               (loop (cdr types) i (fx+ fpi 1) next-varargs-after))]
+                       [(and (< fpi 7)
+                             (not ($ftd-union? ftd))
+                             (and (pair? (cdr members))
+                                  (null? (cddr members))
+                                  (eq? (caar members) 'float)
+                                  (eq? (caadr members) 'float)))
+                        ;; in two fp registers
+                        (cons (make-cat 'fp
+                                        (list (vector-ref fp-argument-regs fpi)
+                                              (vector-ref fp-argument-regs (fx+ fpi 1)))
+                                        (list (cadar members)
+                                              (cadadr members))
+                                        #f)
+                              (loop (cdr types) i (fx+ fpi 2) next-varargs-after))]
                        [(and (> size (constant ptr-bytes))
                              (<= size (* 2 (constant ptr-bytes)))
                              (<= i 6))
-                        ;; in two int registers
-                        (let ([i (align 2 i)])
-                          (cons (make-cat 'int (list (vector-ref int-argument-regs i)
-                                                     (vector-ref int-argument-regs (fx+ i 1)))
-                                          16 #f)
-                                (loop (cdr types) (fx+ i 2) fpi next-varargs-after)))]
+                        ;; in two int registers (and never split across registers and stack?)
+                        (cons (make-cat 'int (list (vector-ref int-argument-regs i)
+                                                   (vector-ref int-argument-regs (fx+ i 1)))
+                                        '(8 8)
+                                        #f)
+                              (loop (cdr types) (fx+ i 2) fpi next-varargs-after))]
                        [(and (or (<= size (constant ptr-bytes))
                                  (> size (* 2 (constant ptr-bytes))))
                              (< i 8))
                         ;; in one int register, by-reference if more than size 16
-                        (cons (make-cat 'int (list (vector-ref int-argument-regs i)) 8
-                                        (> size (* 2 (constant ptr-bytes))))
+                        (cons (make-cat 'int (list (vector-ref int-argument-regs i)) '(8)
+                                        (and (> size (* 2 (constant ptr-bytes)))
+                                             size))
                               (loop (cdr types) (fx+ i 1) fpi next-varargs-after))]
                        [else
                         ;; on stack, and by-reference if more than size 16
                         (let ([stk-size (if (<= size (* 2 (constant ptr-bytes)))
                                             (align 8 size)
                                             8)])
-                          (cons (make-cat 'stack '() stk-size (> size (* 2 (constant ptr-bytes))))
+                          (cons (make-cat 'stack '() stk-size (and (> size (* 2 (constant ptr-bytes)))
+                                                                   size))
                                 (loop (cdr types) i fpi next-varargs-after)))]))]
                   [else
                    ;; integers, scheme-object, etc. --- always in a register,
@@ -1810,7 +1828,7 @@
                       (cons (make-cat 'stack '() 8 #f)
                             (loop (cdr types) i fpi next-varargs-after))]
                      [else
-                      (cons (make-cat 'int (list (vector-ref int-argument-regs i)) 8 #f)
+                      (cons (make-cat 'int (list (vector-ref int-argument-regs i)) '(8) #f)
                             (loop (cdr types) (fx+ i 1) fpi next-varargs-after))])]))))))
 
     (define (result-via-pointer-argument? type)
@@ -1935,6 +1953,22 @@
                   (lambda (fpreg)
                     (lambda (x)
                       `(set! ,fpreg ,(%inline load-single ,(%mref ,x ,%zero ,0 fp)))))]
+                 [load-two-floats-indirect-regs
+                  (lambda (regs sizes)
+                    (lambda (x)
+                      ;; when a struct is unpacked into two floating-point registers,
+                      ;; it can be any mixture of `float` and `double`
+                      (%seq
+                       ,(if (fx= (car sizes) 4)
+                            `(set! ,(car regs) ,(%inline load-single ,(%mref ,x ,%zero ,0 fp)))
+                            `(set! ,(car regs) ,(%mref ,x ,%zero ,0 fp)))
+                       ,(let ([offset (if (and (fx= 4 (car sizes))
+                                               (fx= 4 (cadr sizes)))
+                                          4
+                                          8)])
+                          (if (fx= (cadr sizes) 4)
+                              `(set! ,(cadr regs) ,(%inline load-single ,(%mref ,x ,%zero ,offset fp)))
+                              `(set! ,(cadr regs) ,(%mref ,x ,%zero ,offset fp)))))))]
                  [load-int-reg
                   (lambda (ireg)
                     (lambda (x)
@@ -1988,16 +2022,22 @@
                                 [(fp-ftd& ,ftd)
                                  (case (cat-place cat)
                                    [(fp)
-                                    ;; must be a single register
-                                    (if (= ($ftd-size ftd) 8)
-                                        (use-fp-reg (load-double-indirect-reg reg))
-                                        (use-fp-reg (load-single-indirect-reg reg)))]
+                                    ;; can be 1 or 2 registers
+                                    (let ([to-regs (cat-regs cat)])
+                                      (loop (cdr types) (cdr cats)
+                                            (cons (if (null? (cdr to-regs))
+                                                      (if (fx= (car (cat-size/s cat)) 8)
+                                                          (load-double-indirect-reg reg)
+                                                          (load-single-indirect-reg reg))
+                                                      (load-two-floats-indirect-regs to-regs (cat-size/s cat)))
+                                                  locs)
+                                            regs (append to-regs fp-regs) isp))]
                                    [(int)
                                     ;; can be 1 or 2 registers
                                     (let ([int-regs (cat-regs cat)])
                                       (loop (cdr types) (cdr cats)
                                             (cons (if (null? (cdr int-regs))
-                                                      (if (cat-by-reference? cat)
+                                                      (if (cat-by-reference cat)
                                                           ;; by reference
                                                           (load-int-reg (car int-regs))
                                                           ;; copy to stack
@@ -2007,7 +2047,7 @@
                                             (append int-regs regs) fp-regs isp))]
                                    [else
                                     (cond
-                                      [(cat-by-reference? cat)
+                                      [(cat-by-reference cat)
                                        ;; pass by reference on stack
                                        (use-stack (load-int-stack isp))]
                                       [else
@@ -2236,7 +2276,7 @@
                              [else (use-stack (load-single-stack stack-arg-offset))])]
                           [(fp-ftd& ,ftd)
                            (cond
-                             [(cat-by-reference? cat)
+                             [(cat-by-reference cat)
                               ;; register or stack contains pointer to data; we
                               ;; copy to ensure that Scheme side doesn't mutate caller's data
                               (let* ([load (lambda (x)
@@ -2244,17 +2284,37 @@
                                               ,(if (eq? (cat-place cat) 'stack)
                                                    ((load-word-stack stack-arg-offset) x)
                                                    ((load-word-stack reg-offset) x))
-                                              ,(memory-to-memory %sp copy-offset x 0 ($ftd-size ftd) %scratch1)
+                                              ,(memory-to-memory %sp copy-offset x 0 (cat-by-reference cat) %scratch1)
                                               (set! ,x ,(%inline + ,%sp (immediate ,copy-offset)))))])
                                 (if (eq? (cat-place cat) 'stack)
                                     (use-stack load)
                                     (use-reg load)))]
                              [else
                               ;; point to argument on stack; even in the case of two registers,
-                              ;; they'll have been copied there in sequence
-                              (case (cat-place cat)
-                                [(int fp) (use-reg (load-stack-address reg-offset))]
-                                [else (use-reg (load-stack-address stack-arg-offset))])])]
+                              ;; they'll have been copied there in sequence as needed... except in the
+                              ;; case of two `float`s, where we need to compact
+                              (cond
+                                [(or (eq? (cat-place cat) 'stack) (null? (cdr (cat-regs cat))))
+                                 (case (cat-place cat)
+                                   [(int fp) (use-reg (load-stack-address reg-offset))]
+                                   [else (use-reg (load-stack-address stack-arg-offset))])]
+                                [else
+                                 ;; 2 registers
+                                 (let ([load
+                                        (cond
+                                          [(equal? (cat-size/s cat) '(4 4))
+                                           ;; the special case of two `float`s; we're allowed
+                                           ;; to modify the stack area, since it's ours
+                                           (let ([load (load-stack-address reg-offset)])
+                                             (lambda (x)
+                                               (%seq
+                                                (set! ,x (inline ,(make-info-load 'unsigned-32 #f) ,%load ,%sp ,%zero (immediate ,(fx+ reg-offset 8))))
+                                                (inline ,(make-info-load 'unsigned-32 #f) ,%store ,%sp ,%zero (immediate ,(fx+ reg-offset 4)) ,x)
+                                                ,(load x))))]
+                                          [else (load-stack-address reg-offset)])])
+                                   (loop (cdr types) (cdr cats)
+                                         (cons load locs)
+                                         (fx+ reg-offset 16) stack-arg-offset copy-offset))])])]
                           [else
                            ;; integer, scheme-object, etc.
                            (case (cat-place cat)
@@ -2336,8 +2396,7 @@
                        [arg-regs (apply append (map cat-regs arg-cat*))])
                   (let* ([arg-reg-bytes (fx* (length arg-regs) 8)]
                          [copy-bytes (apply + (map (lambda (cat)
-                                                     (if (> (cat-size cat) 8)
-                                                         (cat-size cat)
+                                                     (or (cat-by-reference cat)
                                                          0))
                                                    arg-cat*))]
                          [active-state-bytes (if adjust-active? 8 0)]
