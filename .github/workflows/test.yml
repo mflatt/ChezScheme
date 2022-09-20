@@ -7,6 +7,8 @@ jobs:
       fail-fast: false
       matrix:
         config:
+          - machine: tpb
+            os: ubuntu-20.04
           - machine: a6osx
             os: macos-11
           - machine: ta6osx
@@ -20,24 +22,26 @@ jobs:
           - machine: ta6le
             os: ubuntu-20.04
           - machine: i3nt
-            os: windows-2019
-          - machine: i3nt
             os: windows-2022
-          - machine: ti3nt
-            os: windows-2019
+            toolchain: vs
           - machine: ti3nt
             os: windows-2022
-          - machine: a6nt
-            os: windows-2019
+            toolchain: vs
           - machine: a6nt
             os: windows-2022
+            toolchain: vs
           - machine: ta6nt
-            os: windows-2019
+            os: windows-2022
+            toolchain: vs
           - machine: ta6nt
+            os: windows-2022
+            toolchain: gcc
+          - machine: a6nt
             os: windows-2022
     runs-on: ${{ matrix.config.os }}
     env:
       TARGET_MACHINE: ${{ matrix.config.machine }}
+      TOOLCHAIN: ${{ matrix.config.toolchain }}
     defaults:
       run:
         shell: bash
@@ -48,12 +52,14 @@ jobs:
         run: git config --global core.autocrlf false
       - name: Checkout
         uses: actions/checkout@v2
+        with:
+          submodules: 'recursive'
       - name: Setup 32-bit Linux
         if: ${{ endsWith(matrix.config.machine, 'i3le') }}
         run: |
           sudo dpkg --add-architecture i386
           sudo apt-get update
-          sudo apt-get install gcc-multilib lib32ncurses5-dev uuid-dev:i386
+          sudo apt-get install gcc-multilib lib32ncurses5-dev
       - name: Build Chez Scheme
         run: .github/workflows/build.sh
       - name: Run tests

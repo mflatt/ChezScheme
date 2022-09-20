@@ -319,6 +319,7 @@
                           token))
                 :command]
 
+       [:target test-one (build) ,(lambda (token) (run-tests token "test-one"))]
        [:target test-some (build) ,(lambda (token) (run-tests token "test-some"))]
        [:target test (build) ,(lambda (token) (run-tests token "test"))]
        [:target test-more (build) ,(lambda (token) (run-tests token "test-more"))]

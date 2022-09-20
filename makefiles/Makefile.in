@@ -25,13 +25,17 @@ install: $(ZUO)
 uninstall: $(ZUO)
 	$(ZUO) $(workarea) uninstall MAKE="$(MAKE)"
 
-.PHONY: test
-test: $(ZUO)
-	$(ZUO) $(workarea) test MAKE="$(MAKE)"
+.PHONY: test-one
+test-one: $(ZUO)
+	$(ZUO) $(workarea) test-one MAKE="$(MAKE)"
 
 .PHONY: test-some
 test-some: $(ZUO)
 	$(ZUO) $(workarea) test-some MAKE="$(MAKE)"
+
+.PHONY: test
+test: $(ZUO)
+	$(ZUO) $(workarea) test MAKE="$(MAKE)"
 
 .PHONY: test-more
 test-more: $(ZUO)
