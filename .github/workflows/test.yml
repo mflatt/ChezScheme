@@ -11,11 +11,11 @@ jobs:
             os: windows-2022
           - machine: ta6nt
             os: windows-2022
-            msvc: on
+            toolchain: vs
     runs-on: ${{ matrix.config.os }}
     env:
       TARGET_MACHINE: ${{ matrix.config.machine }}
-      USE_MSVC: ${{ matrix.config.msvc }}
+      TOOLCHAIN: ${{ matrix.config.toolchain }}
     defaults:
       run:
         shell: bash
