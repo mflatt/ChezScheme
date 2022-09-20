@@ -483,17 +483,23 @@
 
 (define (exe-config arch config)
   (cond
-    [(is-msvc? config)
+    [(for-windows? config)
      (cond
        [(string=? arch "arm64")
         (config-merge config 'LDFLAGS
-                      "/link /STACK:0x1000000")]
+                      (if (is-msvc? config)
+                          "/link /STACK:0x1000000"
+                          "-Wl,--stack,16777216"))]
        [(string=? arch "a6")
         (config-merge config 'LDFLAGS
-                      "/link /STACK:0x1000000")]
+                      (if (is-msvc? config)
+                          "/link /STACK:0x1000000"
+                          "-Wl,--stack,16777216"))]
        [(string=? arch "i3")
         (config-merge config 'LDFLAGS
-                      "/link /STACK:0x800000")]
+                      (if (is-msvc? config)
+                          "/link /STACK:0x800000"
+                          "-Wl,--stack,8388608"))]
        [else config])]
     [else config]))
 
