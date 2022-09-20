@@ -1457,11 +1457,21 @@ static double s_pow(double x, double y) { return powl(x, y); }
 static double s_pow(double x, double y) { return pow(x, y); }
 #endif /* i3fb/ti3fb */
 
+#ifdef __MINGW32__
+/* cos() and sin() do not handle large values nicely,
+   so use fmod() to get reasonably close */
+# define INTO_SINCOS_RANGE(x) (((x > 1e9) || (x < -1e9)) \
+			       ? fmod(x, 2*atan2(0.0, -1.0)) \
+			       : x)
+#else
+# define INTO_SINCOS_RANGE(x) x
+#endif
+
 static double s_sqrt(double x) { return sqrt(x); }
 
-static double s_sin(double x) { return sin(x); }
+static double s_sin(double x) { return sin(INTO_SINCOS_RANGE(x)); }
 
-static double s_cos(double x) { return cos(x); }
+static double s_cos(double x) { return cos(INTO_SINCOS_RANGE(x)); }
 
 static double s_tan(double x) { return tan(x); }
 
