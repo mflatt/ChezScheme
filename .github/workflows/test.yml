@@ -20,19 +20,11 @@ jobs:
           - machine: ta6le
             os: ubuntu-20.04
           - machine: i3nt
-            os: windows-2019
-          - machine: i3nt
             os: windows-2022
-          - machine: ti3nt
-            os: windows-2019
           - machine: ti3nt
             os: windows-2022
           - machine: a6nt
-            os: windows-2019
-          - machine: a6nt
             os: windows-2022
-          - machine: ta6nt
-            os: windows-2019
           - machine: ta6nt
             os: windows-2022
     runs-on: ${{ matrix.config.os }}
@@ -53,7 +45,7 @@ jobs:
         run: |
           sudo dpkg --add-architecture i386
           sudo apt-get update
-          sudo apt-get install gcc-multilib lib32ncurses5-dev uuid-dev:i386
+          sudo apt-get install gcc-multilib lib32ncurses5-dev
       - name: Build Chez Scheme
         run: .github/workflows/build.sh
       - name: Run tests
