@@ -235,6 +235,15 @@
                          (let* ([config (config-merge (add-preloads config preload-files)
                                                       'LDFLAGS
                                                       (or (lookup 'mdlinkflags) ""))]
+				[config (if (and (for-windows? config)
+						 (not (is-msvc? config)))
+					    (config-merge config
+							  'LDFLAGS
+							  ;; for tests, at least:
+							  (~a "-Wl,--out-implib="
+							      (string->shell
+							       (at-dir "../boot" m "schemeexe.lib"))))
+					    config)]
                                 [config (if zlib-system-lib
                                             (config-merge config 'LIBS zlib-system-lib)
                                             config)]
