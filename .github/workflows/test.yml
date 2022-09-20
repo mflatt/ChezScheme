@@ -7,8 +7,6 @@ jobs:
       fail-fast: false
       matrix:
         config:
-          - machine: ta6le
-            os: ubuntu-20.04
           - machine: a6nt
             os: windows-2022
           - machine: ta6nt
