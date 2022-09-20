@@ -7,17 +7,17 @@ jobs:
       fail-fast: false
       matrix:
         config:
-          - machine: ta6osx
-            os: macos-11
-          - machine: i3le
-            os: ubuntu-20.04
           - machine: ta6le
             os: ubuntu-20.04
+          - machine: a6nt
+            os: windows-2022
           - machine: ta6nt
             os: windows-2022
+            msvc: on
     runs-on: ${{ matrix.config.os }}
     env:
       TARGET_MACHINE: ${{ matrix.config.machine }}
+      USE_MSVC: ${{ matrix.config.msvc }}
     defaults:
       run:
         shell: bash
@@ -28,6 +28,8 @@ jobs:
         run: git config --global core.autocrlf false
       - name: Checkout
         uses: actions/checkout@v2
+        with:
+          submodules: 'recursive'
       - name: Setup 32-bit Linux
         if: ${{ endsWith(matrix.config.machine, 'i3le') }}
         run: |

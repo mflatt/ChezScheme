@@ -1,8 +1,12 @@
 #!/bin/bash
 set -e -o pipefail
 export ZUO_JOBS="$(getconf _NPROCESSORS_ONLN)"
-./configure -m="$TARGET_MACHINE"
-make
+if test -n "$USE_MSVC" ; then
+    ./build.bat $TARGET_MACHINE
+else
+    ./configure -m="$TARGET_MACHINE"
+    make
+fi
 case "$TARGET_MACHINE" in
   *a6nt)
     curl -Ls https://github.com/burgerrg/win-iconv/releases/download/v0.0.9/iconv-x64.dll > "$TARGET_MACHINE"/bin/"$TARGET_MACHINE"/iconv.dll
