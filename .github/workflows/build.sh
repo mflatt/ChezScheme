@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e -o pipefail
-# export ZUO_JOBS="$(getconf _NPROCESSORS_ONLN)"
+export ZUO_JOBS="$(getconf _NPROCESSORS_ONLN)"
 if test -n "$USE_MSVC" ; then
     ./build.bat $TARGET_MACHINE
 else

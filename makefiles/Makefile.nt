@@ -10,6 +10,15 @@ kernel: zuo.exe
 all-dlls: zuo.exe
 	 .\zuo.exe . all-dlls
 
+test-some: zuo.exe
+	 .\zuo.exe . test-some
+
+test: zuo.exe
+	 .\zuo.exe . test
+
+test-more: zuo.exe
+	 .\zuo.exe . test-more
+
 zuo.exe: "$(srcdir)\zuo\zuo.c"
 	cl.exe /O2 /Fe:pre_zuo.exe "$(srcdir)\zuo\zuo.c"
 	.\pre_zuo.exe -X "$(srcdir)\zuo\lib" "$(srcdir)\makefiles\libpath.zuo" "$(srcdir)\zuo"
