@@ -4,7 +4,11 @@ export ZUO_JOBS="$(getconf _NPROCESSORS_ONLN)"
 if test "$TOOLCHAIN" = vs ; then
     cmd.exe /c "build.bat $TARGET_MACHINE"
 else
-    ./configure -m="$TARGET_MACHINE"
+    if test -n "$CONFIGURE_ARGS" ; then
+        ./configure -m="$TARGET_MACHINE"
+    else
+        ./configure $CONFIGURE_ARGS
+    fi
     make
 fi
 case "$TARGET_MACHINE" in

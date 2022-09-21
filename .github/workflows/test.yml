@@ -9,6 +9,7 @@ jobs:
         config:
           - machine: tpb
             os: ubuntu-20.04
+            configure: --pb --threads
           - machine: a6osx
             os: macos-11
           - machine: ta6osx
@@ -36,12 +37,11 @@ jobs:
           - machine: ta6nt
             os: windows-2022
             toolchain: gcc
-          - machine: a6nt
-            os: windows-2022
     runs-on: ${{ matrix.config.os }}
     env:
       TARGET_MACHINE: ${{ matrix.config.machine }}
       TOOLCHAIN: ${{ matrix.config.toolchain }}
+      CONFIGURE_ARGS: ${{ matrix.config.configure }}
     defaults:
       run:
         shell: bash
