@@ -253,7 +253,8 @@ The makefile supports several targets:
    supply the `-j` flag between `.` and `test`.
 
    There are also `test-one` (a representative test), `test-some` (a
-   handful of representative tests), and `test-more` (additional
+   handful of representative tests), `test-some-fast` (omits
+   interpreter tests from `test-some`), and `test-more` (additional
    configurations) targets.
 
  * `make boot XM=<machine type>` or `make bootquick XM=<machine type>`

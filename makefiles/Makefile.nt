@@ -13,6 +13,9 @@ all-dlls: zuo.exe
 test-one: zuo.exe
 	 .\zuo.exe . test-one
 
+test-some-fast: zuo.exe
+	 .\zuo.exe . test-some-fast
+
 test-some: zuo.exe
 	 .\zuo.exe . test-some
 
