@@ -10,11 +10,40 @@ jobs:
           - machine: tpb
             os: ubuntu-20.04
             configure: --pb --threads
+            test: test-one
+          - machine: a6osx
+            os: macos-11
+          - machine: ta6osx
+            os: macos-11
+          - machine: i3le
+            os: ubuntu-20.04
+          - machine: ti3le
+            os: ubuntu-20.04
+          - machine: a6le
+            os: ubuntu-20.04
+          - machine: ta6le
+            os: ubuntu-20.04
+          - machine: i3nt
+            os: windows-2022
+            toolchain: vs
+          - machine: ti3nt
+            os: windows-2022
+            toolchain: vs
+          - machine: a6nt
+            os: windows-2022
+            toolchain: vs
+          - machine: ta6nt
+            os: windows-2022
+            toolchain: vs
+          - machine: ta6nt
+            os: windows-2022
+            toolchain: gcc
     runs-on: ${{ matrix.config.os }}
     env:
       TARGET_MACHINE: ${{ matrix.config.machine }}
       TOOLCHAIN: ${{ matrix.config.toolchain }}
       CONFIGURE_ARGS: ${{ matrix.config.configure }}
+      TEST_TARGET: ${{ matrix.config.test }}
     defaults:
       run:
         shell: bash
@@ -50,4 +79,4 @@ jobs:
       - name: Check test results
         run: |
           cat $TARGET_MACHINE/mats/summary
-          diff -q .github/workflows/summary $TARGET_MACHINE/mats/summary
+          diff -q .github/workflows/summary${{ matrix.config.test }} $TARGET_MACHINE/mats/summary
