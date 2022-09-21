@@ -5,9 +5,9 @@ if test "$TOOLCHAIN" = vs ; then
     cmd.exe /c "build.bat $TARGET_MACHINE"
 else
     if test -n "$CONFIGURE_ARGS" ; then
-        ./configure -m="$TARGET_MACHINE"
-    else
         ./configure $CONFIGURE_ARGS
+    else
+        ./configure -m="$TARGET_MACHINE"
     fi
     make
 fi
