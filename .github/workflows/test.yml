@@ -10,7 +10,7 @@ jobs:
           - machine: tpb
             os: ubuntu-20.04
             configure: --pb --threads
-            test: test-one
+            test: test-some-fast
           - machine: a6osx
             os: macos-11
           - machine: ta6osx
