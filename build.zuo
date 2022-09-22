@@ -416,7 +416,8 @@
                                    (build (find-target "lib" (c-targets-at (make-at-dir var-dir)
                                                                            (hash-set* vars
                                                                                       'runtimeAs runtimeAs
-                                                                                      'linkAs linkAs)))
+                                                                                      'linkAs linkAs
+                                                                                      'productAs "dll")))
                                           token)))))))])
              '())
 
