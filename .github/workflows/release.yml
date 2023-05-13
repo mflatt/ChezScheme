@@ -1,0 +1,14 @@
+name: Create archive with submodules on release
+
+on: release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          submodules: 'recursive'
+      - name: Release
+        uses: softprops/action-gh-release@v1
