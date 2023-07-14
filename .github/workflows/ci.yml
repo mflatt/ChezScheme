@@ -62,6 +62,10 @@ jobs:
           sudo dpkg --add-architecture i386
           sudo apt-get update
           sudo apt-get install gcc-multilib lib32ncurses5-dev
+      - name: Build Chez Scheme with Visual Studio
+        if: ${{ matrix.config.toolchain == 'vs' }}
+        shell: cmd
+        run: build.bat ${{ matrix.config.machine }}
       - name: Build Chez Scheme
         run: .github/workflows/build.sh
       - name: Run tests
