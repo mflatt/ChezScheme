@@ -316,7 +316,7 @@
   (equivalent-expansion? 
      (parameterize ([optimize-level 2] [enable-cp0 #t] [#%$suppress-primitive-inlining #f])
        (expand/optimize '(if (begin (set! x y) (if (begin (set! z y) (zero? h)) #t #f)) e1 e2)))
-     '(begin (set! x y) (if (begin (set! z y) (#2%zero? h)) e1 e2)))
+     '(if (begin (set! x y) (set! z y) (#2%zero? h)) e1 e2))
 
   (equivalent-expansion? 
      (parameterize ([optimize-level 2] [enable-cp0 #t] [#%$suppress-primitive-inlining #f])
@@ -1315,9 +1315,9 @@
               (list 'b 'u 'y)
               (list 'c 'v 'z))))
     '(#2%list
-       (#2%string->symbol (#2%string-append "a" "b" "c"))
-       (#2%string->symbol (#2%string-append "t" "u" "v"))
-       (#2%string->symbol (#2%string-append "x" "y" "z"))))
+       (#3%string->symbol (#3%string-append "a" "b" "c"))
+       (#3%string->symbol (#3%string-append "t" "u" "v"))
+       (#3%string->symbol (#3%string-append "x" "y" "z"))))
   (equivalent-expansion?
     (parameterize ([optimize-level 3] [enable-cp0 #t] [#%$suppress-primitive-inlining #f])
       (expand/optimize
@@ -3187,7 +3187,813 @@
        (get-output-string p))
      "EIEIO")
  )
- 
+
+(mat continuation-attachments
+  (error? (#%$current-continuation-attachments '()))
+
+  (error? (#%$call-setting-continuation-attachment 'any))
+  (error? (#%$call-setting-continuation-attachment 'any 10))
+  (error? (#%$call-setting-continuation-attachment 'any void 'bad-more))
+  (error? (#%$call-setting-continuation-attachment 'any (lambda (x) x)))
+
+  (error? (#%$call-getting-continuation-attachment 'none))
+  (error? (#%$call-getting-continuation-attachment 'none 10))
+  (error? (#%$call-getting-continuation-attachment 'none (lambda (a) a) 'bad-more))
+  (error? (#%$call-getting-continuation-attachment 'none void))
+
+  (error? (#%$call-consuming-continuation-attachment 'none))
+  (error? (#%$call-consuming-continuation-attachment 'none 10))
+  (error? (#%$call-consuming-continuation-attachment 'none (lambda (a) a) 'bad-more))
+  (error? (#%$call-consuming-continuation-attachment 'none void))
+
+  (error? (#%$continuation-next-attachments))
+  (error? (#%$continuation-next-attachments 10))
+  (error? (#%$continuation-next-attachments (lambda (x) x)))
+  (error? (#%$continuation-next-attachments (call/cc (lambda (x) x)) 'bad-more))
+
+  (equal? (void) (#%$call-setting-continuation-attachment 'any void))
+  (equal? 'none (#%$call-getting-continuation-attachment 'none (lambda (a) a)))
+  (equal? 'none (#%$call-consuming-continuation-attachment 'none (lambda (a) a)))
+  (equal? '() (#%$continuation-attachments (call/cc (lambda (x) x))))
+
+  (equal? '() (#%$current-attachments))
+  (equal? '(#&(1 2 3))
+          (#%$call-setting-continuation-attachment
+           3
+           (lambda ()
+            (list
+             (#%$call-setting-continuation-attachment
+              2
+              (lambda ()
+               (box
+                (#%$call-setting-continuation-attachment
+                 1
+                 (lambda ()
+                   (#%$current-attachments))))))))))
+  (equal? '() (#%$current-attachments))
+  (equal? '#((left) (right))
+          (vector (#%$call-setting-continuation-attachment
+                   'left
+                   (lambda () (#%$current-attachments)))
+                  (#%$call-setting-continuation-attachment
+                   'right
+                   (lambda () (#%$current-attachments)))))
+  (equal? '#((left2) (right2))
+          (vector (#%$call-setting-continuation-attachment
+                   'left2
+                   #%$current-attachments)
+                  (#%$call-setting-continuation-attachment
+                   'right2
+                   #%$current-attachments)))
+  (equal? 'yes
+          (#%$call-setting-continuation-attachment
+           'yes
+           (lambda ()
+            (#%$call-getting-continuation-attachment
+             'no
+             (lambda (v) v)))))
+  (equal? 'yes
+          (#%$call-setting-continuation-attachment
+           'yes
+           (lambda ()
+            (#%$call-consuming-continuation-attachment
+             'no
+             (lambda (v) v)))))
+  (equal? 'yes
+          (#%$call-setting-continuation-attachment
+           'yes
+           (lambda ()
+            (#%$call-getting-continuation-attachment
+             'no
+             values))))
+  (equal? 'yes
+          (#%$call-setting-continuation-attachment
+           'yes
+           (lambda ()
+            (#%$call-consuming-continuation-attachment
+             'no
+             values))))
+  (equal? '(no)
+          (#%$call-setting-continuation-attachment
+           'yes
+           (lambda ()
+            (list
+             (#%$call-getting-continuation-attachment
+              'no
+              (lambda (v) v))))))
+  (equal? '(no)
+          (#%$call-setting-continuation-attachment
+           'yes
+           (lambda ()
+            (list
+             (#%$call-consuming-continuation-attachment
+              'no
+              (lambda (v) v))))))
+  (equal? '(no)
+          (#%$call-setting-continuation-attachment
+           'yes
+           (lambda ()
+            (list
+             (#%$call-getting-continuation-attachment
+              'no
+              values)))))
+  (equal? '(no)
+          (#%$call-setting-continuation-attachment
+           'yes
+           (lambda ()
+            (list
+             (#%$call-consuming-continuation-attachment
+              'no
+              values)))))
+  (equal? '(yes yes)
+          (#%$call-setting-continuation-attachment
+           'yes
+           (lambda ()
+             (#%$call-getting-continuation-attachment
+              'no
+              (lambda (a)
+                (#%$call-getting-continuation-attachment
+                'no
+                 (lambda (b)
+                   (list a b))))))))
+  (equal? '(yes no)
+          (#%$call-setting-continuation-attachment
+           'yes
+           (lambda ()
+             (#%$call-consuming-continuation-attachment
+              'no
+              (lambda (a)
+                (#%$call-consuming-continuation-attachment
+                'no
+                 (lambda (b)
+                   (list a b))))))))
+  (equal? '(yes again)
+          (#%$call-setting-continuation-attachment
+           'yes
+           (lambda ()
+             (#%$call-getting-continuation-attachment
+              'no
+              (lambda (a)
+                (#%$call-setting-continuation-attachment
+                 'again
+                 (lambda ()
+                   (#%$call-getting-continuation-attachment
+                    'no
+                    (lambda (b)
+                      (list a b))))))))))
+  (equal? '(yes again)
+          (#%$call-setting-continuation-attachment
+           'yes
+           (lambda ()
+             (#%$call-consuming-continuation-attachment
+              'no
+              (lambda (a)
+                (#%$call-setting-continuation-attachment
+                 'again
+                 (lambda ()
+                   (#%$call-consuming-continuation-attachment
+                    'no
+                    (lambda (b)
+                      (list a b))))))))))
+  (equal? '(no again)
+          (#%$call-consuming-continuation-attachment
+           'no
+           (lambda (a)
+             (#%$call-setting-continuation-attachment
+              'again
+              (lambda ()
+                (#%$call-consuming-continuation-attachment
+                 'no
+                 (lambda (b)
+                   (list a b))))))))
+  (begin
+   (define (call-with-yep f)
+     (#%$call-setting-continuation-attachment
+      'yep
+       (lambda () (f))))
+   (define (call-with-yeah f)
+     (#%$call-setting-continuation-attachment
+      'yeah
+       f))
+   (define (call-with-nothing f)
+     (#%$value
+      (f)))
+   (define (call-with-nothing-in-split f)
+     ((call/cc
+       (lambda (k)
+         (#%$split-continuation k 0)
+         f))))
+   (define-syntax call-with-yeah*
+     (syntax-rules ()
+       [(_ f)
+        (#%$call-setting-continuation-attachment
+         'yeah
+         f)]))
+   (define (get-or-nope)
+     (#%$call-getting-continuation-attachment
+      'nope
+      (lambda (x) x)))
+   (define (consume-or-nope)
+     (#%$call-consuming-continuation-attachment
+      'nope
+      (lambda (x) x)))
+   (define (consume-or-nope-cps k)
+     (lambda ()
+       (#%$call-consuming-continuation-attachment
+        'nope
+        (lambda (x) (k x)))))
+   (define (return-one) 1)
+   (define (act-like-list . l) l)
+   (define not-a-procedure 'something-else)
+   (define (returns-not-a-procedure) 'also-something-else)
+   (define (return-three-values) (values 1 2 3))
+   (define (return-the-same-value v) v)
+   (define (check-attachments-start v r)
+     (let ([ats (#%$current-attachments)])
+       (and (pair? ats)
+            (equal? (car ats) v)
+            r)))
+   (define (callcc-after-attachment proc)
+     (#%$call-setting-continuation-attachment
+      'attach
+      (lambda ()
+        ;; Expect this `call/cc` to be inlined, but most promote
+        ;; the continuation created by `#%$call-setting-continuation-attachment`
+        (call/cc
+         (lambda (k)
+           (proc k))))))
+   #t)
+  (equal? 'yep (call-with-yep get-or-nope))
+  (equal? 'yep (call-with-yep consume-or-nope))
+  (equal? 'yeah (call-with-yep (lambda () (call-with-yeah get-or-nope))))
+  (equal? '(yeah) (call-with-yep (lambda () (call-with-yeah #%$current-attachments))))
+  (equal? '((yeah yep)) (call-with-yep (lambda () (list (call-with-yeah #%$current-attachments)))))
+  (equal? '((yeah yep)) (call-with-yep (lambda () (act-like-list (call-with-yeah #%$current-attachments)))))
+  (equal? '(yeah yep) (call-with-yep (lambda () (let ([v #f])
+                                                  (set! v (call-with-yeah #%$current-attachments))
+                                                  v))))
+  (equal? '(nope) (call-with-yep (lambda () (list (get-or-nope)))))
+  (equal? '(nope) (call-with-yep (lambda () (act-like-list (get-or-nope)))))
+  (equal? '(nope) (call-with-yep (lambda () (call-with-yeah (lambda () (list (get-or-nope)))))))
+  (equal? '(nope) (call-with-yep (lambda () (call-with-yeah (lambda () (act-like-list (get-or-nope)))))))
+  (equal? '(yeah) (call-with-yep (lambda () (list (call-with-yeah (lambda () (get-or-nope)))))))
+  (equal? '(yeah) (call-with-yep (lambda () (act-like-list (call-with-yeah (lambda () (get-or-nope)))))))
+  (equal? '(nope) (call-with-yep (lambda () (call-with-yeah* (lambda () (list (get-or-nope)))))))
+  (equal? '(nope) (call-with-yep (lambda () (call-with-yeah* (lambda () (act-like-list (get-or-nope)))))))
+  (equal? '(yeah) (call-with-yep (lambda () (list (call-with-yeah* (lambda () (get-or-nope)))))))
+  (equal? '(yeah) (call-with-yep (lambda () (act-like-list (call-with-yeah* (lambda () (get-or-nope)))))))
+
+  (equal? 'nope (call-with-yep (consume-or-nope-cps
+                                (lambda (v)
+                                  (get-or-nope)))))
+
+  (error? (call-with-yep (lambda () (call-with-yeah* (lambda () (not-a-procedure))))))
+  (error? (call-with-yep (lambda () (list (call-with-yeah* (lambda () (not-a-procedure)))))))
+  (error? (call-with-yep (lambda () (act-like-list (call-with-yeah* (lambda () (not-a-procedure)))))))
+  (error? (call-with-yep (lambda () (call-with-yeah* (lambda () ((returns-not-a-procedure)))))))
+  (error? (call-with-yep (lambda () (list (call-with-yeah* (lambda () ((returns-not-a-procedure))))))))
+  (error? (call-with-yep (lambda () (act-like-list (call-with-yeah* (lambda () ((returns-not-a-procedure))))))))
+  
+  (equal? '() (if (call-with-yep list)
+                  (#%$current-attachments)
+                  #f))
+  (equal? '() (if (#%$call-setting-continuation-attachment 'here (lambda () #t))
+                  (#%$current-attachments)
+                  #f))
+  (equal? 1 (let loop ([i 10000])
+              (if (zero? i)
+                  (length (#%$current-attachments))
+                  (#%$call-setting-continuation-attachment
+                   'here
+                   (lambda ()
+                     (loop (sub1 i)))))))
+  (equal? 10000 (let loop ([i 10000])
+                  (if (zero? i)
+                      (length (#%$current-attachments))
+                      (#%$call-setting-continuation-attachment
+                       'here
+                       (lambda ()
+                         (return-the-same-value (loop (sub1 i))))))))
+  (equal? '#((forget-me yeah yep) (yeah yep))
+          (call/cc
+           (lambda (esc)
+             (call-with-yep
+              (lambda ()
+                (list (call-with-yeah
+                       (lambda ()
+                         (list (#%$call-setting-continuation-attachment
+                                'forget-me
+                                (lambda ()
+                                  (call/cc
+                                   (lambda (k)
+                                     (esc (vector
+                                           (#%$current-attachments)
+                                           (#%$continuation-attachments k))))))))))))))))
+  (equal? '#(((yep) (yep))
+             ((yeah yep))
+             ((yep) (yep)))
+          (let ([pre '()]
+                [body '()]
+                [post '()])
+            ((call/cc
+              (lambda (esc)
+                (call-with-yep
+                 (lambda ()
+                   (dynamic-wind
+                       (lambda ()
+                         (set! pre (cons (#%$current-attachments) pre)))
+                       (lambda ()
+                         (call-with-yeah
+                          (lambda ()
+                            ((call/cc
+                              (lambda (retry)
+                                (set! body (cons (#%$current-attachments) body))
+                                (esc retry)))))))
+                       (lambda ()
+                         (set! post (cons (#%$current-attachments) post))))))))
+             (lambda () (lambda (self) void)))
+            (vector pre body post)))
+
+  (equal? 'ok
+          (#%$call-setting-continuation-attachment
+           'ok
+           (lambda ()
+             (call-with-values (lambda () (return-three-values))
+               (case-lambda
+                [(x y z)
+                 (get-or-nope)])))))
+  (equal? '(ok 1 2 3)
+          (#%$call-setting-continuation-attachment
+           'ok
+           (lambda ()
+             (call-with-values (lambda () (return-three-values))
+               (case-lambda
+                [(x y z)
+                 (#%$call-getting-continuation-attachment
+                  'nope
+                  (lambda (a) (list a x y z)))])))))
+
+  ;; intended to trigger `mvcall` in the `#%$np-recognize-attachment` pass:
+  (equal? '(1)
+          (#%$call-setting-continuation-attachment
+           'ok
+           (lambda ()
+             (call-with-values (lambda () (return-one)) act-like-list))))
+  (equal? '(1)
+          (letrec ([act-like-list (lambda l
+                                    (if (equal? l '(never))
+                                        (act-like-list (cdr l))
+                                        l))])
+            (#%$call-setting-continuation-attachment
+             'ok
+             (lambda ()
+               ;; `call-with-values` can see that `act-like-list` has
+               ;; a rest argument, and it generates a direct call
+               (call-with-values (lambda () (return-one)) act-like-list)))))
+  (equal? '(1)
+          ;; Like the previous example, but in tail position
+          (call-with-yep ; just to ensure the argument `lambda` isn't inlined
+           (lambda ()
+             (letrec ([act-like-list (lambda l
+                                       (if (equal? l '(never))
+                                           (act-like-list (cdr l))
+                                           l))])
+               (#%$call-setting-continuation-attachment
+                'ok
+                (lambda ()
+                  (call-with-values (lambda () (return-one)) act-like-list)))))))
+  (equal? '(1)
+          (call-with-yep ; just to ensure the argument `lambda` isn't inlined
+           (lambda ()
+             (#%$call-setting-continuation-attachment
+              'ok
+              (lambda ()
+                (call-with-values (lambda () (return-one)) act-like-list))))))
+  (equal? '(ok)
+          (call-with-yep ; just to ensure the argument `lambda` isn't inlined
+           (lambda ()
+             (#%$call-setting-continuation-attachment
+              'ok
+              (lambda ()
+                ;; Should be detected as a loop form
+                (let loop ([i 1000])
+                  (if (fx= i 0)
+                      (#%$current-attachments)
+                      (loop (sub1 i)))))))))
+  (equal? 'ok
+          (#%$call-setting-continuation-attachment
+           -1
+           (lambda ()
+             (let loop ([i 0])
+               (cond
+                [(= i 1000) 'ok]
+                [else (check-attachments-start
+                       (sub1 i)
+                       (#%$call-setting-continuation-attachment
+                        i
+                        (lambda ()
+                          ;; Not detected as a loop, but as a direct call
+                          (loop (add1 i)))))])))))
+  (equal? 'yes
+          (call-with-nothing
+           (lambda ()
+             ;; This "consuming" will need to reify the continuation
+             (#%$call-consuming-continuation-attachment
+              'no
+              (lambda (v)
+                (#%$call-setting-continuation-attachment
+                 'yes
+                 (lambda ()
+                   (get-or-nope))))))))
+  (equal? 'yes
+          (call-with-nothing-in-split
+           (lambda ()
+             ;; This "consuming" will need to reify the continuation
+             (#%$call-consuming-continuation-attachment
+              'no
+              (lambda (v)
+                (#%$call-setting-continuation-attachment
+                 'yes
+                 (lambda ()
+                   (get-or-nope))))))))
+  (begin
+   (define (gc-and-capture-continuation)
+     (collect 0)
+     (call/cc
+      (lambda (k)
+        (lambda ()
+          (k (lambda () 8))))))
+   (equal? 8
+           (let ([v (call/1cc
+                     (lambda (ek)
+                       (let ([v (#%$call-setting-continuation-attachment
+                                 'v
+                                 (lambda ()
+                                   (gc-and-capture-continuation)))])
+                         (if (number? v)
+                             (add1 v)
+                             v))))])
+             (if (procedure? v)
+                 (v)
+                 'no))))
+  (let ([proc (callcc-after-attachment
+               (lambda (k)
+                 (lambda ()
+                   (k (lambda () #t)))))])
+    (proc))
+
+  (equal?
+   '(2 2)
+   (let ([f (parameterize ([run-cp0
+                            ;; Disable cp0 inlining of `for-each`:
+                            (lambda (cp0 e) e)])
+              (eval '(lambda (g l)
+                       (let-values ([(x y)
+                                     (#%$call-setting-continuation-attachment
+                                      'hi
+                                      (lambda ()
+                                        ;; Could be by `cpnanopoass`, but make
+                                        ;; sure it's constrained by the fact that
+                                        ;; `for-each` can tail-call `g`:
+                                        (#3%for-each g l)))])
+                         (list x y)))))])
+     (f (lambda (x) (values x x)) (list 1 2))))
+
+ )
+
+(mat continuation-marks
+  (error? (continuation-marks-first))
+  (error? (continuation-marks-first #f 'x))
+  (error? (continuation-marks-first 'oops 'x))
+  (error? (continuation-marks-first 'oops 'x 'y))
+  (error? (continuation-marks-first (current-continuation-marks) 'x 'y 'z))
+  (error? (continuation-marks->list))
+  (error? (continuation-marks->list #f))
+  (error? (continuation-marks->list 'oops))
+  (error? (continuation-marks->list (current-continuation-marks) 'x 'y))
+  (error? (continuation-marks->iterator))
+  (error? (continuation-marks->iterator #f))
+  (error? (continuation-marks->iterator 'oops))
+  (error? (continuation-marks->iterator (current-continuation-marks) 'y 'z))
+  (error? (continuation-next-marks 'oops))
+  (error? (call-with-immediate-continuation-mark #f #f))
+  (error? (call-with-immediate-continuation-mark #f #f #f))
+
+  (continuation-marks? (current-continuation-marks))
+  (continuation-marks? (continuation-next-marks (call/cc (lambda (k) k))))
+  (not (continuation-marks? #f))
+  (not (continuation-marks? 'other))
+
+  (equal? 10 (with-continuation-mark 'x 'y 10))
+  (equal? 'xv (with-continuation-mark 'x 'xv (continuation-marks-first (current-continuation-marks) 'x)))
+  (equal? #f (with-continuation-mark 'x 'xv (continuation-marks-first (current-continuation-marks) 'nonesuch)))
+  (equal? 'none (with-continuation-mark 'x 'xv (continuation-marks-first (current-continuation-marks) 'nonesuch 'none)))
+  (equal? 'xv (with-continuation-mark 'x 'xv (continuation-marks-first (current-continuation-marks) 'x)))
+  (equal? 'xv1 (with-continuation-mark
+                   'x 'xv0
+                 (with-continuation-mark
+                     'x 'xv1
+                   (continuation-marks-first (current-continuation-marks) 'x))))
+  (equal? '(xv1) (with-continuation-mark
+                     'x 'xv0
+                   (with-continuation-mark
+                       'x 'xv1
+                     (continuation-marks->list (current-continuation-marks) 'x))))
+  (equal? '((xv1 xv0)) (with-continuation-mark
+                           'x 'xv0
+                         (list
+                          (with-continuation-mark
+                              'x 'xv1
+                            (continuation-marks->list (current-continuation-marks) 'x)))))
+
+  (equal? '#&xv (with-continuation-mark
+                    'x 'xv
+                  (call-with-immediate-continuation-mark
+                   'x
+                   box)))
+  (equal? '#&#f (with-continuation-mark
+                    'x 'xv
+                  (call-with-immediate-continuation-mark
+                   'y
+                   box)))
+  (equal? '#&no-val (with-continuation-mark
+                        'x 'xv
+                      (call-with-immediate-continuation-mark
+                       'y
+                       'no-val
+                       box)))
+
+  (begin
+    (define ($mark-iter->lists iter)
+      (let loop ([iter iter])
+        (let-values ([(vec iter) (iter)])
+          (if vec
+              (cons (vector->list vec)
+                    (loop iter))
+              '()))))
+    (define $continuation-marks->lists
+      (case-lambda
+       [(marks keys) ($mark-iter->lists (continuation-marks->iterator marks (list->vector keys)))]
+       [(marks keys no) ($mark-iter->lists (continuation-marks->iterator marks (list->vector keys) no))]))
+    #t)
+  
+  (equal? '((xv1 yv)) (with-continuation-mark
+                          'x 'xv0
+                        (with-continuation-mark
+                            'y 'yv
+                          (with-continuation-mark
+                              'x 'xv1
+                            ($continuation-marks->lists (current-continuation-marks) '(x y))))))
+  (equal? '(((xv1 #f) (#f yv))) (with-continuation-mark
+                                    'y 'yv
+                                  (list
+                                   (with-continuation-mark
+                                       'x 'xv1
+                                     ($continuation-marks->lists (current-continuation-marks) '(x y))))))
+  (equal? '(((xv1 no) (no yv))) (with-continuation-mark
+                                    'y 'yv
+                                  (list
+                                   (with-continuation-mark
+                                       'x 'xv1
+                                     ($continuation-marks->lists (current-continuation-marks) '(x y) 'no)))))
+  (equal? '((((xv1 #f) (#f yv)))) (with-continuation-mark
+                                      'y 'yv
+                                    (list
+                                     (list
+                                      (with-continuation-mark
+                                          'x 'xv1
+                                        ($continuation-marks->lists (current-continuation-marks) '(x y)))))))
+  (equal? '((((xv1 #f) (xv0 yv)))) (with-continuation-mark
+                                       'x 'xv0
+                                     (with-continuation-mark
+                                         'y 'yv
+                                       (list
+                                        (with-continuation-mark
+                                            'z 'zv
+                                          (list
+                                           (with-continuation-mark
+                                               'x 'xv1
+                                             ($continuation-marks->lists (current-continuation-marks) '(x y)))))))))
+
+  (equal? '() (continuation-marks->list
+               (continuation-next-marks (with-continuation-mark
+                                            'x 'xv
+                                          (call/cc (lambda (k) k))))
+               'x))
+
+  (equal? '(xv) (continuation-marks->list
+                 (continuation-next-marks (car
+                                           (with-continuation-mark
+                                               'x 'xv
+                                             (list
+                                              (call/cc (lambda (k) k))))))
+                 'x))
+
+  ;; if this goes quadratic, then it will look like non-termination:
+  (with-continuation-mark
+      'x 'yes
+    (let ([N 100000])
+      (let loop ([depth N])
+        (if (zero? depth)
+            (let loop ([i N])
+              (or (zero? i)
+                  (and (eq? 'yes (continuation-marks-first (current-continuation-marks) 'x))
+                       (eq? 'half (continuation-marks-first (current-continuation-marks) 'half-way))
+                       (loop (sub1 i)))))
+            (#%$value
+             (if (= depth (quotient N 2))
+                 (with-continuation-mark
+                     'half-way 'half
+                   (loop (sub1 depth)))
+                 (with-continuation-mark
+                     'other 'no
+                   (loop (sub1 depth)))))))))
+  )
+
+(mat call-in-continuation
+  (error? (#%$call-in-continuation 1))
+  (error? (#%$call-in-continuation 1 (lambda () 0)))
+  (error? (#%$call-in-continuation (lambda args args) (lambda () 0)))
+  (error? (call/cc (lambda (k) (#%$call-in-continuation k #f (lambda () 0)))))
+  (error? (call/cc (lambda (k) (#%$call-in-continuation k (list 1 2 3) (lambda () 0)))))
+  (error? (call-in-continuation 1))
+  (error? (call-in-continuation 1 (lambda () 0)))
+  (error? (call-in-continuation (lambda args args) (lambda () 0)))
+  (error? (call/cc (lambda (k) (call-in-continuation k #f (lambda () 0)))))
+  (error? (call/cc (lambda (k) (call-in-continuation k (list 1 2 3) (lambda () 0)))))
+  (error? (let ([m (current-continuation-marks)])
+            (with-continuation-mark
+                'x 'y
+              (list
+               (call/cc (lambda (k) (call-in-continuation k m (lambda () 0))))))))
+
+  (equal? 10 (+ 1 (call/cc (lambda (k) (#%$call-in-continuation k (lambda () 9))))))
+  (equal? 10 (+ 1 (call/cc (lambda (k) (#%$call-in-continuation k (#%$continuation-attachments k) (lambda () 9))))))
+  (equal? 11 (+ 1 (call/cc (lambda (k) (* 0 (#%$call-in-continuation k (lambda () 10)))))))
+  (equal? 'done (let ([maybe-k (call/cc (lambda (k) k))])
+                  (if (symbol? maybe-k)
+                      maybe-k
+                      (* 0 (#%$call-in-continuation maybe-k (lambda () 'done))))))
+  (equal? 'second (let-values ([(maybe-k result) (call/cc (lambda (k) (values k #f)))])
+                    (if (symbol? maybe-k)
+                        result
+                        (* 0 (#%$call-in-continuation maybe-k (lambda () (values 'done 'second)))))))
+
+  (equal? 10 (+ 1 (call/cc (lambda (k) (call-in-continuation k (lambda () 9))))))
+  (equal? 10 (+ 1 (call/cc (lambda (k) (call-in-continuation k (continuation-next-marks k) (lambda () 9))))))
+  (equal? 11 (+ 1 (call/cc (lambda (k) (* 0 (call-in-continuation k (lambda () 10)))))))
+  (equal? 'done (let ([maybe-k (call/cc (lambda (k) k))])
+                  (if (symbol? maybe-k)
+                      maybe-k
+                      (* 0 (call-in-continuation maybe-k (lambda () 'done))))))
+  (equal? 'second (let-values ([(maybe-k result) (call/cc (lambda (k) (values k #f)))])
+                    (if (symbol? maybe-k)
+                        result
+                        (* 0 (call-in-continuation maybe-k (lambda () (values 'done 'second)))))))
+
+  (begin
+    (define (attachments-in-continuation k)
+      (#%$call-in-continuation
+       k
+       (lambda ()
+         (#%$current-attachments))))
+    (define (same-attachments-in-continuation k)
+      (#%$call-in-continuation
+       k
+       (#%$current-attachments)
+       (lambda ()
+         (#%$current-attachments))))
+    (define (sub-attachments-in-continuation k)
+      (#%$call-in-continuation
+       k
+       (#%$current-attachments)
+       (lambda ()
+         (#%$call-setting-continuation-attachment
+          'inside2
+          (lambda ()
+            (#%$current-attachments))))))
+    #t)
+
+  (equal? '(outside)
+          (#%$call-setting-continuation-attachment
+           'outside
+           (lambda ()
+             (#%$value
+              (#%$call-setting-continuation-attachment
+               'tail
+               (lambda ()
+                 (call/cc
+                  (lambda (k)
+                    (#%$call-setting-continuation-attachment
+                     'inside
+                     (lambda ()
+                       (+ 1
+                          (attachments-in-continuation k))))))))))))
+
+  (equal? '(inside outside)
+          (#%$call-setting-continuation-attachment
+           'outside
+           (lambda ()
+             (#%$value
+              (#%$call-setting-continuation-attachment
+               'tail
+               (lambda ()
+                 (call/cc
+                  (lambda (k)
+                    (#%$call-setting-continuation-attachment
+                     'inside
+                     (lambda ()
+                       (+ 1
+                          (same-attachments-in-continuation k))))))))))))
+
+  (equal? '(inside2 outside)
+          (#%$call-setting-continuation-attachment
+           'outside
+           (lambda ()
+             (#%$value
+              (#%$call-setting-continuation-attachment
+               'tail
+               (lambda ()
+                 (call/cc
+                  (lambda (k)
+                    (#%$call-setting-continuation-attachment
+                     'inside
+                     (lambda ()
+                       (+ 1
+                          (sub-attachments-in-continuation k))))))))))))
+
+  (equal? '(unknown)
+          (list
+           (call/cc
+            (lambda (k)
+              (#%$call-consuming-continuation-attachment
+               'unknown
+               (lambda (v)
+                 (#%$call-in-continuation
+                  k
+                  (lambda () v))))))))
+
+  (equal? '(also-unknown)
+          (list
+           (call/cc
+            (lambda (k)
+              (#%$call-in-continuation
+               k
+               (lambda () 
+                 (#%$call-consuming-continuation-attachment
+                  'also-unknown
+                  (lambda (v)
+                    v))))))))
+
+  (equal? '(known)
+          (list
+           (call/cc
+            (lambda (k)
+              (#%$call-in-continuation
+               k
+               (lambda ()
+                 (#%$call-setting-continuation-attachment
+                  'known
+                  (lambda ()
+                    (#%$call-getting-continuation-attachment
+                     'still-unknown
+                     (lambda (v)
+                       v))))))))))
+
+  (equal? '(here in out)
+          (let ([did '()])
+            (let ([k (dynamic-wind
+                         (lambda () (set! did (cons 'in did)))
+                         (lambda () (call/cc (lambda (k) k)))
+                         (lambda () (void)))])
+              (cond
+               [(procedure? k)
+                (set! did '())
+                (dynamic-wind
+                    (lambda () (void))
+                    (lambda () (#%$call-in-continuation
+                                k
+                                (lambda ()
+                                  (set! did (cons 'here did))
+                                  'no)))
+                    (lambda () (set! did (cons 'out did))))]
+               [else did]))))
+
+  ;; regression test to make sure the compiler doesn't run out of
+  ;; registers:
+  (procedure? (lambda (f a b c)
+                (#3%call-with-values
+                 (lambda ()
+                   (#3%call-with-values
+                    (lambda ()
+                      (#%$call-setting-continuation-attachment
+                       1024
+                       (lambda ()
+                         (#3%$app f a b c))))
+                    fx+/carry))
+                 f)))
+)
+
 ;;; section 4-7:
 
 (mat engine
@@ -3378,6 +4184,13 @@
               (begin (x (cons 'a 'b)) (not (x)))
               (begin (collect) (equal? (x) '(a . b)))
               (not (x)))))
+   ;; same for ordered:
+   (with-interrupts-disabled
+      (let ([x (make-guardian #t)])
+         (and (not (x))
+              (begin (x (cons 'a 'b)) (not (x)))
+              (begin (collect) (equal? (x) '(a . b)))
+              (not (x)))))
    (with-interrupts-disabled
       (let ([x1 (make-guardian)])
          ; counting on a little compiler cleanliness here...
@@ -3389,9 +4202,38 @@
             (and (equal? (x2) x2)
                  (not (x1))
                  (not (x2))))))
-   (parameterize ([collect-trip-bytes (expt 2 24)])
+   ;; same for ordered:
+   (with-interrupts-disabled
+      (let ([x1 (make-guardian #t)])
+         ; counting on a little compiler cleanliness here...
+         (let ([x2 (make-guardian #t)])
+            (x1 x2)
+            (x2 x2))
+         (collect)
+         (let ([x2 (x1)])
+            (and (equal? (x2) x2)
+                 (not (x1))
+                 (not (x2))))))
+   (parameterize ([collect-trip-bytes (expt 2 24)]
+                  [collect-maximum-generation-threshold-factor 0])
      (let ([k 1000000])
        (let ([g (make-guardian)])
+         (let f ([n k])
+           (unless (= n 0)
+             (g (cons 3 4))
+             (let f () (cond [(g) => (lambda (x) (g x) (f))]))
+             (f (- n 1))))
+         (let f ([n k])
+           (unless (= n 0)
+             (cond
+               [(g) => (lambda (x) (f (- n 1)))]
+               [else (collect) (f n)])))
+         #t)))
+   ;; same for ordered:
+   (parameterize ([collect-trip-bytes (expt 2 24)]
+                  [collect-maximum-generation-threshold-factor 0])
+     (let ([k 1000000])
+       (let ([g (make-guardian #t)])
          (let f ([n k])
            (unless (= n 0)
              (g (cons 3 4))
@@ -3409,14 +4251,35 @@
               (begin (x (cons 'a 'b) 'calvin) (not (x)))
               (begin (collect) (equal? (x) 'calvin))
               (not (x)))))
+   ;; same for ordered:
+   (with-interrupts-disabled
+      (let ([x (make-guardian #t)])
+         (and (not (x))
+              (begin (x (cons 'a 'b) 'calvin) (not (x)))
+              (begin (collect) (equal? (x) 'calvin))
+              (not (x)))))
    (with-interrupts-disabled
       (let ([x (make-guardian)])
          (and (not (x))
               (begin (x (cons 'a 'b) (cons 'calvin 'hobbes)) (not (x)))
               (begin (collect) (equal? (x) '(calvin . hobbes)))
               (not (x)))))
+   ;; same for ordered:
+   (with-interrupts-disabled
+      (let ([x (make-guardian #t)])
+         (and (not (x))
+              (begin (x (cons 'a 'b) (cons 'calvin 'hobbes)) (not (x)))
+              (begin (collect) (equal? (x) '(calvin . hobbes)))
+              (not (x)))))
    (with-interrupts-disabled
       (let ([x (make-guardian)])
+         (and (not (x))
+              (begin (x (cons 'a 'b) 17) (not (x)))
+              (begin (collect) (equal? (x) '17))
+              (not (x)))))
+   ;; same for ordered:
+   (with-interrupts-disabled
+      (let ([x (make-guardian #t)])
          (and (not (x))
               (begin (x (cons 'a 'b) 17) (not (x)))
               (begin (collect) (equal? (x) '17))
@@ -3432,12 +4295,32 @@
              (collect 0 0)
              (list ((g1)) p)))))
      '((c d) (b)))
+   ;; same for ordered:
+   (equal?
+     (with-interrupts-disabled
+       (let ([g1 (make-guardian #t)] [g2 (make-guardian #t)])
+         (let ([p (list 'a 'b)])
+           (g1 p g2)
+           (g2 (list 'c 'd))
+           (collect 0 0)
+           (let ([p (cdr p)])
+             (collect 0 0)
+             (list ((g1)) p)))))
+     '((c d) (b)))
 
    (eq? (with-interrupts-disabled
           (let* ([g (make-guardian)] [x (list 'a 'b)])
             (g x)
             (collect 0 0)
-            (#%$keep-live x)
+            (keep-live x)
+            (g)))
+        #f)
+   ;; same for ordered:
+   (eq? (with-interrupts-disabled
+          (let* ([g (make-guardian #t)] [x (list 'a 'b)])
+            (g x)
+            (collect 0 0)
+            (keep-live x)
             (g)))
         #f)
 
@@ -3479,6 +4362,184 @@
        (error #f "no static-generation fraz in object-counts list"))
      (pretty-print (cons g x)) ; keep 'em live
      #t)
+
+   (begin
+     (define (measure-guardian-chain-time n get-key ordered?)
+       ;; Create a chain of guardians `n` long and
+       ;; report how long a collection takes averaged
+       ;; over `iters` tries
+       (define iters 10)
+       (let loop ([g #f] [accum 0] [j iters])
+         (if (zero? j)
+             (if (zero? accum)
+                 g
+                 (/ accum iters))
+             (let ([g (let loop ([i n])
+                        (let ([g (make-guardian ordered?)])
+                          (if (zero? i)
+                              g
+                              (let ([next-g (loop (sub1 i))])
+                                (g (get-key next-g) next-g)
+                                g))))])
+               (let ([start (current-time)])
+                 (collect (collect-maximum-generation))
+                 (let ([delta (time-difference (current-time) start)])
+                   (loop g
+                         (+ accum
+                            (* (time-second delta) 1e9)
+                            (time-nanosecond delta))
+                         (sub1 j))))))))
+
+     ;; Make sure guardian chains imply GC times that
+     ;; look linear, as opposed to quadratic
+     (define (ok-relative-guardian-chain-time? get-key ordered?)
+       (let loop ([tries 3])
+         (or (< (/ (measure-guardian-chain-time 10000 get-key ordered?)
+                   (measure-guardian-chain-time 1000 get-key ordered?))
+                50)
+             (and (positive? tries)
+                  (loop (sub1 tries))))))
+
+     (and (ok-relative-guardian-chain-time? values #f)
+          (ok-relative-guardian-chain-time? values #t)
+          (let ([obj (gensym)])
+            (and
+             (ok-relative-guardian-chain-time? (lambda (x) obj) #f)
+             (ok-relative-guardian-chain-time? (lambda (x) obj) #t)))))
+
+   ;; Ordered finalization as different from unordred:
+   (with-interrupts-disabled
+    (let ([g1 (make-guardian #t)]
+          [g2 (make-guardian #t)]
+          [s (gensym)])
+      (g1 s)
+      (g2 (list s)) ; delays readying `s` in `g1`
+      (set! s #f)
+      (collect 0 0)
+      (and (list? (g2))
+           (not (g1))
+           (begin
+             (collect 0 0)
+             (and (symbol? (g1))
+                  (not (g2)))))))
+   ;; Unordered is different:
+   (with-interrupts-disabled
+    (let ([g1 (make-guardian #f)]
+          [g2 (make-guardian #f)]
+          [s (gensym)])
+      (g1 s)
+      (g2 (list s)) ; no delay
+      (set! s #f)
+      (collect 0 0)
+      (and (list? (g2))
+           (symbol? (g1))
+           (begin
+             (collect 0 0)
+             (and (not (g1))
+                  (not (g2)))))))
+
+   ;; cycle ok with unordered
+   (let ([g (make-guardian)])
+     (let ([s (gensym)])
+       (g s (list s)))
+     (collect)
+     (list? (g)))
+   ;; cycle not ok with ordered
+   (let ([g (make-guardian #t)])
+     (let ([s (gensym)])
+       (g s (list s)))
+     (collect)
+     (not (g)))
+   ;; self representative doesn't count as cycle
+   (let ([g (make-guardian #t)])
+     (let ([s (gensym)])
+       (g s s))
+     (collect)
+     (symbol? (g)))
+   ;; try a longer cycle:
+   (let ([g (make-guardian #t)])
+     (let ([hd (cons 0 '())])
+       (set-cdr! hd
+                 (let loop ([i 100])
+                   (if (zero? i)
+                       hd
+                       (let ([p (cons i (loop (sub1 i)))])
+                         (g p)
+                         p)))))
+     (collect)
+     (not (g)))
+
+   ;; same object, ordered and unordered => ordered first
+   (with-interrupts-disabled
+    (let ([g1 (make-guardian)]
+          [g2 (make-guardian #t)])
+      (let ([s (gensym)])
+        (g1 s)
+        (g2 s))
+      (collect 0 0)
+      (collect 0 0)
+      (and (not (g2))
+           (symbol? (g1))
+           (not (g2))
+           (begin
+             (collect 0 0)
+             (and (symbol? (g2))
+                  (not (g1))
+                  (not (g2)))))))
+
+   ;; same object, both ordered => available from both
+   (with-interrupts-disabled
+    (let ([g1 (make-guardian #t)]
+          [g2 (make-guardian #t)])
+      (let ([s (gensym)])
+        (g1 s)
+        (g2 s))
+      (collect 0 0)
+      (and (symbol? (g2))
+           (symbol? (g1))
+           (not (g1))
+           (not (g2))
+           (begin
+             (collect 0 0)
+             (and (not (g1))
+                  (not (g2)))))))
+
+   ;; check ordered finalization on objects that immediately
+   ;; refer to themselves, which can create trouble for a naive
+   ;; approach to determining accessibility
+   (begin
+     (define (check-self-referencing p extract)
+       (with-interrupts-disabled
+        (let ([g (make-guardian #t)])
+          (g p)
+          (let ([wb (weak-cons p #f)])
+            (set! p #f)
+            (collect 0 0)
+            (let ([p (car wb)])
+              (and (not (g))
+                   (eq? p (extract p))))))))
+     (let ([p (cons #f #f)])
+       (set-car! p p)
+       (check-self-referencing p car)))
+   (let ([p (cons #f #f)])
+     (set-cdr! p p)
+     (check-self-referencing p cdr))
+   (let ([p (cons #f #f)])
+     (set-car! p p)
+     (set-cdr! p p)
+     (check-self-referencing p (lambda (p)
+                                 (and (eq? (car p) (cdr p))
+                                      (car p)))))
+   (let ([b (box #f)])
+     (set-box! b b)
+     (check-self-referencing b unbox))
+   (let ([f (letrec ([f (lambda () f)]) f)])
+     (check-self-referencing f (lambda (f) (f))))
+   (let ()
+     (define-record-type self (fields (mutable v)))
+     (let ([v (make-self #f)])
+       (self-v-set! v v)
+       (check-self-referencing v self-v)))
 
    (parameterize ([collect-request-handler void])
      (define (get-all g) (let ([q (g)]) (if q (cons q (get-all g)) '())))
@@ -3965,17 +5026,28 @@
                    (eq? (car e) key2))))))))
 
    ;; ----------------------------------------
-   ;; Check mutation two generations back and interaction with collection
-   (or (equal? (current-eval) interpret)
-       (equal? (with-interrupts-disabled
-                (let ([pr (ephemeron-cons 1 2)])
-                  (collect 0)
-                  (collect 1) ; puts `pr` in gen 2
-                  (let ([tl (list 1 2 3)])
-                    (set-car! pr tl) ; gen 2 reference to gen 0
-                    (collect 1 1 2)
-                    pr)))
-               '(#!bwp . #!bwp)))
+   ;; Check GC interaction with zero-sized contnuations - unlikely
+   ;; to crash even if things are wrong, but it's worth a try
+
+   (let ()
+     (define (loop i)
+       (if (zero? i)
+           (call/cc (lambda (k) (k '())))
+           (let ([keeps (loop (sub1 i))])
+             (call/cc
+              (lambda (k)
+                (cons k keeps))))))
+
+     (with-interrupts-disabled
+      (collect 0)
+      (let ([keeps (filter (lambda (c)
+                             (eqv? 0 (#%$continuation-stack-clength c)))
+                           (loop 1000))])
+        ;; The `keeps` list is probably non-empty
+        (collect 0 0)
+        (collect 0 0)
+        (keep-live keeps)
+        #t)))
 
    ;; ----------------------------------------
    ;; Check fasl:

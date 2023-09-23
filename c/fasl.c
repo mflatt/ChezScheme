@@ -14,6 +14,10 @@
  * limitations under the License.
  */
 
+/* The fasl writer is in "fasl.ss".
+   There's a second fasl reader and writer in "strip.ss", so it has
+   to be kept in sync with this one. */
+
 /* fasl representation:
  *
  * <fasl-file> -> <fasl-group>*
@@ -48,7 +52,11 @@
  *
  *        -> {fxvector}<uptr n><iptr elt1>...<iptr eltn>
  *
+ *        -> {flvector}<uptr n><uptr elthi1><uptr eltlo1>...<uptr elthin><uptr eltlon>
+ *
  *        -> {bytevector}<uptr n><octet elt1>...<octet eltn>
+ *
+ *        -> {stencil-vector}<uptr mask><octet elt1>...<octet eltn>
  *
  *        -> {immediate}<uptr>
  *
@@ -112,6 +120,8 @@
  *                 <faslreloc>       # first relocation entry
  *                 ...
  *                 <faslreloc>       # last relocation entry
+ *
+ *        -> {begin}<va>...<val>     # all but last is intended to be a {graph-def}
  *
  * <faslreloc> -> <byte type-etc>    # bit 0: extended entry, bit 1: expect item offset, bit 2+: type
  *                <uptr code-offset>
@@ -185,6 +195,7 @@
 
 #include "system.h"
 #include "zlib.h"
+#include "popcount.h"
 
 #ifdef WIN32
 #include <io.h>
@@ -217,8 +228,8 @@ typedef struct faslFileObj {
 static INT uf_read(unbufFaslFile uf, octet *s, iptr n);
 static octet uf_bytein(unbufFaslFile uf);
 static uptr uf_uptrin(unbufFaslFile uf, INT *bytes_consumed);
-static ptr fasl_entry(ptr tc, IFASLCODE situation, unbufFaslFile uf);
-static ptr bv_fasl_entry(ptr tc, ptr bv, unbufFaslFile uf);
+static ptr fasl_entry(ptr tc, IFASLCODE situation, unbufFaslFile uf, ptr externals);
+static ptr bv_fasl_entry(ptr tc, ptr bv, IFASLCODE ty, uptr offset, uptr len, unbufFaslFile uf, ptr externals);
 static void fillFaslFile(faslFile f);
 static void bytesin(octet *s, iptr n, faslFile f);
 static void toolarge(ptr path);
@@ -228,15 +239,23 @@ static float singlein(faslFile f);
 static double doublein(faslFile f);
 static iptr stringin(ptr *pstrbuf, iptr start, faslFile f);
 static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f);
-static void fasl_record(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f);
+static void fasl_record(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f, uptr size);
 static IBOOL rtd_equiv(ptr x, ptr y);
 static IBOOL equalp(ptr x, ptr y);
+#ifdef PORTABLE_BYTECODE
+static void pb_set_abs(void *address, uptr item);
+static uptr pb_get_abs(void *address);
+#endif /* AARCH64 */
 #ifdef ARMV6
 static void arm32_set_abs(void *address, uptr item);
 static uptr arm32_get_abs(void *address);
 static void arm32_set_jump(void *address, uptr item, IBOOL callp);
 static uptr arm32_get_jump(void *address);
 #endif /* ARMV6 */
+#ifdef AARCH64
+static void arm64_set_abs(void *address, uptr item);
+static uptr arm64_get_abs(void *address);
+#endif /* AARCH64 */
 #ifdef PPC32
 static void ppc32_set_abs(void *address, uptr item);
 static uptr ppc32_get_abs(void *address);
@@ -246,6 +265,7 @@ static uptr ppc32_get_jump(void *address);
 #ifdef X86_64
 static void x86_64_set_jump(void *address, uptr item, IBOOL callp);
 static uptr x86_64_get_jump(void *address);
+static void x86_64_set_popcount(void *address, uptr item);
 #endif /* X86_64 */
 #ifdef SPARC64
 static INT extract_reg_from_sethi(void *address);
@@ -256,6 +276,15 @@ static U32 adjust_delay_inst(U32 delay_inst, U32 *old_call_addr, U32 *new_call_a
 static INT sparc64_set_lit_only(void *address, uptr item, I32 destreg);
 static void sparc64_set_literal(void *address, uptr item);
 #endif /* SPARC64 */
+#ifdef RISCV64
+static void riscv64_set_abs(void *address, uptr item);
+static uptr riscv64_get_abs(void *address);
+static void riscv64_set_jump(void *address, uptr item);
+static uptr riscv64_get_jump(void *address);
+#endif /* RISCV64 */
+#ifdef PORTABLE_BYTECODE_SWAPENDIAN
+static void swap_code_endian(octet *code, uptr len);
+#endif
 
 static double s_nan;
 
@@ -292,30 +321,24 @@ void S_fasl_init(void) {
 #endif
 }
 
-ptr S_fasl_read(INT fd, IFASLCODE situation, ptr path) {
+ptr S_fasl_read(INT fd, IFASLCODE situation, ptr path, ptr externals) {
   ptr tc = get_thread_context();
   ptr x; struct unbufFaslFileObj uffo;
 
- /* acquire mutex in case we modify code pages */
-  tc_mutex_acquire()
   uffo.path = path;
   uffo.type = UFFO_TYPE_FD;
   uffo.fd = fd;
-  x = fasl_entry(tc, situation, &uffo);
-  tc_mutex_release()
+  x = fasl_entry(tc, situation, &uffo, externals);
   return x;
 }
 
-ptr S_bv_fasl_read(ptr bv, ptr path) {
+ptr S_bv_fasl_read(ptr bv, int ty, uptr offset, uptr len, ptr path, ptr externals) {
   ptr tc = get_thread_context();
   ptr x; struct unbufFaslFileObj uffo;
 
- /* acquire mutex in case we modify code pages */
-  tc_mutex_acquire()
   uffo.path = path;
   uffo.type = UFFO_TYPE_BV;
-  x = bv_fasl_entry(tc, bv, &uffo);
-  tc_mutex_release()
+  x = bv_fasl_entry(tc, bv, ty, offset, len, &uffo, externals);
   return x;
 }
 
@@ -326,7 +349,7 @@ ptr S_boot_read(INT fd, const char *path) {
   uffo.path = Sstring_utf8(path, -1);
   uffo.type = UFFO_TYPE_FD;
   uffo.fd = fd;
-  return fasl_entry(tc, fasl_type_visit_revisit, &uffo);
+  return fasl_entry(tc, fasl_type_visit_revisit, &uffo, S_G.null_vector);
 }
 
 #ifdef WIN32
@@ -363,6 +386,12 @@ static INT uf_read(unbufFaslFile uf, octet *s, iptr n) {
   return 0;
 }
 
+
+int S_fasl_stream_read(void *stream, octet *dest, iptr n)
+{
+  return uf_read((unbufFaslFile)stream, dest, n);
+}
+
 static void uf_skipbytes(unbufFaslFile uf, iptr n) {
   switch (uf->type) {
     case UFFO_TYPE_FD:
@@ -385,26 +414,30 @@ static uptr uf_uptrin(unbufFaslFile uf, INT *bytes_consumed) {
 
   if (bytes_consumed) *bytes_consumed = 1;
   k = uf_bytein(uf);
-  n = k >> 1;
-  while (k & 1) {
+  n = k & 0x7F;
+  while (k & 0x80) {
     if (bytes_consumed) *bytes_consumed += 1;
     k = uf_bytein(uf);
     m = n << 7;
     if (m >> 7 != n) toolarge(uf->path);
-    n = m | (k >> 1);
+    n = m | (k & 0x7F);
   }
 
   return n;
 }
 
 char *S_format_scheme_version(uptr n) {
-  static char buf[16]; INT len;
-  if ((n >> 16) != ((n >> 16) & 0xffff)) return "unknown";
-  if ((n & 0xff) == 0)
-    len = snprintf(buf, 16, "%d.%d", (int) n >> 16, (int) (n >> 8) & 0xff);
-  else
-    len = snprintf(buf, 16, "%d.%d.%d", (int) n >> 16, (int) (n >> 8) & 0xff, 
-                   (int) n & 0xff);
+  static char buf[40]; INT len;
+  if ((n >> 24) != ((n >> 24) & 0xffff)) return "unknown";
+  if ((n & 0xff) == 0) {
+    if ((n & 0xff) == 0)
+      len = snprintf(buf, sizeof(buf), "%d.%d", (int) n >> 24, (int) (n >> 16) & 0xff);
+    else
+      len = snprintf(buf, sizeof(buf), "%d.%d.%d", (int) n >> 24, (int) (n >> 16) & 0xff,
+                     (int) (n >> 8) & 0xff);
+  } else
+    len = snprintf(buf, sizeof(buf), "%d.%d.%d-pre-release.%d", (int) n >> 24, (int) (n >> 16) & 0xff,
+                   (int) (n >> 8) & 0xff, (int) n & 0xff);
   return len > 0 ? buf : "unknown";
 }
 
@@ -416,7 +449,7 @@ char *S_lookup_machine_type(uptr n) {
     return "unknown";
 }
 
-static ptr fasl_entry(ptr tc, IFASLCODE situation, unbufFaslFile uf) {
+static ptr fasl_entry(ptr tc, IFASLCODE situation, unbufFaslFile uf, ptr externals) {
   ptr x; ptr strbuf = S_G.null_string;
   octet tybuf[1]; IFASLCODE ty; iptr size;
   /* gcc (GCC) 4.8.5 20150623 (Red Hat 4.8.5-28) co-locates buf and x if we put the declaration of buf down where we use it */
@@ -459,23 +492,36 @@ static ptr fasl_entry(ptr tc, IFASLCODE situation, unbufFaslFile uf) {
       case fasl_type_revisit:
       case fasl_type_visit_revisit:
         break;
+      case fasl_type_terminator:
+        return Seof_object;
       default:
         S_error2("", "malformed fasl-object header (missing situation, got ~s) found in ~a", FIX(ty), uf->path);
         return (ptr)0;
     }
-  
+
     size = uf_uptrin(uf, (INT *)0);
   
     if (ty == situation || situation == fasl_type_visit_revisit || ty == fasl_type_visit_revisit) {
       struct faslFileObj ffo;
+      ptr bv; IFASLCODE kind;
 
       ty = uf_bytein(uf);
+      kind = uf_bytein(uf); /* fasl or vfasl */
+
+      if ((kind == fasl_type_vfasl) && S_vfasl_boot_mode) {
+        /* compact every time, because running previously loaded
+           boot code may have interned symbols, for example */
+        Scompact_heap();
+      }
+
+      S_thread_start_code_write(tc, S_vfasl_boot_mode ? static_generation : 0, 1, NULL, 0);
+
       switch (ty) {
         case fasl_type_gzip:
         case fasl_type_lz4: {
           ptr result; INT bytes_consumed;
           iptr dest_size = uf_uptrin(uf, &bytes_consumed);
-          iptr src_size = size - (1 + bytes_consumed); /* adjust for u8 compression type and uptr dest_size */
+          iptr src_size = size - (2 + bytes_consumed); /* adjust for u8 compression type, u8 fasl type, and uptr dest_size */
 
           PREPARE_BYTEVECTOR(SRCBV(tc), src_size);
           PREPARE_BYTEVECTOR(DSTBV(tc), dest_size);
@@ -491,11 +537,13 @@ static ptr fasl_entry(ptr tc, IFASLCODE situation, unbufFaslFile uf) {
           ffo.next = ffo.buf = &BVIT(DSTBV(tc),0);
           ffo.end = &BVIT(DSTBV(tc),dest_size);
           ffo.uf = uf;
+          bv = DSTBV(tc);
           break;
         }
         case fasl_type_uncompressed: {
-          ffo.size = size - 1; /* adjust for u8 compression type */
+          ffo.size = size - 2; /* adjust for u8 compression type and u8 fasl type */
           ffo.next = ffo.end = ffo.buf = buf;
+          bv = (ptr)0;
           ffo.uf = uf;
           break;
         }
@@ -503,8 +551,19 @@ static ptr fasl_entry(ptr tc, IFASLCODE situation, unbufFaslFile uf) {
           S_error2("", "malformed fasl-object header (missing possibly-compressed, got ~s) found in ~a", FIX(ty), uf->path);
           return (ptr)0;
       }
-      faslin(tc, &x, S_G.null_vector, &strbuf, &ffo);
+      switch (kind) {
+        case fasl_type_fasl:
+          faslin(tc, &x, externals, &strbuf, &ffo);
+          break;
+        case fasl_type_vfasl:
+          x = S_vfasl(bv, uf, 0, ffo.size);
+          break;
+        default:
+          S_error2("", "malformed fasl-object header (got ~s) found in ~a", FIX(ty), uf->path);
+          return (ptr)0;
+      }
       S_flush_instruction_cache(tc);
+      S_thread_end_code_write(tc, S_vfasl_boot_mode ? static_generation : 0, 1, NULL, 0);
       return x;
     } else {
       uf_skipbytes(uf, size);
@@ -512,17 +571,28 @@ static ptr fasl_entry(ptr tc, IFASLCODE situation, unbufFaslFile uf) {
   }
 }
 
-static ptr bv_fasl_entry(ptr tc, ptr bv, unbufFaslFile uf) {
+static ptr bv_fasl_entry(ptr tc, ptr bv, int ty, uptr offset, uptr len, unbufFaslFile uf, ptr externals) {
   ptr x; ptr strbuf = S_G.null_string;
   struct faslFileObj ffo;
 
-  ffo.size = Sbytevector_length(bv);
-  ffo.next = ffo.buf = &BVIT(bv, 0);
-  ffo.end = &BVIT(bv, ffo.size);
-  ffo.uf = uf;
+  S_thread_start_code_write(tc, S_vfasl_boot_mode ? static_generation : 0, 1, NULL, 0);
 
-  faslin(tc, &x, S_G.null_vector, &strbuf, &ffo);
+  if (ty == fasl_type_vfasl) {
+    x = S_vfasl(bv, NULL, offset, len);
+  } else if (ty == fasl_type_fasl) {
+    ffo.size = len;
+    ffo.next = ffo.buf = &BVIT(bv, offset);
+    ffo.end = &BVIT(bv, offset + len);
+    ffo.uf = uf;
+    
+    faslin(tc, &x, externals, &strbuf, &ffo);
+  } else {
+    S_error1("", "bad entry type (got ~s)", FIX(ty));
+  }
+
   S_flush_instruction_cache(tc);
+  S_thread_end_code_write(tc, S_vfasl_boot_mode ? static_generation : 0, 1, NULL, 0);
+
   return x;
 }
 
@@ -552,6 +622,25 @@ static void bytesin(octet *s, iptr n, faslFile f) {
     memcpy(s, f->next, n);
     f->next += n;
   }
+}
+
+static void code_bytesin(octet *s, iptr n, faslFile f) {
+#ifdef CANNOT_READ_DIRECTLY_INTO_CODE
+  while (1) {
+    iptr avail = f->end - f->next;
+    if (avail < n) {
+      bytesin(s, avail, f);
+      n -= avail;
+      s += avail;
+      fillFaslFile(f);
+    } else {
+      bytesin(s, n, f);
+      break;
+    }
+  }
+#else
+  bytesin(s, n, f);
+#endif
 }
 
 static void toolarge(ptr path) {
@@ -591,12 +680,12 @@ static uptr uptrin(faslFile f) {
   uptr n, m; octet k;
 
   k = bytein(f);
-  n = k >> 1;
-  while (k & 1) {
+  n = (k & 0x7F);
+  while (k & 0x80) {
     k = bytein(f);
     m = n << 7;
     if (m >> 7 != n) toolarge(f->uf->path);
-    n = m | (k >> 1);
+    n = m | (k & 0x7F);
   }
 
   return n;
@@ -672,6 +761,16 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
             *x = S_intern3(&STRIT(*pstrbuf, 0), pn, &STRIT(*pstrbuf, pn), un, Sfalse, Sfalse);
             return;
         }
+        case fasl_type_uninterned_symbol: {
+            iptr i, n;
+            ptr str;
+            n = uptrin(f);
+            str = S_string((char *)0, n);
+            for (i = 0; i != n; i += 1) Sstring_set(str, i, uptrin(f));
+            STRTYPE(str) |= string_immutable_flag;
+            *x = S_uninterned(str);
+            return;
+        }
         case fasl_type_ratnum:
             *x = S_rational(FIX(0), FIX(0));
             faslin(tc, &RATNUM(*x), t, pstrbuf, f);
@@ -691,14 +790,13 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
             while (n--) faslin(tc, p++, t, pstrbuf, f);
             if (ty == fasl_type_immutable_vector) {
               if (Svector_length(*x) == 0)
-                *x = NULLIMMUTABLEVECTOR(tc);
+                *x = S_G.null_immutable_vector;
               else
                 VECTTYPE(*x) |= vector_immutable_flag;
             }
             return;
         }
-        case fasl_type_fxvector:
-        case fasl_type_immutable_fxvector: {
+        case fasl_type_fxvector: {
             iptr n; ptr *p;
             n = uptrin(f);
             *x = S_fxvector(n);
@@ -708,11 +806,19 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
               if (!FIXRANGE(t)) toolarge(f->uf->path);
               *p++ = FIX(t);
             }
-            if (ty == fasl_type_immutable_fxvector) {
-              if (Sfxvector_length(*x) == 0)
-                *x = NULLIMMUTABLEFXVECTOR(tc);
-              else
-                FXVECTOR_TYPE(*x) |= fxvector_immutable_flag;
+            return;
+        }
+        case fasl_type_flvector: {
+            iptr n; double *p;
+            n = uptrin(f);
+            *x = S_flvector(n);
+            p = &FLVECTIT(*x, 0);
+            while (n--) {
+              ptr fl;
+              faslin(tc, &fl, t, pstrbuf, f);
+              if (!Sflonump(fl))
+                S_error1("", "not a flonum in flvector ~a", f->uf->path);
+              *p++ = Sflonum_value(fl);
             }
             return;
         }
@@ -724,10 +830,23 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
             bytesin(&BVIT(*x,0), n, f);
             if (ty == fasl_type_immutable_bytevector) {
               if (Sbytevector_length(*x) == 0)
-                *x = NULLIMMUTABLEBYTEVECTOR(tc);
+                *x = S_G.null_immutable_bytevector;
               else
                 BYTEVECTOR_TYPE(*x) |= bytevector_immutable_flag;
             }
+            return;
+        }
+        case fasl_type_stencil_vector:
+        case fasl_type_system_stencil_vector: {
+            uptr mask; iptr n; ptr *p;
+            mask = uptrin(f);
+            if (ty == fasl_type_stencil_vector)
+              *x = S_stencil_vector(mask);
+            else
+              *x = S_system_stencil_vector(mask);
+            p = &INITSTENVECTIT(*x, 0);
+            n = Spopcount(mask);
+            while (n--) faslin(tc, p++, t, pstrbuf, f);
             return;
         }
         case fasl_type_base_rtd: {
@@ -738,9 +857,11 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
             *x = rtd;
             return;
         } case fasl_type_rtd: {
-            ptr rtd, rtd_uid, plist, ls;
+            ptr rtd, rtd_uid, plist, ls; uptr size;
 
             faslin(tc, &rtd_uid, t, pstrbuf, f);
+
+            tc_mutex_acquire();
 
            /* look for rtd on uid's property list */
             plist = SYMSPLIST(rtd_uid);
@@ -748,22 +869,34 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
               if (Scar(ls) == S_G.rtd_key) {
                 ptr tmp;
                 *x = rtd = Scar(Scdr(ls));
-                fasl_record(tc, &tmp, t, pstrbuf, f);
-                if (!rtd_equiv(tmp, rtd))
-                  S_error2("", "incompatible record type ~s in ~a", RECORDDESCNAME(tmp), f->uf->path);
+
+                size = uptrin(f);
+                if (size != 0) {
+                  fasl_record(tc, &tmp, t, pstrbuf, f, size);
+                  if (!rtd_equiv(tmp, rtd))
+                    S_error2("", "incompatible record type ~s in ~a", RECORDDESCNAME(tmp), f->uf->path);
+                }
+                tc_mutex_release();
                 return;
               }
             }
 
-            fasl_record(tc, x, t, pstrbuf, f);
+            size = uptrin(f);
+            if (size == 0)
+              S_error2("", "unregistered record type ~s in ~a", rtd_uid, f->uf->path);
+            fasl_record(tc, x, t, pstrbuf, f, size);
             rtd = *x;
 
            /* register rtd on uid's property list */
             SETSYMSPLIST(rtd_uid, Scons(S_G.rtd_key, Scons(rtd, plist)));
+
+            tc_mutex_release();
+
             return;
         }
         case fasl_type_record: {
-            fasl_record(tc, x, t, pstrbuf, f);
+            uptr size = uptrin(f);
+            fasl_record(tc, x, t, pstrbuf, f, size);
             return;
         }
         case fasl_type_eq_hashtable: {
@@ -798,16 +931,16 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
                 keyval = Scons(FIX(0), FIX(0));
                 break;
               case eq_hashtable_subtype_weak:
-                keyval = S_cons_in(space_weakpair, 0, FIX(0), FIX(0));
+                keyval = S_cons_in(tc, space_weakpair, 0, FIX(0), FIX(0));
                 break;
               case eq_hashtable_subtype_ephemeron:
               default:
-                keyval = S_cons_in(space_ephemeron, 0, FIX(0), FIX(0));
+                keyval = S_ephemeron_cons_in(0, FIX(0), FIX(0));
                 break;
               }
               faslin(tc, &INITCAR(keyval), t, pstrbuf, f);
               faslin(tc, &INITCDR(keyval), t, pstrbuf, f);
-              i = ((uptr)Scar(keyval) >> primary_type_bits) & (veclen - 1);
+              i = eq_hash(Scar(keyval)) & (veclen - 1);
               INITVECTIT(v, i) = S_tlc(keyval, ht, Svector_ref(v, i));
               n -= 1;
             }
@@ -899,7 +1032,7 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
             for (i = 0; i != n; i += 1) Sstring_set(str, i, uptrin(f));
             if (ty == fasl_type_immutable_string) {
               if (n == 0)
-                str = NULLIMMUTABLESTRING(tc);
+                str = S_G.null_immutable_string;
               else
                 STRTYPE(str) |= string_immutable_flag;
             }
@@ -920,12 +1053,12 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
             return;
         }
         case fasl_type_weak_pair:
-            *x = S_cons_in(space_weakpair, 0, FIX(0), FIX(0));
+            *x = S_cons_in(tc, space_weakpair, 0, FIX(0), FIX(0));
             faslin(tc, &INITCAR(*x), t, pstrbuf, f);
             faslin(tc, &INITCDR(*x), t, pstrbuf, f);
             return;
         case fasl_type_ephemeron:
-            *x = S_cons_in(space_ephemeron, 0, FIX(0), FIX(0));
+            *x = S_ephemeron_cons_in(0, FIX(0), FIX(0));
             faslin(tc, &INITCAR(*x), t, pstrbuf, f);
             faslin(tc, &INITCDR(*x), t, pstrbuf, f);
             return;
@@ -947,7 +1080,10 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
             if (pinfos != Snil) {
               S_G.profile_counters = Scons(S_weak_cons(co, pinfos), S_G.profile_counters);
             }
-            bytesin((octet *)&CODEIT(co, 0), n, f);
+            code_bytesin((octet *)&CODEIT(co, 0), n, f);
+#ifdef PORTABLE_BYTECODE_SWAPENDIAN
+            swap_code_endian((octet *)&CODEIT(co, 0), n);
+#endif
             m = uptrin(f);
             CODERELOC(co) = reloc = S_relocation_table(m);
             RELOCCODE(reloc) = co;
@@ -985,9 +1121,20 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
         case fasl_type_library_code:
             *x = CLOSCODE(S_lookup_library_entry(uptrin(f), 1));
             return;
-        case fasl_type_graph:
-            faslin(tc, x, S_vector(uptrin(f)), pstrbuf, f);
+        case fasl_type_phantom:
+            *x = S_phantom_bytevector(uptrin(f));
             return;
+        case fasl_type_graph: {
+            uptr len = uptrin(f), len2 = uptrin(f), tlen = (uptr)Svector_length(t), i;
+            ptr new_t = S_vector(len);
+            if ((tlen < len2) && (len2 != 0)) /* allowing a vector when not needed helps with `load-compiled-from-port` */
+              S_error2("", "incompatible external vector length ~d, expected ~d", FIX(tlen), FIX(len2));
+            if (len2 > len) len2 = len;
+            for (i = 0; i < len2; i++)
+              INITVECTIT(new_t, i+(len-len2)) = Svector_ref(t, i);
+            faslin(tc, x, new_t, pstrbuf, f);
+            return;
+        }
         case fasl_type_graph_def: {
             ptr *p;
             p = &INITVECTIT(t, uptrin(f));
@@ -998,6 +1145,13 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
         case fasl_type_graph_ref:
             *x = Svector_ref(t, uptrin(f));
             return;
+        case fasl_type_begin: {
+            uptr n = uptrin(f) - 1; ptr v;
+            while (n--)
+              faslin(tc, &v, t, pstrbuf, f);
+            faslin(tc, x, t, pstrbuf, f);
+            return;
+        }
         default:
             S_error2("", "invalid object type ~d in fasl file ~a", FIX(ty), f->uf->path);
     }
@@ -1005,38 +1159,46 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
 
 #define big 0
 #define little 1
-static void fasl_record(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
-  uptr size, n, addr; ptr p; UINT padty;
+#ifdef PORTABLE_BYTECODE
+# ifdef PORTABLE_BYTECODE_BIGENDIAN
+#  define unknown big
+# else
+#  define unknown little
+# endif
+#else
+# define unknown 3
+#endif
+static void fasl_record(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f, uptr size) {
+  uptr n, addr; ptr p; UINT padty;
 
-  size = uptrin(f);
   n = uptrin(f);
   *x = p = S_record(size_record_inst(size));
   faslin(tc, &RECORDINSTTYPE(p), t, pstrbuf, f);
-  addr = (uptr)&RECORDINSTIT(p, 0);
+  addr = (uptr)TO_PTR(&RECORDINSTIT(p, 0));
   for (; n != 0; n -= 1) {
     padty = bytein(f);
     addr += padty >> 4;
     switch (padty & 0xf) {
       case fasl_fld_ptr:
-        faslin(tc, (ptr *)addr, t, pstrbuf, f);
+        faslin(tc, TO_VOIDP(addr), t, pstrbuf, f);
         addr += sizeof(ptr);
         break;
       case fasl_fld_u8:
-        *(U8 *)addr = (U8)bytein(f);
+        *(U8 *)TO_VOIDP(addr) = (U8)bytein(f);
         addr += 1;
         break;
       case fasl_fld_i16:
-        *(I16 *)addr = (I16)iptrin(f);
+        *(I16 *)TO_VOIDP(addr) = (I16)iptrin(f);
         addr += 2;
         break;
       case fasl_fld_i24: {
         iptr q = iptrin(f);
 #if (native_endianness == little)
-        *(U16 *)addr = (U16)q;
-        *(U8 *)(addr + 2) = (U8)(q >> 16);
+        *(U16 *)TO_VOIDP(addr) = (U16)q;
+        *(U8 *)TO_VOIDP(addr + 2) = (U8)(q >> 16);
 #elif (native_endianness == big)
-        *(U16 *)addr = (U16)(q >> 8);
-        *(U8 *)(addr + 2) = (U8)q;
+        *(U16 *)TO_VOIDP(addr) = (U16)(q >> 8);
+        *(U8 *)TO_VOIDP(addr + 2) = (U8)q;
 #else
         unexpected_endianness();
 #endif
@@ -1044,7 +1206,7 @@ static void fasl_record(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
         break;
       }
       case fasl_fld_i32:
-        *(I32 *)addr = (I32)iptrin(f);
+        *(I32 *)TO_VOIDP(addr) = (I32)iptrin(f);
         addr += 4;
         break;
       case fasl_fld_i40: {
@@ -1058,11 +1220,11 @@ static void fasl_record(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
         unexpected_ptr_bits();
 #endif
 #if (native_endianness == little)
-        *(U32 *)addr = (U32)q;
-        *(U8 *)(addr + 4) = (U8)(q >> 32);
+        *(U32 *)TO_VOIDP(addr) = (U32)q;
+        *(U8 *)TO_VOIDP(addr + 4) = (U8)(q >> 32);
 #elif (native_endianness == big)
-        *(U32 *)addr = (U32)(q >> 8);
-        *(U8 *)(addr + 4) = (U8)q;
+        *(U32 *)TO_VOIDP(addr) = (U32)(q >> 8);
+        *(U8 *)TO_VOIDP(addr + 4) = (U8)q;
 #else
         unexpected_endianness();
 #endif
@@ -1080,11 +1242,11 @@ static void fasl_record(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
         unexpected_ptr_bits();
 #endif
 #if (native_endianness == little)
-        *(U32 *)addr = (U32)q;
-        *(U16 *)(addr + 4) = (U16)(q >> 32);
+        *(U32 *)TO_VOIDP(addr) = (U32)q;
+        *(U16 *)TO_VOIDP(addr + 4) = (U16)(q >> 32);
 #elif (native_endianness == big)
-        *(U32 *)addr = (U32)(q >> 16);
-        *(U16 *)(addr + 4) = (U16)q;
+        *(U32 *)TO_VOIDP(addr) = (U32)(q >> 16);
+        *(U16 *)TO_VOIDP(addr + 4) = (U16)q;
 #else
         unexpected_endianness();
 #endif
@@ -1102,12 +1264,12 @@ static void fasl_record(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
         unexpected_ptr_bits();
 #endif
 #if (native_endianness == little)
-        *(U32 *)addr = (U32)q;
-        *(U16 *)(addr + 4) = (U16)(q >> 32);
-        *(U8 *)(addr + 6) = (U8)(q >> 48);
+        *(U32 *)TO_VOIDP(addr) = (U32)q;
+        *(U16 *)TO_VOIDP(addr + 4) = (U16)(q >> 32);
+        *(U8 *)TO_VOIDP(addr + 6) = (U8)(q >> 48);
 #elif (native_endianness == big)
-        *(U32 *)addr = (U32)(q >> 24);
-        *(U32 *)(addr + 3) = (U32)q;
+        *(U32 *)TO_VOIDP(addr) = (U32)(q >> 24);
+        *(U32 *)TO_VOIDP(addr + 3) = (U32)q;
 #else
         unexpected_endianness();
 #endif
@@ -1124,16 +1286,16 @@ static void fasl_record(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
 #else
         unexpected_ptr_bits();
 #endif
-        *(I64 *)addr = q;
+        *(I64 *)TO_VOIDP(addr) = q;
         addr += 8;
         break;
       }
       case fasl_fld_single:
-        *(float *)addr = (float)singlein(f);
+        *(float *)TO_VOIDP(addr) = (float)singlein(f);
         addr += sizeof(float);
         break;
       case fasl_fld_double:
-        *(double *)addr = (double)doublein(f);
+        *(double *)TO_VOIDP(addr) = (double)doublein(f);
         addr += sizeof(double);
         break;
       default:
@@ -1141,6 +1303,34 @@ static void fasl_record(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
         break;
     }
   }
+}
+
+/* Call with tc mutex.
+   Result: 0 => interned; 1 => replaced; -1 => inconsistent */
+int S_fasl_intern_rtd(ptr *x)
+{
+  ptr rtd, rtd_uid, plist, ls;
+
+  rtd = *x;
+  rtd_uid = RECORDDESCUID(rtd);
+
+  /* see if uid's property list already registers an rtd */
+  plist = SYMSPLIST(rtd_uid);
+  for (ls = plist; ls != Snil; ls = Scdr(Scdr(ls))) {
+    if (Scar(ls) == S_G.rtd_key) {
+      ptr old_rtd = Scar(Scdr(ls));
+      /* if so, check new rtd against old rtd and return old rtd */
+      if (!rtd_equiv(rtd, old_rtd))
+        return -1;
+      else
+        *x = old_rtd;
+      return 1;
+    }
+  }
+  
+  /* if not, register it */
+  SETSYMSPLIST(rtd_uid, Scons(S_G.rtd_key, Scons(rtd, plist)));
+  return 0;
 }
 
 /* limited version for checking rtd fields */
@@ -1158,8 +1348,11 @@ static IBOOL equalp(ptr x, ptr y) {
 }
 
 static IBOOL rtd_equiv(ptr x, ptr y) {
-  return RECORDINSTTYPE(x) == RECORDINSTTYPE(y) &&
-         RECORDDESCPARENT(x) == RECORDDESCPARENT(y) &&
+  return ((RECORDINSTTYPE(x) == RECORDINSTTYPE(y))
+          /* recognize `base-rtd` shape: */
+          || ((RECORDINSTTYPE(x) == x)
+              && (RECORDINSTTYPE(y) == y))) &&
+         rtd_parent(x) == rtd_parent(y) &&
          equalp(RECORDDESCPM(x), RECORDDESCPM(y)) &&
          equalp(RECORDDESCMPM(x), RECORDDESCMPM(y)) &&
          equalp(RECORDDESCFLDS(x), RECORDDESCFLDS(y)) &&
@@ -1199,12 +1392,18 @@ INT pax_encode21(INT n)
 void S_set_code_obj(char *who, IFASLCODE typ, ptr p, iptr n, ptr x, iptr o) {
     void *address; uptr item;
 
-    address = (void *)((uptr)p + n);
+    address = TO_VOIDP((uptr)p + n);
     item = (uptr)x + o;
     switch (typ) {
         case reloc_abs:
-            *(uptr *)address = item;
+            STORE_UNALIGNED_UPTR(address, item);
             break;
+#ifdef PORTABLE_BYTECODE
+        case reloc_pb_abs:
+        case reloc_pb_proc:
+            pb_set_abs(address, item);
+            break;
+#endif /* AARCH64 */
 #ifdef ARMV6
         case reloc_arm32_abs:
             arm32_set_abs(address, item);
@@ -1216,6 +1415,13 @@ void S_set_code_obj(char *who, IFASLCODE typ, ptr p, iptr n, ptr x, iptr o) {
             arm32_set_jump(address, item, 1);
             break;
 #endif /* ARMV6 */
+#ifdef AARCH64
+        case reloc_arm64_abs:
+        case reloc_arm64_jump:
+        case reloc_arm64_call:
+            arm64_set_abs(address, item);
+            break;
+#endif /* AARCH64 */
 #ifdef PPC32
         case reloc_ppc32_abs:
             ppc32_set_abs(address, item);
@@ -1239,6 +1445,9 @@ void S_set_code_obj(char *who, IFASLCODE typ, ptr p, iptr n, ptr x, iptr o) {
             break;
         case reloc_x86_64_call:
             x86_64_set_jump(address, item, 1);
+            break;
+        case reloc_x86_64_popcount:
+            x86_64_set_popcount(address, item);
             break;
 #endif /* X86_64 */
 #ifdef SPARC64
@@ -1268,6 +1477,15 @@ void S_set_code_obj(char *who, IFASLCODE typ, ptr p, iptr n, ptr x, iptr o) {
             *(U32 *)address = *(U32 *)address & ~0x3fffffff | item >> 2 & 0x3fffffff;
             break;
 #endif /* SPARC */
+#ifdef RISCV64
+        case reloc_riscv64_abs:
+        case reloc_riscv64_call:
+          riscv64_set_abs(address, item);
+          break;
+        case reloc_riscv64_jump:
+          riscv64_set_jump(address, item);
+          break;
+#endif /* RISCV64 */
         default:
             S_error1(who, "invalid relocation type ~s", FIX(typ));
     }
@@ -1277,11 +1495,17 @@ void S_set_code_obj(char *who, IFASLCODE typ, ptr p, iptr n, ptr x, iptr o) {
 ptr S_get_code_obj(IFASLCODE typ, ptr p, iptr n, iptr o) {
     void *address; uptr item;
 
-    address = (void *)((uptr)p + n);
+    address = TO_VOIDP((uptr)p + n);
     switch (typ) {
         case reloc_abs:
-            item = *(uptr *)address;
+            item = LOAD_UNALIGNED_UPTR(address);
             break;
+#ifdef PORTABLE_BYTECODE
+        case reloc_pb_abs:
+        case reloc_pb_proc:
+            item = pb_get_abs(address);
+            break;
+#endif /* AARCH64 */
 #ifdef ARMV6
         case reloc_arm32_abs:
             item = arm32_get_abs(address);
@@ -1291,6 +1515,13 @@ ptr S_get_code_obj(IFASLCODE typ, ptr p, iptr n, iptr o) {
             item = arm32_get_jump(address);
             break;
 #endif /* ARMV6 */
+#ifdef AARCH64
+        case reloc_arm64_abs:
+        case reloc_arm64_jump:
+        case reloc_arm64_call:
+            item = arm64_get_abs(address);
+            break;
+#endif /* AARCH64 */
 #ifdef PPC32
         case reloc_ppc32_abs:
             item = ppc32_get_abs(address);
@@ -1310,6 +1541,9 @@ ptr S_get_code_obj(IFASLCODE typ, ptr p, iptr n, iptr o) {
         case reloc_x86_64_jump:
         case reloc_x86_64_call:
             item = x86_64_get_jump(address);
+            break;
+        case reloc_x86_64_popcount:
+            item = (uptr)Svector_ref(S_G.library_entry_vector, library_popcount_slow) + o;
             break;
 #endif /* X86_64 */
 #ifdef SPARC64
@@ -1332,6 +1566,15 @@ ptr S_get_code_obj(IFASLCODE typ, ptr p, iptr n, iptr o) {
             item += (uptr)address;
             break;
 #endif /* SPARC */
+#ifdef RISCV64 //@ todo
+        case reloc_riscv64_abs:
+        case reloc_riscv64_call:
+          item = riscv64_get_abs(address);
+          break;
+        case reloc_riscv64_jump:
+          item = riscv64_get_jump(address);
+          break;
+#endif /* RISCV64 */
         default:
             S_error1("", "invalid relocation type ~s", FIX(typ));
             return (ptr)0 /* not reached */;
@@ -1339,16 +1582,27 @@ ptr S_get_code_obj(IFASLCODE typ, ptr p, iptr n, iptr o) {
     return (ptr)(item - o);
 }
 
+#ifdef PORTABLE_BYTECODE
+
+static void pb_set_abs(void *address, uptr item) {
+  STORE_UNALIGNED_UPTR(address, item);
+}
+
+static uptr pb_get_abs(void *address) {
+  return LOAD_UNALIGNED_UPTR(address);
+}
+
+#endif /* PORTABLE_BYTECODE */
 
 #ifdef ARMV6
 static void arm32_set_abs(void *address, uptr item) {
   /* code generator produces ldrlit destreg, 0; brai 0; long 0 */
-  /* we change long 0 => long item */
-  *((U32 *)address + 2) = item;
+  /* given address is at long 0, which we change to `item` */
+  *((U32 *)address) = item;
 }
 
 static uptr arm32_get_abs(void *address) {
-  return *((U32 *)address + 2);
+  return *((U32 *)address);
 }
 
 #define MAKE_B(n) (0xEA000000 | (n))
@@ -1395,26 +1649,66 @@ static uptr arm32_get_jump(void *address) {
 }
 #endif /* ARMV6 */
 
+#ifdef AARCH64
+
+/* Address pieces in a movz,movk,movk,movk sequence are at its 5-20 */
+#define ADDRESS_BITS_SHIFT 5
+#define ADDRESS_BITS_MASK  ((U32)0x1fffe0)
+
+/* Dest register in either movz or movk: */
+#define DEST_REG_MASK 0x1F
+
+#define MOVZ_OPCODE    0xD2800000
+#define MOVK_OPCODE    0xF2800000
+#define SHIFT16_OPCODE 0x00200000
+#define SHIFT32_OPCODE 0x00400000
+#define SHIFT48_OPCODE 0x00600000
+
+static void arm64_set_abs(void *address, uptr item) {
+  /* First instruction can have an arbitrary value due to vfasl offset
+     storage, so get the target register from the end: */
+  int dest_reg = ((U32 *)address)[3] & DEST_REG_MASK;
+  
+  ((U32 *)address)[0] = (MOVZ_OPCODE | dest_reg | ((item & 0xFFFF) << ADDRESS_BITS_SHIFT));
+  ((U32 *)address)[1] = (MOVK_OPCODE | SHIFT16_OPCODE | dest_reg | (((item >> 16) & 0xFFFF) << ADDRESS_BITS_SHIFT));
+  ((U32 *)address)[2] = (MOVK_OPCODE | SHIFT32_OPCODE | dest_reg | (((item >> 32) & 0xFFFF) << ADDRESS_BITS_SHIFT));
+  ((U32 *)address)[3] = (MOVK_OPCODE | SHIFT48_OPCODE | dest_reg | (((item >> 48) & 0xFFFF) << ADDRESS_BITS_SHIFT));
+}
+
+static uptr arm64_get_abs(void *address) {
+  return ((uptr)((((U32 *)address)[0] & ADDRESS_BITS_MASK) >> ADDRESS_BITS_SHIFT)
+          | ((uptr)((((U32 *)address)[1] & ADDRESS_BITS_MASK) >> ADDRESS_BITS_SHIFT) << 16)
+          | ((uptr)((((U32 *)address)[2] & ADDRESS_BITS_MASK) >> ADDRESS_BITS_SHIFT) << 32)
+          | ((uptr)((((U32 *)address)[3] & ADDRESS_BITS_MASK) >> ADDRESS_BITS_SHIFT) << 48));
+}
+
+#endif /* AARCH64 */
+
 #ifdef PPC32
 
 #define UPDATE_ADDIS(item, instr) (((instr) & ~0xFFFF) | (((item) >> 16) & 0xFFFF))
 #define UPDATE_ADDI(item, instr)  (((instr) & ~0xFFFF) | ((item) & 0xFFFF))
 
-#define MAKE_B(disp, callp) ((18 << 26) | (((disp) & 0xFFFFFF) << 2) | (callp))
-#define MAKE_ADDIS(item)    ((15 << 26) | (((item) >> 16) & 0xFFFF))
-#define MAKE_ORI(item)      ((24 << 26) | ((item) & 0xFFFF))
-#define MAKE_NOP            ((24 << 26))
-#define MAKE_MTCTR          ((31 << 26) | (9 << 16) | (467 << 1))
-#define MAKE_BCTR(callp)    ((19 << 26) | (20 << 21) | (528 << 1) | (callp))
+#define MAKE_B(disp, callp)   ((18 << 26) | (((disp) & 0xFFFFFF) << 2) | (callp))
+#define MAKE_ADDIS(item)      ((15 << 26) | (((item) >> 16) & 0xFFFF))
+#define MAKE_ADDI(item)       ((14 << 26) | ((item) & 0xFFFF))
+#define MAKE_ORI(item)        ((24 << 26) | ((item) & 0xFFFF))
+#define MAKE_NOP              ((24 << 26))
+#define MAKE_MTCTR            ((31 << 26) | (9 << 16) | (467 << 1))
+#define MAKE_BCTR(callp)      ((19 << 26) | (20 << 21) | (528 << 1) | (callp))
+
+#define DEST_REG_MASK         (0x1F << 21)
 
 static void ppc32_set_abs(void *address, uptr item) {
   /* code generator produces addis destreg, %r0, 0 (hi) ; addi destreg, destreg, 0 (lo) */
   /* we change 0 (hi) => upper 16 bits of address */
   /* we change 0 (lo) => lower 16 bits of address */
   /* low part is signed: if negative, increment high part */
+  /* but the first word may have been overritten for vfasl */
+  int dest_reg = (*((U32 *)address + 1)) & DEST_REG_MASK;
   item = item + (item << 1 & 0x10000);
-  *((U32 *)address + 0) = UPDATE_ADDIS(item, *((U32 *)address + 0));
-  *((U32 *)address + 1) = UPDATE_ADDI(item, *((U32 *)address + 1));
+  *((U32 *)address + 0) = dest_reg | MAKE_ADDIS(item);
+  *((U32 *)address + 1) = dest_reg | dest_reg >> 5 | MAKE_ADDI(item);
 }
 
 static uptr ppc32_get_abs(void *address) {
@@ -1456,14 +1750,15 @@ static uptr ppc32_get_jump(void *address) {
 #endif /* PPC32 */
 
 #ifdef X86_64
+
 static void x86_64_set_jump(void *address, uptr item, IBOOL callp) {
   I64 disp = (I64)item - ((I64)address + 5); /* 5 = size of call instruction */
   if ((I32)disp == disp) {
     *(octet *)address = callp ? 0xE8 : 0xE9;  /* call or jmp disp32 opcode */
     *(I32 *)((uptr)address + 1) = (I32)disp;
-    /* 7-byte long NOP */
-    *((octet *)address + 5) = 0x0f;
-    *((octet *)address + 6) = 0x1f;
+    /* 7-byte nop: */
+    *((octet *)address + 5) = 0x0F;
+    *((octet *)address + 6) = 0x1F;
     *((octet *)address + 7) = 0x80;
     *((octet *)address + 8) = 0x00;
     *((octet *)address + 9) = 0x00;
@@ -1486,6 +1781,36 @@ static uptr x86_64_get_jump(void *address) {
    /* must be short form: call/jmp */
     return ((uptr)address + 5) + *(I32 *)((uptr)address + 1);
 }
+
+static int popcount_present;
+
+static void x86_64_set_popcount(void *address, uptr item) {
+  if (!popcount_present) {
+    x86_64_set_jump(address, item, 1);
+  } else {
+    *((octet *)address + 0) = 0x48; /* REX */
+    *((octet *)address + 1) = 0x31; /* XOR RAX, RAX - avoid false dependency */
+    *((octet *)address + 2) = 0xc0;
+    *((octet *)address + 3) = 0xF3;
+    *((octet *)address + 4) = 0x48; /* REX */
+    *((octet *)address + 5) = 0x0F; /* POPCNT */
+    *((octet *)address + 6) = 0xB8;
+    *((octet *)address + 7) = 0xC1; /* RCX -> RAX */
+    /* 4-byte nop: */
+    *((octet *)address + 8) = 0x0F;
+    *((octet *)address + 9) = 0x1F;
+    *((octet *)address + 10) = 0x40;
+    *((octet *)address + 11) = 0x00;
+  }
+}
+
+void x86_64_set_popcount_present(ptr code) {
+  /* cpu_features returns ECX after CPUID for function 1 */
+  int (*cpu_features)() = (int (*)())((uptr)code + code_data_disp);
+  if (cpu_features() & (1 << 23))
+    popcount_present = 1;
+}
+
 #endif /* X86_64 */
 
 #ifdef SPARC64
@@ -1659,3 +1984,187 @@ static void sparc64_set_literal(void* address, uptr item) {
   sparc64_set_lit_only(address, item, destreg);
 }
 #endif /* SPARC64 */
+
+#ifdef RISCV64
+static uptr riscv64_get_abs(void* address)
+{
+  return *((I64 *)((I32 *)address + 3));
+}
+
+static uptr riscv64_get_jump(void* address)
+{
+  return *((I64 *)((I32 *)address + 3));
+}
+
+#define AUIPC_INSTR(dest, offset)   (0x17 | ((dest) << 7) | ((offset) << 12))
+#define LD_INSTR(dest, src, offset) (0x03 | ((dest) << 7) | (3 << 12) | ((src) << 15) | ((offset) << 20))
+#define EXTRACT_LD_INSTR_DEST(instr) ((instr >> 7) & 0x1F)
+#define REAL_ZERO_REG 0
+#define JUMP_REG 30
+
+static void riscv64_set_abs(void* address, uptr item)
+{
+  /*
+     Code sequence:
+
+     [0] auipc dest, 0
+     [1] ld dest, dest, 16
+     [2] jal %real-zero, 16
+     [3-4] 8-bytes of addr
+     [5] jalr - in case of call
+
+    Although vfasl may have overwritten the first instruction,
+    so we need to extract `dest` from the second.
+  */
+  int dest = EXTRACT_LD_INSTR_DEST(((I32 *)address)[1]);
+  ((I32 *)address)[0] = AUIPC_INSTR(dest, 0);
+
+  (*((I64 *)((I32 *)address + 3))) = item;
+}
+
+static void riscv64_set_jump(void* address, uptr item)
+{
+  /*
+     Code sequence:
+
+    [0] auipc %jump, 0
+    [1] ld %jump, %jump, 12
+    [2] jal %real_zero, 12
+    [3] 8-bytes of addr
+    [5] jalr
+
+    Although vfasl may have overwritten the first instruction,
+    it's always the same, so we can reconstruct it.
+  */
+  ((I32 *)address)[0] = AUIPC_INSTR(JUMP_REG, 0);
+
+  (*((I64 *)((I32 *)address + 3))) = item;
+}
+#endif /* RISCV64 */
+
+#ifdef PORTABLE_BYTECODE_SWAPENDIAN
+typedef struct {
+  octet *code;
+  uptr size;
+} rpheader_t;
+static rpheader_t *rpheader_stack;
+static int rpheader_stack_size = 0, rpheader_stack_pos = 0;
+
+static void swap_code_endian(octet *code, uptr len)
+{
+  while (len > 0) {
+    if ((rpheader_stack_pos > 0)
+	&& (code == rpheader_stack[rpheader_stack_pos-1].code)) {
+      /* swap 8-byte segments while we're in the header */
+      uptr header_size = rpheader_stack[--rpheader_stack_pos].size;
+
+      while (header_size > 0) {
+        octet a = code[0];
+        octet b = code[1];
+        octet c = code[2];
+        octet d = code[3];
+        octet e = code[4];
+        octet f = code[5];
+        octet g = code[6];
+        octet h = code[7];
+        code[0] = h;
+        code[1] = g;
+        code[2] = f;
+        code[3] = e;
+        code[4] = d;
+        code[5] = c;
+        code[6] = b;
+        code[7] = a;
+
+        code += 8;
+        len -= 8;
+        header_size -= 8;
+      }
+    } else {
+      /* swap a 4-byte instruction */
+      octet a = code[0];
+      octet b = code[1];
+      octet c = code[2];
+      octet d = code[3];
+#if fasl_endianness_is_little
+      octet le_a = a, le_b = b, le_c = c, le_d = d;
+# define le_tag_offset -ptr_bytes
+#else
+      octet le_a = d, le_b = c, le_c = b, le_d = a;
+# define le_tag_offset -1
+#endif
+      code[0] = d;
+      code[1] = c;
+      code[2] = b;
+      code[3] = a;
+
+      code += 4;
+      len -= 4;
+
+      if (le_a == pb_adr) {
+        /* delta can be negative for a mvlet-error reinstall of the return address */
+        iptr delta = 4*((((iptr)le_d << (ptr_bits - 8)) >> (ptr_bits - 20)) + ((iptr)le_c << 4) + (le_b >> 4));
+        if (delta > 0) {
+          /* after a few more instructions, we'll hit
+             a header where 64-bit values needs to be
+             swapped, instead of 32-bit values */
+          octet *after_rpheader = code + delta, *rpheader;
+	  uptr header_size;
+	  int pos;
+
+	  if ((uptr)delta > len)
+	    S_error_abort("swap endian: delta goes past end");
+
+          if (after_rpheader[le_tag_offset] & 0x1)
+            header_size = size_rp_compact_header;
+          else
+            header_size = size_rp_header;
+          rpheader = after_rpheader - header_size;
+          
+	  if (rpheader_stack_pos == rpheader_stack_size) {
+	    int new_size = (2 * rpheader_stack_size) + 16;
+	    rpheader_t *new_stack;
+	    new_stack = malloc(new_size * sizeof(rpheader_t));
+	    if (rpheader_stack != NULL) {
+	      memcpy(new_stack, rpheader_stack, rpheader_stack_pos * sizeof(rpheader_t));
+	      free(rpheader_stack);
+	    }
+	    rpheader_stack_size = new_size;
+	    rpheader_stack = new_stack;
+	  }
+
+	  rpheader_stack[rpheader_stack_pos].code = rpheader;
+	  rpheader_stack[rpheader_stack_pos].size = header_size;
+	  rpheader_stack_pos++;
+
+	  /* bubble down to keep sorted */
+	  for (pos = rpheader_stack_pos - 2; pos > 0; --pos) {
+	    if (rpheader_stack[pos].code < rpheader_stack[pos+1].code) {
+	      rpheader_t tmp = rpheader_stack[pos];
+	      rpheader_stack[pos] = rpheader_stack[pos+1];
+	      rpheader_stack[pos+1] = tmp;
+	    }
+	  }
+        }
+      }
+    }
+  }
+
+  if (rpheader_stack_pos > 0)
+    S_error_abort("swap endian: header stack ends non-empty");
+}
+
+void S_swap_dounderflow_header_endian(ptr co)
+{
+  /* The `dounderflow` library entry starts with a header, so
+     it does not have a `pb_adr` instruction before. We need
+     to finish swapping the header's `ptr`-sized values, but
+     the mv-return address is already linked, so the only
+     thing to fix turns out to be the first `ptr`. */
+  uint32_t *code = (uint32_t *)&CODEIT(co, 0);
+  uint32_t a = code[0];
+  uint32_t b = code[1];
+  code[0] = b;
+  code[1] = a;
+}
+#endif

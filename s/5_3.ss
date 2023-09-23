@@ -86,10 +86,12 @@
 (define integer+ (schemeop2 "(cs)add"))
 (define integer* (schemeop2 "(cs)mul"))
 (define integer- (schemeop2 "(cs)sub"))
-(define integer/ (schemeop2 "(cs)s_div"))
-(define intquotient (schemeop2 "(cs)ss_trunc"))
-(define intquotient-remainder (schemeop2 "(cs)ss_trunc_rem"))
-(define intremainder (schemeop2 "(cs)rem"))
+(define schoolbook-integer/ (schemeop2 "(cs)s_div"))
+(define schoolbook-intquotient (schemeop2 "(cs)ss_trunc"))
+(define schoolbook-intquotient-remainder (schemeop2 "(cs)ss_trunc_rem"))
+(define schoolbook-intremainder (schemeop2 "(cs)rem"))
+(define schoolbook-gcd (schemeop2 "(cs)gcd"))
+(define make-ratnum (schemeop2 "(cs)s_rational")) ; does not normalize, except detecting 1 as demoninator
 
 (define $flsin (cflop1 "(cs)sin"))
 
@@ -100,6 +102,202 @@
 (define $flacos (cflop1 "(cs)acos"))
 (define $flfloor (cflop1 "(cs)floor"))
 (define $flceiling (cflop1 "(cs)ceil"))
+
+(let ()
+
+;; Burnikel-Ziegler division by Peter Bex from a series about CHICKEN's
+;; numeric tower:
+;;   https://www.more-magic.net/posts/numeric-tower-part-3.html
+;;   Licensed under the Creative Commons Attribution 3.0 License.
+;; The Scheme code here appears to be directly based on the C
+;; code in CHICKEN's BSD-licensed "runtime.c":
+;;   Copyright (c) 2008-2020, The CHICKEN Team
+;;   Copyright (c) 2000-2007, Felix L. Winkelmann
+;;   All rights reserved.
+
+(define DIV-LIMIT 100)
+
+(define (bigits->bits n) (fx* (constant bigit-bits) n))    ; Small helper
+
+(define (extract-bigits n start end)
+  (let ([s-bits (bigits->bits start)])
+    (bitwise-bit-field n s-bits (if end
+                                    (bigits->bits end)
+                                    (fxmax s-bits (integer-length n))))))
+
+;; Here and in 2n/1n we pass both b and [b1, b2] to avoid splitting
+;; up the number more than once.  This is a helper function for 2n/n.
+(define (burnikel-ziegler-3n/2n a12 a3 b b1 b2 n)
+  (let-values ([(q^ r1) (if (< (bitwise-arithmetic-shift-right a12 (bigits->bits n)) b1)
+                            (let* ((n/2 (fxsra n 1))                     ; (floor (/ n 2))
+                                   (b11 (extract-bigits b1 n/2 #f))      ; b1[n..n/2]
+                                   (b12 (extract-bigits b1 0 n/2)))      ; b1[n/2..0]
+                              (burnikel-ziegler-2n/1n a12 b1 b11 b12 n #t))
+                            ;; Don't bother dividing if a1 is a larger number than b1.
+	                    ;; We use a maximum guess instead (see paper for proof).
+                            (let ((base*n (bigits->bits n)))
+                              (values (- (bitwise-arithmetic-shift-left 1 base*n) 1)  ; B^n-1
+                                      (+ (- a12 (bitwise-arithmetic-shift-left b1 base*n)) b1))))])
+    (let ((r1a3 (+ (bitwise-arithmetic-shift-left r1 (bigits->bits n)) a3)))
+      (let lp ((r^ (- r1a3 (* q^ b2)))
+               (q^ q^))
+        (if (negative? r^)
+            (lp (+ r^ b) (- q^ 1))                     ; Adjust!
+            (values q^ r^))))))
+
+;; The main 2n/n algorithm which calls 3n/2n twice.  Here, a is the
+;; numerator, b the denominator, n is the length of b (in digits) and
+;; b1 and b2 are the two halves of b (these never change).
+(define (burnikel-ziegler-2n/1n a b b1 b2 n return-quot?)
+  (if (or (fxodd? n) (fx< n DIV-LIMIT))             ; Can't recur?
+      (let ([p (schoolbook-intquotient-remainder a b)]) ; Use school division
+        (values (car p) (cdr p)))
+      (let* ((n/2 (fxsra n 1))
+             ;; Split a and b into n-sized parts [a1, ..., a4] and [b1, b2]
+             (a12 (extract-bigits a n #f))             ; a[m..n]
+             (a3  (extract-bigits a n/2 n))            ; a[n..n/2]
+             (a4  (extract-bigits a 0 n/2)))           ; a[n..0]
+        ;; Calculate high quotient and intermediate remainder (first half)
+        (let-values ([(q1 r1) (burnikel-ziegler-3n/2n a12 a3 b b1 b2 n/2)])
+          ;; Calculate low quotient and final remainder (second half)
+          (let-values ([(q2 r) (burnikel-ziegler-3n/2n r1 a4 b b1 b2 n/2)])
+            ;; Recombine quotient parts as q = [q1,q2]
+            (values (and return-quot?
+                         (+ (bitwise-arithmetic-shift-left q1 (bigits->bits n/2)) q2))
+                    r))))))
+
+(define (quotient&remainder/burnikel-ziegler x y return-quot? return-rem?)
+  ;; Caller will have made sure that x and y are bignums
+  (let* ((q-neg? (if (negative? y) (not (negative? x)) (negative? x)))
+         (r-neg? (negative? x))
+         (abs-x (abs x))
+         (abs-y (abs y)))
+    (cond
+      [(> abs-x abs-y)
+       (let* ((x abs-x)
+              (y abs-y)
+              (s ($bignum-length y))
+              ;; Define m as min{2^k|(2^k)*DIV_LIMIT > s}.
+              ;; This ensures we shift as little as possible (less pressure
+              ;; on the GC) while maintaining a power of two until we drop
+              ;; below the threshold, so we can always split N in half.
+              (m (fxsll 1 (integer-length (fx/ s DIV-LIMIT))))
+              (j (fx/ (fx+ s (fx- m 1)) m))  ; j = s/m, rounded up
+              (n (fx* j m))
+              ;; Normalisation, just like with normal school division
+              (norm-shift (fx- (bigits->bits n) (integer-length y)))
+              (x (bitwise-arithmetic-shift-left x norm-shift))
+              (y (bitwise-arithmetic-shift-left y norm-shift))
+              ;; l needs to be the smallest value so that a < base^{l*n}/2
+              (l (fx/ (fx+ ($bignum-length x) n) n))
+              (l (if (fx= (bigits->bits l) (integer-length x)) (fx+ l 1) l))
+              (t (fxmax l 2))
+              (y-hi (extract-bigits y (fxsra n 1) #f))   ; y[n..n/2]
+              (y-lo (extract-bigits y 0 (fxsra n 1))))   ; y[n/2..0]
+         (let lp ((zi (bitwise-arithmetic-shift-right x (bigits->bits (fx* (fx- t 2) n))))
+                  (i (fx- t 2))
+                  (quot 0))
+           (let-values ([(qi ri) (burnikel-ziegler-2n/1n zi y y-hi y-lo n return-quot?)])
+             (let ((quot (and return-quot?
+                              (+ (bitwise-arithmetic-shift-left quot (bigits->bits n)) qi))))
+               (if (fx> i 0)
+                   (let ((zi-1 (let* ((base*n*i-1 (fx* n (fx- i 1)))
+                                      (base*n*i   (fx* n i))
+                                      ;; x_{i-1} = x[n*i..n*(i-1)]
+                                      (xi-1 (extract-bigits x base*n*i-1 base*n*i)))
+                                 (+ (bitwise-arithmetic-shift-left ri (bigits->bits n)) xi-1))))
+                     (lp zi-1 (fx- i 1) quot))
+                   ;; De-normalise remainder, but only if necessary
+                   (let ((rem (if (or (not return-rem?) (eq? 0 norm-shift))
+                                  ri
+                                  (bitwise-arithmetic-shift-right ri norm-shift))))
+                     ;; Return values (quot, rem or both) with correct sign:
+                     (cond ((and return-quot? return-rem?)
+                            (values (if q-neg? (- quot) quot)
+                                    (if r-neg? (- rem) rem)))
+                           (return-quot? (if q-neg? (- quot) quot))
+                           (else (if r-neg? (- rem) rem)))))))))]
+      [(< abs-x abs-y)
+       (cond
+         [(and return-quot? return-rem?) (values 0 x)]
+         [return-quot? 0]
+         [else x])]
+      [else
+       (cond
+         [(and return-quot? return-rem?) (values (if q-neg? -1 1) 0)]
+         [return-quot? (if q-neg? -1 1)]
+         [else 0])])))
+
+;; Only try to use Burnikel-Ziegler when we have large enough bignums:
+(define (big-divide-bignums? n d)
+  ;; Based on Brian Burkhalter's recommendation:
+  ;;  http://mail.openjdk.java.net/pipermail/core-libs-dev/2013-November/023493.html
+  (and (bignum? n)
+       (bignum? d)
+       (fx>= ($bignum-length d) DIV-LIMIT)
+       (fx>= (- ($bignum-length n) ($bignum-length d)) DIV-LIMIT)))
+
+(define intquotient
+  (lambda (n d)
+    (cond
+      [(big-divide-bignums? n d)
+       (quotient&remainder/burnikel-ziegler n d #t #f)]
+      [else
+       (schoolbook-intquotient n d)])))
+
+(define intquotient-remainder
+  (lambda (n d)
+    (cond
+      [(big-divide-bignums? n d)
+       (let-values ([(q r) (quotient&remainder/burnikel-ziegler n d #t #t)])
+         (cons q r))]
+      [else
+       (schoolbook-intquotient-remainder n d)])))
+
+(define intremainder
+  (lambda (n d)
+    (cond
+      [(big-divide-bignums? n d)
+       (quotient&remainder/burnikel-ziegler n d #f #t)]
+      [else
+       (schoolbook-intremainder n d)])))
+
+(define integer-gcd
+  (let ([$bignum-trailing-zero-bits (foreign-procedure "(cs)s_big_trailing_zero_bits" (ptr) ptr)])
+    (lambda (n d)
+      (cond
+        [(and (bignum? n) (bignum? d))
+         (let* ([nz ($bignum-trailing-zero-bits n)]
+                [dz ($bignum-trailing-zero-bits d)]
+                [cz (fxmin nz dz)]
+                ;; The `$bignum-trailing-zero-bits` function is just counting trailing 0 bigits,
+                ;; so it returns an approximation to the number of trailing zero bits. We may need to
+                ;; keep one bigit of `n` or `d` to pair up with leftover trailing 0 bits in
+                ;; `d` or `n`.
+                [n (abs (bitwise-arithmetic-shift-right n (fxmax cz (fx- nz (constant bigit-bits)))))]
+                [d (abs (bitwise-arithmetic-shift-right d (fxmax cz (fx- dz (constant bigit-bits)))))])
+           (define (gcd n d)
+             (cond
+               [(= n 0) d]
+               [else (gcd (intremainder d n) n)]))
+           (let ([g (if (< (if (bignum? n) ($bignum-length n) 0)
+                           (if (bignum? d) ($bignum-length d) 0))
+                        (gcd n d)
+                        (gcd d n))])
+             (bitwise-arithmetic-shift-left g cz)))]
+        [else (schoolbook-gcd n d)]))))
+
+(define integer/
+  (lambda (n d)
+    (cond
+      [(and (bignum? n) (bignum? d))
+       (let* ([g (integer-gcd n d)]
+              [g (if ($bigpositive? d)
+                     g
+                     (- g))])
+         (make-ratnum (intquotient n g)
+                      (intquotient d g)))]
+      [else (schoolbook-integer/ n d)])))
 
 (let ()
 
@@ -473,7 +671,7 @@
             [z+ (cflsqrt (cfl+ 1.0 z))])
          (let ([a (cfl-real-part z-)] [b (cfl-imag-part z-)]
                [c (cfl-real-part z+)] [d (cfl-imag-part z+)])
-            (fl-make-rectangular (fl* 2.0 ($flatan (fl/ a c)))
+            (fl-make-rectangular (fl* 2.0 (flatan2 a c))
                                  (flasinh (fl- (fl* b c) (fl* a d))))))))
 
 (define cflasin
@@ -489,7 +687,9 @@
          (let ([a (cfl-real-part z-)] [b (cfl-imag-part z-)]
                [c (cfl-real-part z+)] [d (cfl-imag-part z+)])
             (fl-make-rectangular
-               ($flatan (fl/ (cfl-real-part z) (fl- (fl* a c) (fl* b d))))
+               (flatan2 (cfl-real-part z) (if (flonum? z)
+                                              0.0
+                                              (fl- (fl* a c) (fl* b d))))
                (flasinh (fl- (fl* a d) (fl* b c))))))))
 
 (define cflasinh
@@ -636,7 +836,7 @@
 (define exact-inexact/
    (lambda (x y)
       (cond
-         [(fixnum? x) (fl/ (fixnum->flonum x) y)]
+         [(fixnum? x) (if (fx= x 0) 0 (fl/ (fixnum->flonum x) y))]
          [(floatable? x) (fl/ (inexact x) y)]
          [(or (fl= y 0.0) (exceptional-flonum? y))
           (if (< x 0) (fl/ -1.0 y) (fl/ y))]
@@ -645,7 +845,7 @@
 (define inexact-exact/
    (lambda (x y)
       (cond
-         [(fixnum? y) (fl/ x (fixnum->flonum y))]
+         [(fixnum? y) (if (eq? y 0) (domain-error '/ y) (fl/ x (fixnum->flonum y)))]
          [(floatable? y) (fl/ x (inexact y))]
          [(or (fl= x 0.0) (exceptional-flonum? x)) (if (< y 0) (fl- x) x)]
          [else (inexact (/ (exact x) y))])))
@@ -663,6 +863,10 @@
          [($exactnum?) (and (floatable? (real-part x))
                              (floatable? (imag-part x)))]
          [else #t])))
+
+(define exact-integer-fits-float?
+  (lambda (x)
+    (<= (- (expt 2 53)) x (expt 2 53))))
 
 (define fixnum-floatable-wlop?
   ;; floatable without loss of precision
@@ -695,10 +899,30 @@
          [(ratnum?)
           (/ (exact-sqrt (numerator x)) (exact-sqrt (denominator x)))]
          [else
-          (let ([rp (exact-sqrt (/ (+ (exact-sqrt (magnitude-squared x))
-                                      (real-part x))
-                                   2))])
-             (make-rectangular rp (/ (imag-part x) (* 2 rp))))])))
+          (let ([ssq (exact-sqrt (magnitude-squared x))])
+            (let* ([ip (exact-sqrt (/ (- ssq (real-part x))
+                                      2))]
+                   [rp (exact-sqrt (/ (+ ssq (real-part x))
+                                       2))]
+                   [ip (if (< (imag-part x) 0)
+                           (- ip)
+                           ip)])
+              (make-rectangular rp ip)))])))
+
+(define (exact-ratnum* y x)
+  ;; Simplied from ratnum case below:
+  (let ((p ($ratio-numerator x))
+        (q ($ratio-denominator x)))
+    (cond
+      [(and (fixnum? p) (fixnum? q))
+       (integer/ (* y p) q)]
+      [else
+       (let* ((gcd-rq (integer-gcd y q))
+              (num (* p (intquotient y gcd-rq)))
+              (den (intquotient q gcd-rq)))
+         (if (eqv? den 1)
+             num
+             (make-ratnum num den)))])))
 
 (define ($fldiv-and-mod x y)
   (if (negated-flonum? y)
@@ -875,7 +1099,7 @@
           (let ([max-fx-shift (- (constant fixnum-bits) 1)])
             (if (fx> n max-fx-shift)
                 (integer-ash x n)
-                (let ([m (#3%fxsll x n)])
+                (let ([m (fxsll/wraparound x n)])
                   (if (fx= (fxsra m n) x)
                       m
                       (integer-ash x n)))))]
@@ -919,7 +1143,7 @@
            (fx- x))]
       [(bignum?) (big-negate x)]
       [(flonum?) (fl- x)]
-      [(ratnum?) (integer/ (- ($ratio-numerator x)) ($ratio-denominator x))]
+      [(ratnum?) (make-ratnum (- ($ratio-numerator x)) ($ratio-denominator x))]
       [($exactnum? $inexactnum?) (make-rectangular (- (real-part x)) (- (imag-part x)))]
       [else (nonnumber-error who x)])))
 
@@ -1161,15 +1385,10 @@
               (loop (max x (car z)) (cdr z))))])))
 
 (let ()
-  (define exgcd
-    (foreign-procedure "(cs)gcd"
-      (scheme-object scheme-object)
-      scheme-object))
-
   (define (exlcm x1 x2)
     (if (or (eqv? x1 0) (eqv? x2 0))
         0
-        (* (abs x1) (/ (abs x2) (exgcd x1 x2)))))
+        (* (abs x1) (/ (abs x2) (integer-gcd x1 x2)))))
 
   (set-who! gcd
     (rec gcd
@@ -1179,11 +1398,11 @@
         [(x1 x2)
          (if (and (or (fixnum? x1) (bignum? x1))
                   (or (fixnum? x2) (bignum? x2)))
-             (exgcd x1 x2)
+             (integer-gcd x1 x2)
              (begin
                (unless (integer? x1) (noninteger-error who x1))
                (unless (integer? x2) (noninteger-error who x2))
-               (inexact (exgcd (exact x1) (exact x2)))))]
+               (inexact (integer-gcd (exact x1) (exact x2)))))]
         [(x1 x2 . xr)
          (let f ([x1 x1] [x2 x2] [xr xr])
            (let ([x1 (gcd x1 x2)])
@@ -1293,7 +1512,10 @@
 (set! angle
    (lambda (z)
       (type-case z
-         [(flonum?) (if (negated-flonum? z) pi 0.0)]
+         [(flonum?) (cond
+                     [($nan? z) +nan.0]
+                     [(negated-flonum? z) pi]
+                     [else 0])]
          [($inexactnum?) (cflangle z)]
          [(fixnum? bignum? ratnum?)
           (cond
@@ -1348,7 +1570,7 @@
       [(x)
        (type-case x
          [(flonum?)
-          (if (negated-flonum? x)
+          (if (fl< x 0.0)
               (fl-make-rectangular ($fllog (fl- x)) pi)
               ($fllog x))]
          [($inexactnum?) (cfllog x)]
@@ -1479,8 +1701,8 @@
                  0)]
             [(eq? x 1) 1]
             [(eq? x 2) (if (< y 0) (/ (ash 1 (- y))) (ash 1 y))]
-            [(and (flonum? x) (floatable? y)) ($flexpt x (inexact y))]
-            [(and ($inexactnum? x) (floatable? y)) (exp (* y (log x)))]
+            [(and (flonum? x) (exact-integer-fits-float? y)) ($flexpt x (inexact y))]
+            [(and ($inexactnum? x) (exact-integer-fits-float? y)) (exp (* y (log x)))]
             [(not (number? x)) (nonnumber-error 'expt x)]
             [(ratnum? x)
              (if (< y 0)
@@ -1490,10 +1712,14 @@
             [else
              (let ()
                (define (f x n)
-                 (if (eq? n 1)
-                     x
-                     (let ([s (f x (ash n -1))])
-                        (if (even? n) (* s s) (* (* s s) x)))))
+                 (let loop ([i (integer-length n)] [a 1])
+                   (let ([a (if (bitwise-bit-set? n i)
+                                (* a x)
+                                a)])
+                     (if (fx= i 0)
+                         a
+                         (loop (fx- i 1)
+                               (* a a))))))
                (if (< y 0)
                    (if (or (fixnum? x) (bignum? x))
                        (/ (f x (- y)))
@@ -1502,29 +1728,57 @@
          [(flonum?)
           (type-case x
              [(flonum?)
-              (if (and (fl< x 0.0) (not ($flinteger-or-inf? y)))
+              (if (and (fl< x 0.0) (not ($flinteger? y)))
                   (exp (* y (log x)))
                   ($flexpt x y))]
              [($inexactnum? $exactnum?) (exp (* y (log x)))]
              [(fixnum? bignum? ratnum?)
-              (if (floatable? x)
-                  (expt (inexact x) y)
-                  (exp (* y (log x))))]
+              (cond
+               [(eq? x 0)
+                (cond
+                 [(fl< y 0.0) ($impoops 'expt "undefined for values ~s and ~s" x y)]
+                 [(fl= y 0.0) 1.0]
+                 [($nan? y) +nan.0]
+                 [else 0])]
+               [(eq? x 1) 1]
+               [else
+                (if (floatable? x)
+                    (expt (inexact x) y)
+                    (exp (* y (log x))))])]
              [else (nonnumber-error 'expt x)])]
          [($inexactnum?)
-          (if (or (eq? x 0) (and (flonum? x) (= x 0.0)))
-              0.0 
-              (begin
-                (unless (number? x) (nonnumber-error 'expt x))
-                (exp (* y (log x)))))]
+          (cond
+           [(eq? x 0)
+            (let ([r ($inexactnum-real-part y)])
+              (cond
+               [(fl> r 0.0) 0]
+               [else
+                ($impoops 'expt "undefined for values ~s and ~s" x y)]))]
+           [(eq? x 1) 1]
+           [(and (flonum? x) (fl= x 0.0) (not (negated-flonum? ($inexactnum-real-part y))))
+            0.0]
+           [else
+            (unless (number? x) (nonnumber-error 'expt x))
+            (exp (* y (log x)))])]
          [(ratnum? $exactnum?)
           (unless (number? x) (nonnumber-error 'expt x))
           (cond
+             [(eqv? y 1/2) (sqrt x)]
              [(eq? x 0)
               (if (> (real-part y) 0)
                   0
                   ($impoops 'expt "undefined for values ~s and ~s" x y))]
-             [(floatable? y) (expt x (inexact y))]
+             [(eq? x 1) 1]
+             [(and (floatable? y)
+                   (let ([y (inexact y)])
+                     ;; Don't use this case if `(inexact y)` loses
+                     ;; precision and becomes an an integer, in which
+                     ;; case the result would be real (but should be
+                     ;; non-real complex)
+                     (and (not (and (flonum? y)
+                                    ($flinteger? y)))
+                          y)))
+              => (lambda (y) (expt x y))]
              [else (exp (* y (log x)))])]
          [else (nonnumber-error 'expt y)])))
 
@@ -1532,7 +1786,7 @@
    (lambda (x)
       (type-case x
          [(flonum?)
-          (if (and (negated-flonum? x) (not ($nan? x)))
+          (if (fl< x 0.0)
               (fl-make-rectangular 0.0 ($flsqrt (flabs x)))
               ($flsqrt x))]
          [($inexactnum?) (cflsqrt x)]
@@ -2123,7 +2377,7 @@
         [(fixnum? bignum?) (integer+ x y)]
         [(ratnum?)
          (let ([d ($ratio-denominator y)])
-           (integer/ (+ (* x d) ($ratio-numerator y)) d))]
+           (make-ratnum (+ (* x d) ($ratio-numerator y)) d))]
         [(flonum?) (exact-inexact+ x y)]
         [($exactnum? $inexactnum?)
          (make-rectangular (+ x (real-part y)) (imag-part y))]
@@ -2141,12 +2395,28 @@
            (type-case y
              [(fixnum? bignum?)
               (let ([d ($ratio-denominator x)])
-                (integer/ (+ (* y d) ($ratio-numerator x)) d))]
+                (make-ratnum (+ (* y d) ($ratio-numerator x)) d))]
              [(ratnum?)
-              (let ([xd ($ratio-denominator x)] [yd ($ratio-denominator y)])
-                (integer/
-                  (+ (* ($ratio-numerator x) yd) (* ($ratio-numerator y) xd))
-                  (* xd yd)))]
+	      ;; adapted from Gambit, see gambit/lib/_num.scm
+	      (let ((p ($ratio-numerator x))
+		    (q ($ratio-denominator x))
+		    (r ($ratio-numerator y))
+		    (s ($ratio-denominator y)))
+		(let ((d1 (integer-gcd q s)))
+		  (if (eqv? d1 1)
+		      (make-ratnum (+ (* p s)
+				      (* r q))
+				   (* q s))
+		      (let* ((s-prime (intquotient s d1))
+			     (t (+ (* p s-prime)
+				   (* r (intquotient q d1))))
+			     (d2 (integer-gcd d1 t))
+			     (num (intquotient t d2))
+			     (den (* (intquotient q d2)
+				     s-prime)))
+			(if (eqv? den 1)
+			    num
+			    (make-ratnum num den))))))]
              [($exactnum? $inexactnum?)
               (make-rectangular (+ x (real-part y)) (imag-part y))]
              [(flonum?) (exact-inexact+ x y)]
@@ -2169,40 +2439,187 @@
           [else (nonnumber-error who x)])])))
 
 (set! $*
-  (lambda (who x y)
-    (define (exint-unknown* who x y)
-      (type-case y
-        [(fixnum? bignum?) (integer* x y)]
-        [(ratnum?) (integer/ (* x ($ratio-numerator y)) ($ratio-denominator y))]
-        [($exactnum? $inexactnum?)
-         (make-rectangular (* x (real-part y)) (* x (imag-part y)))]
-        [(flonum?) (exact-inexact* x y)]
-        [else (nonnumber-error who y)]))
+  (let ([$bignum-trailing-zero-bits (foreign-procedure "(cs)s_big_trailing_zero_bits" (ptr) ptr)])
+   (lambda (who x y)
     (cond
-      [(and (fixnum? y) ($fxu< (#3%fx+ y 1) 3))
+      [(and (fixnum? y) ($fxu< (fx+/wraparound y 1) 3))
        (cond
          [(fx= y 0) (unless (number? x) (nonnumber-error who x)) 0]
          [(fx= y 1) (unless (number? x) (nonnumber-error who x)) x]
          [else ($negate who x)])]
       [else
-        (type-case x
-          [(fixnum?)
-           (cond
-             [($fxu< (#3%fx+ x 1) 3)
-              (cond
-                [(fx= x 0) (unless (number? y) (nonnumber-error who y)) 0]
-                [(fx= x 1) (unless (number? y) (nonnumber-error who y)) y]
-                [else ($negate who y)])]
-             [else (exint-unknown* who x y)])]
-          [(bignum?) (exint-unknown* who x y)]
-          [(ratnum?)
-           (type-case y
-             [(fixnum? bignum?)
-              (integer/ (* y ($ratio-numerator x)) ($ratio-denominator x))]
+       (type-case x
+         [(fixnum? bignum?)
+          (type-case y
+             [(fixnum?) (integer* x y)]
+            [(bignum?) (if (fixnum? x)
+                           (cond
+                            [($fxu< (fx+/wraparound x 1) 3)
+                             (cond
+                              [(fx= x 0) (unless (number? y) (nonnumber-error who y)) 0]
+                              [(fx= x 1) (unless (number? y) (nonnumber-error who y)) y]
+                              [else ($negate who y)])]
+                            [else (integer* x y)])
+                           (let ([slim 32]
+				 [klim 100]
+				 [t3lim 512])
+                             ; both of the following functions were adapted from
+                             ; https://github.com/casevh/DecInt/blob/master/DecInt.py#L451
+                             ; under the BSD license
+                             (define (toom3 x y)
+                               (define xl (if (bignum? x) ($bignum-length x) 0))
+                               (define yl (if (bignum? y) ($bignum-length y) 0))
+                               (cond
+                                 [(and (fx< xl slim) (fx< yl slim))
+                                  (integer* x y)]
+                                 [(and (fx< xl klim) (fx< yl klim))
+                                  (karatsuba x y)]
+                                 [else
+                                  (let* ([k (fx* (fxquotient (fxmax xl yl) 3) (constant bigit-bits))]
+                                         [x-hi (ash x (fx* -2 k))]
+                                         [y-hi (ash y (fx* -2 k))]
+                                         [x-mid (bitwise-bit-field x k (fx* 2 k))]
+                                         [y-mid (bitwise-bit-field y k (fx* 2 k))]
+                                         [x-lo (bitwise-bit-field x 0 k)]
+                                         [y-lo (bitwise-bit-field y 0 k)]
+                                         [z0 (toom3 x-hi y-hi)]
+                                         [z4 (toom3 x-lo y-lo)]
+                                         [t1 (toom3 (+ x-hi x-mid x-lo) (+ y-hi y-mid y-lo))]
+                                         [t2 (toom3 (+ (- x-hi x-mid) x-lo) (+ (- y-hi y-mid) y-lo))]
+                                         [t3 (* (+ x-hi (ash x-mid 1) (ash x-lo 2))
+                                                (+ y-hi (ash y-mid 1) (ash y-lo 2)))]
+                                         [z2 (- (ash (+ t1 t2) -1) z0 z4)]
+                                         [t4 (- t3 z0 (ash z2 2) (ash z4 4))]
+                                         [z3 (quotient (+ (- t4  t1) t2) 6)]
+                                         [z1 (- (ash (- t1 t2) -1) z3)])
+                                    (+ (ash z0 (* k 4))
+                                       (ash z1 (* k 3))
+                                       (ash z2 (* k 2))
+                                       (ash z3 (* k 1))
+                                       (ash z4 (* k 0))))]))
+
+                             (define (toom4 x y)
+                               (define xl (if (bignum? x) ($bignum-length x) 0))
+                               (define yl (if (bignum? y) ($bignum-length y) 0))
+                               (cond
+                                 [(and (fx< xl slim) (fx< yl slim))
+                                  (integer* x y)]
+                                 [(and (fx< xl klim) (fx< yl klim))
+                                  (karatsuba x y)]
+                                 [(and (fx< xl t3lim) (fx< yl t3lim))
+                                  (toom3 x y)]
+                                 [else
+                                  (let* ((k (fx* (fxquotient (fxmax xl yl) 4) (constant bigit-bits)))
+                                         (x0 (ash x (fx* -3 k)))
+                                         (y0 (ash y (fx* -3 k)))
+                                         (x1 (bitwise-bit-field x (fx* 2 k) (fx* 3 k)))
+                                         (y1 (bitwise-bit-field y (fx* 2 k) (fx* 3 k)))
+                                         (x2 (bitwise-bit-field x (fx* 1 k) (fx* 2 k)))
+                                         (y2 (bitwise-bit-field y (fx* 1 k) (fx* 2 k)))
+                                         (x3 (bitwise-bit-field x 0 k))
+                                         (y3 (bitwise-bit-field y 0 k))
+                                         (z0 (toom4 x0 y0))
+                                         (z6 (toom4 x3 y3))
+                                         (t0 (+ z0 z6))
+                                         (xeven (+ x0 x2))
+                                         (xodd (+ x1 x3))
+                                         (yeven (+ y0 y2))
+                                         (yodd (+ y1 y3))
+                                         (t1 (- (toom4 (+ xeven xodd) (+ yeven yodd)) t0))
+                                         (t2 (- (toom4 (- xeven xodd) (- yeven yodd)) t0))
+                                         (xeven (+ x0 (ash x2 2)))
+                                         (xodd (+ (ash x1 1) (ash x3 3)))
+                                         (yeven (+ y0 (ash y2 2)))
+                                         (yodd (+ (ash y1 1) (ash y3 3)))
+                                         (t0 (+ z0 (ash z6 6)))
+                                         (t3 (- (toom4 (+ xeven xodd) (+ yeven yodd)) t0))
+                                         (t4 (- (toom4 (- xeven xodd) (- yeven yodd)) t0))
+                                         (t5 (- (* (+ x0 (* 3 x1) (* 9 x2) (* 27 x3))
+                                                   (+ y0 (* 3 y1) (* 9 y2) (* 27 y3)))
+                                                (+ z0 (* 729 z6))))
+                                         (t6 (+ t1 t2))
+                                         (t7 (+ t3 t4))
+                                         (z4 (quotient (- t7 (ash t6 2)) 24))
+                                         (z2 (- (ash t6 -1) z4))
+                                         (t8 (- t1 z2 z4))
+                                         (t9 (- t3 (ash z2 2) (ash z4 4)))
+                                         (t10 (- t5 (* 9 z2) (* 81 z4)))
+                                         (t11 (- t10 (* 3 t8)))
+                                         (t12 (- t9 (ash t8 1)))
+                                         (z5 (quotient (- t11 (ash t12 2)) 120))
+                                         (z3 (quotient (- (ash t12 3) t11) 24))
+                                         (z1 (- t8 z3 z5)))
+                                    (+ (ash z0 (* k 6))
+                                       (ash z1 (* k 5))
+                                       (ash z2 (* k 4))
+                                       (ash z3 (* k 3))
+                                       (ash z4 (* k 2))
+                                       (ash z5 (* k 1))
+                                       (ash z6 (* k 0))))]))
+
+                              ;; _Modern Computer Arithmetic_, Brent and Zimmermann
+                              (define (karatsuba x y)
+                                (define xl (if (bignum? x) ($bignum-length x) 0))
+                                (define yl (if (bignum? y) ($bignum-length y) 0))
+                                (cond
+                                 [(and (fx< xl 30) (fx< yl 30))
+                                  (integer* x y)]
+                                 [else
+                                  (let* ([k (fx* (fxquotient (fxmax xl yl) 2) (constant bigit-bits))]
+                                         [x-hi (ash x (fx- k))]
+                                         [y-hi (ash y (fx- k))]
+					 [x-lo (bitwise-bit-field x 0 k)]
+					 [y-lo (bitwise-bit-field y 0 k)]
+                                         [c0 (karatsuba x-lo y-lo)]
+                                         [c1 (karatsuba x-hi y-hi)]
+                                         [c1-c2 (cond
+                                                 [(< x-lo x-hi)
+                                                  (cond
+                                                   [(< y-lo y-hi)
+                                                    (- c1 (karatsuba (- x-hi x-lo) (- y-hi y-lo)))]
+                                                   [else
+                                                    (+ c1 (karatsuba (- x-hi x-lo) (- y-lo y-hi)))])]
+                                                 [else
+                                                  (cond
+                                                   [(< y-lo y-hi)
+                                                    (+ c1 (karatsuba (- x-lo x-hi) (- y-hi y-lo)))]
+                                                   [else
+                                                    (- c1 (karatsuba (- x-lo x-hi) (- y-lo y-hi)))])])])
+                                    (+ c0 (integer-ash (+ c0 c1-c2) k) (integer-ash c1 (fx* 2 k))))]))
+                              ;; Multiplying numbers with trailing 0s is common, so
+                              ;; check for that case:
+                              (let ([xz ($bignum-trailing-zero-bits x)]
+                                    [yz (if (bignum? y) ($bignum-trailing-zero-bits y) 0)])
+                                (let ([z (fx+ xz yz)])
+                                  (if (fx= z 0)
+                                      (toom4 x y)
+                                      (bitwise-arithmetic-shift-left
+                                       (toom4 (bitwise-arithmetic-shift-right x xz)
+					      (bitwise-arithmetic-shift-right y yz))
+                                       z))))))]
+             [(ratnum?) (exact-ratnum* x y)]
+             [($exactnum? $inexactnum?)
+              (make-rectangular (* x (real-part y)) (* x (imag-part y)))]
+             [(flonum?) (exact-inexact* x y)]
+             [else (nonnumber-error who y)])]
+         [(ratnum?)
+          (type-case y
+             [(fixnum? bignum?) (exact-ratnum* y x)]
              [(ratnum?)
-              (integer/
-                (* ($ratio-numerator x) ($ratio-numerator y))
-                (* ($ratio-denominator x) ($ratio-denominator y)))]
+	      ;; adapted from Gambit, see gambit/lib/_num.scm
+	      (let ((p ($ratio-numerator x))
+		    (q ($ratio-denominator x))
+		    (r ($ratio-numerator y))
+		    (s ($ratio-denominator y)))
+		(if (eq? x y)
+		    (make-ratnum (magnitude-squared p) (magnitude-squared q))     ;; already in lowest form
+		    (let* ((gcd-ps (integer-gcd p s))
+			   (gcd-rq (integer-gcd r q))
+			   (num (* (intquotient p gcd-ps) (intquotient r gcd-rq)))
+			   (den (* (intquotient q gcd-rq) (intquotient s gcd-ps))))
+		      (if (eqv? den 1)
+			  num
+			  (make-ratnum num den)))))]
              [($exactnum? $inexactnum?)
               (make-rectangular (* x (real-part y)) (* x (imag-part y)))]
              [(flonum?) (exact-inexact* x y)]
@@ -2223,7 +2640,7 @@
                     [c (real-part y)] [d (imag-part y)])
                 (make-rectangular (- (* a c) (* b d)) (+ (* a d) (* b c))))]
              [else (nonnumber-error who y)])]
-          [else (nonnumber-error who x)])])))
+          [else (nonnumber-error who x)])]))))
 
 (set! $-
   (lambda (who x y)
@@ -2232,7 +2649,7 @@
         [(fixnum? bignum?) (integer- x y)]
         [(ratnum?)
          (let ([d ($ratio-denominator y)])
-           (integer/ (- (* x d) ($ratio-numerator y)) d))]
+           (make-ratnum (- (* x d) ($ratio-numerator y)) d))]
         [($exactnum? $inexactnum?)
          (make-rectangular (- x (real-part y)) (- (imag-part y)))]
         [(flonum?) (exact-inexact- x y)]
@@ -2250,12 +2667,28 @@
            (type-case y
              [(fixnum? bignum?)
               (let ([d ($ratio-denominator x)])
-                (integer/ (- ($ratio-numerator x) (* y d)) d))]
+                (make-ratnum (- ($ratio-numerator x) (* y d)) d))]
              [(ratnum?)
-              (let ([xd ($ratio-denominator x)] [yd ($ratio-denominator y)])
-                (integer/
-                  (- (* ($ratio-numerator x) yd) (* ($ratio-numerator y) xd))
-                  (* xd yd)))]
+	      ;; adapted from Gambit, see gambit/lib/_num.scm
+	      (let ((p ($ratio-numerator x))
+		    (q ($ratio-denominator x))
+		    (r ($ratio-numerator y))
+		    (s ($ratio-denominator y)))
+		(let ((d1 (gcd q s)))
+		  (if (eqv? d1 1)
+		      (make-ratnum (- (* p s)
+				      (* r q))
+				   (* q s))
+		      (let* ((s-prime (intquotient s d1))
+			     (t (- (* p s-prime)
+				   (* r (intquotient q d1))))
+			     (d2 (integer-gcd d1 t))
+			     (num (intquotient t d2))
+			     (den (* (intquotient q d2)
+				     s-prime)))
+			(if (eqv? den 1)
+			    num
+			    (make-ratnum num den))))))]
              [($exactnum? $inexactnum?)
               (make-rectangular (- x (real-part y)) (- (imag-part y)))]
              [(flonum?) (exact-inexact- x y)]
@@ -2278,73 +2711,113 @@
           [else (nonnumber-error who x)])])))
 
 (set! $/
-  (lambda (who x y)
-    (define (unknown-exint/ who x y)
-      (type-case x
-        [(fixnum?)
-         (when (eqv? y 0) (domain-error who y))
-         (if (eqv? x 0) 0 (integer/ x y))]
-        [(bignum?)
-         (when (eqv? y 0) (domain-error who y))
-         (integer/ x y)]
-        [(ratnum?)
-         (when (eqv? y 0) (domain-error who y))
-         (integer/ ($ratio-numerator x) (* y ($ratio-denominator x)))]
-        [($exactnum?)
-         (when (eqv? y 0) (domain-error who y))
-         (make-rectangular (/ (real-part x) y) (/ (imag-part x) y))]
-        [($inexactnum?)
-         (make-rectangular (/ (real-part x) y) (/ (imag-part x) y))]
-        [(flonum?) (inexact-exact/ x y)]
-        [else (nonnumber-error who x)]))
-    (type-case y
-      [(fixnum?)
-       (cond
-         [(fx= y 1) (unless (number? x) (nonnumber-error who x)) x]
-         [(fx= y -1) (unless (number? x) (nonnumber-error who x)) ($negate who x)]
-         [else (unknown-exint/ who x y)])]
-       [(bignum?) (unknown-exint/ who x y)]
-       [(ratnum?)
-        (type-case x
-          [(fixnum? bignum?)
-           (integer/ (* x ($ratio-denominator y)) ($ratio-numerator y))]
-          [(ratnum?)
-           (integer/ (* ($ratio-numerator x) ($ratio-denominator y))
-                     (* ($ratio-denominator x) ($ratio-numerator y)))]
-          [($exactnum? $inexactnum?)
-           (make-rectangular (/ (real-part x) y) (/ (imag-part x) y))]
-          [(flonum?) (inexact-exact/ x y)]
-          [else (nonnumber-error who x)])]
-       [(flonum?)
-        (type-case x
-          [(cflonum?) (cfl/ x y)]
-          [(fixnum? bignum? ratnum?) (exact-inexact/ x y)]
-          [($exactnum?)
-           (make-rectangular (/ (real-part x) y) (/ (imag-part x) y))]
-          [else (nonnumber-error who x)])]
-       [($exactnum? $inexactnum?)
-        ;; See "Algorithm 116: Complex Division" by Robert L. Smith,
-        ;; Communications of the ACM, Volume 5, Issue 8, Aug. 1962
-        ;; a+bi / c+di => (a+b(d/c))/(c+d(d/c)) + ((b-a(d/c))/(c+d(d/c)))i if |c| >= |d|
-        ;; a+bi / c+di => (b+a(c/d))/(d+c(c/d)) + ((a-b(c/d))/(d+c(c/d)))i if |c| < |d|
-        (type-case x
-          [(fixnum? bignum? ratnum? flonum?)
-           (let ([c (real-part y)] [d (imag-part y)])
-             (if (>= (abs c) (abs d))
-                 (let* ([r (/ d c)] [den (+ c (* r d))])
-                   (make-rectangular (/ x den) (/ (- (* x r)) den)))
-                 (let* ([r (/ c d)] [den (+ d (* r c))])
-                   (make-rectangular (/ (* x r) den) (/ (- x) den)))))]
-          [($exactnum? $inexactnum?)
-           (let ([a (real-part x)] [b (imag-part x)]
-                 [c (real-part y)] [d (imag-part y)])
-             (if (>= (abs c) (abs d))
-                 (let* ([r (/ d c)] [den (+ c (* r d))])
-                   (make-rectangular (/ (+ a (* b r)) den) (/ (- b (* a r)) den)))
-                 (let* ([r (/ c d)] [den (+ d (* r c))])
-                   (make-rectangular (/ (+ (* a r) b) den) (/ (- (* b r) a) den)))))]
-          [else (nonnumber-error who x)])]
-       [else (nonnumber-error who y)])))
+   (lambda (who x y)
+      (type-case y
+         [(fixnum?)
+          (cond
+           [(fx= y 1) (unless (number? x) (nonnumber-error who x)) x]
+           [(fx= y -1) (unless (number? x) (nonnumber-error who x)) ($negate who x)]
+           [else
+            (type-case x
+             [(fixnum?)
+              ;; Trying `fxquotient` followed by a `fx*` check
+              ;; is so much faster (in the case that it works)
+              ;; that it's worth a try
+              (when (eq? y 0) (domain-error who y))
+              (let ([q (fxquotient x y)])
+                (if (fx= x (fx* y q))
+                    q
+                    (integer/ x y)))]
+             [(bignum?)
+              (when (eq? y 0) (domain-error who y))
+              (integer/ x y)]
+             [(ratnum?)
+              (when (eq? y 0) (domain-error who y))
+              (/ ($ratio-numerator x) (* y ($ratio-denominator x)))]
+             [($exactnum?)
+              (when (eq? y 0) (domain-error who y))
+              (make-rectangular (/ (real-part x) y) (/ (imag-part x) y))]
+             [($inexactnum?)
+              (make-rectangular (/ (real-part x) y) (/ (imag-part x) y))]
+             [(flonum?) (inexact-exact/ x y)]
+             [else (nonnumber-error who x)])])]
+         [(bignum?)
+          (type-case x
+             [(fixnum? bignum?)
+              (integer/ x y)]
+             [(ratnum?)
+              (/ ($ratio-numerator x) (* y ($ratio-denominator x)))]
+             [($exactnum?)
+              (make-rectangular (/ (real-part x) y) (/ (imag-part x) y))]
+             [($inexactnum?)
+              (make-rectangular (/ (real-part x) y) (/ (imag-part x) y))]
+             [(flonum?) (inexact-exact/ x y)]
+             [else (nonnumber-error who x)])]
+         [(ratnum?)
+          (type-case x
+	     [(fixnum? bignum?)
+              (cond
+                [(eq? x 1) (if (negative? ($ratio-numerator y))
+                               (make-ratnum ($negate who ($ratio-denominator y)) ($negate who ($ratio-numerator y)))
+                               (make-ratnum ($ratio-denominator y) ($ratio-numerator y)))]
+                [(eq? x -1) (if (negative? ($ratio-numerator y))
+                                (make-ratnum ($ratio-denominator y) ($negate who ($ratio-numerator y)))
+                                (make-ratnum ($negate who ($ratio-denominator y)) ($ratio-numerator y)))]
+                [else
+                 (integer/ (* x ($ratio-denominator y)) ($ratio-numerator y))])]
+             [(ratnum?)
+	      ;; adapted from Gambit, see gambit/lib/_num.scm
+	      (let ((p ($ratio-numerator x))
+		    (q ($ratio-denominator x))
+		    (r ($ratio-denominator y))
+		    (s ($ratio-numerator y)))
+		(if (eq? x y)
+		    1
+		    (let* ((gcd-ps (integer-gcd p s))
+			   (gcd-rq (integer-gcd r q))
+			   (num (* (intquotient p gcd-ps) (intquotient r gcd-rq)))
+			   (den (* (intquotient q gcd-rq) (intquotient s gcd-ps))))
+		      (if (negative? den)
+			  (if (eqv? den -1)
+			      (- num)
+			      (make-ratnum (- num) (- den)))
+			  (if (eqv? den 1)
+			      num
+			      (make-ratnum num den))))))]
+             [($exactnum? $inexactnum?)
+              (make-rectangular (/ (real-part x) y) (/ (imag-part x) y))]
+             [(flonum?) (inexact-exact/ x y)]
+             [else (nonnumber-error who x)])]
+         [(flonum?)
+          (type-case x
+             [(cflonum?) (cfl/ x y)]
+             [(fixnum? bignum? ratnum?) (exact-inexact/ x y)]
+             [($exactnum?)
+              (make-rectangular (/ (real-part x) y) (/ (imag-part x) y))]
+             [else (nonnumber-error who x)])]
+         [($exactnum? $inexactnum?)
+          ;; See "Algorithm 116: Complex Division" by Robert L. Smith,
+          ;; Communications of the ACM, Volume 5, Issue 8, Aug. 1962
+          ;; a+bi / c+di => (a+b(d/c))/(c+d(d/c)) + ((b-a(d/c))/(c+d(d/c)))i if |c| >= |d|
+          ;; a+bi / c+di => (b+a(c/d))/(d+c(c/d)) + ((a-b(c/d))/(d+c(c/d)))i if |c| < |d|
+          (type-case x
+            [(fixnum? bignum? ratnum? flonum?)
+             (let ([c (real-part y)] [d (imag-part y)])
+               (if (>= (abs c) (abs d))
+                   (let* ([r (/ d c)] [den (+ c (* r d))])
+                     (make-rectangular (/ x den) (/ (- (* x r)) den)))
+                   (let* ([r (/ c d)] [den (+ d (* r c))])
+                     (make-rectangular (/ (* x r) den) (/ (- x) den)))))]
+            [($exactnum? $inexactnum?)
+             (let ([a (real-part x)] [b (imag-part x)]
+                   [c (real-part y)] [d (imag-part y)])
+               (if (>= (abs c) (abs d))
+                   (let* ([r (/ d c)] [den (+ c (* r d))])
+                     (make-rectangular (/ (+ a (* b r)) den) (/ (- b (* a r)) den)))
+                   (let* ([r (/ c d)] [den (+ d (* r c))])
+                     (make-rectangular (/ (+ (* a r) b) den) (/ (- (* b r) a) den)))))]
+            [else (nonnumber-error who x)])]
+         [else (nonnumber-error who y)])))
 
 (set! conjugate
    (lambda (x)
@@ -2425,7 +2898,7 @@
                       (fxsra x (fx- n)))
                   (if (fx> n max-fx-shift)
                       (integer-ash x n)
-                      (let ([m (#3%fxsll x n)])
+                      (let ([m (fxsll/wraparound x n)])
                         (if (fx= (fxsra m n) x)
                             m
                             (integer-ash x n))))))]
@@ -2433,11 +2906,17 @@
            [else (nonexact-integer-error who x)])]
         [(bignum?)
          (type-case x
-           [(fixnum? bignum?)
-            (let ([k (if (negative? n)
-                         (most-negative-fixnum)
-                         (most-positive-fixnum))])
-              (ash (ash x k) (- n k)))]
+           [(fixnum?)
+            (cond
+             [(fx= x 0) 0]
+             [($bigpositive? n) ($oops who "out of memory")]
+             [(fxpositive? x) 0]
+             [else -1])]
+           [(bignum?)
+            (cond
+             [($bigpositive? n) ($oops who "out of memory")]
+             [($bigpositive? x) 0]
+             [else -1])]
            [else (nonexact-integer-error who x)])]
         [else (nonexact-integer-error who n)])))
 
@@ -2520,23 +2999,9 @@
       (make-count-table)))
   (define $fxbit-count
     (lambda (n)
-      (if (fx= n 0)
-          0
-          (constant-case ptr-bits
-            [(64)
-             (fx+ (bytevector-u8-ref count-table (fxlogand n #xff))
-                  (bytevector-u8-ref count-table (fxlogand (fxsrl n 8) #xff))
-                  (bytevector-u8-ref count-table (fxlogand (fxsrl n 16) #xff))
-                  (bytevector-u8-ref count-table (fxlogand (fxsrl n 24) #xff))
-                  (bytevector-u8-ref count-table (fxlogand (fxsrl n 32) #xff))
-                  (bytevector-u8-ref count-table (fxlogand (fxsrl n 40) #xff))
-                  (bytevector-u8-ref count-table (fxlogand (fxsrl n 48) #xff))
-                  (bytevector-u8-ref count-table (fxlogand (fxsrl n 56) #xff)))]
-            [(32)
-             (fx+ (bytevector-u8-ref count-table (fxlogand n #xff))
-                  (bytevector-u8-ref count-table (fxlogand (fxsrl n 8) #xff))
-                  (bytevector-u8-ref count-table (fxlogand (fxsrl n 16) #xff))
-                  (bytevector-u8-ref count-table (fxlogand (fxsrl n 24) #xff)))]))))
+      (if (fx< n 0)
+          (fxnot (fxpopcount (fxnot n)))
+          (fxpopcount n))))
   (define $big-bit-count
     (lambda (n)
       (let ([end (fx+ (fx* ($bignum-length n) (constant bigit-bytes)) (constant bignum-data-disp))])
@@ -2546,9 +3011,7 @@
   (set-who! fxbit-count
     (lambda (n)
       (unless (fixnum? n) ($oops who "~s is not a fixnum" n))
-      (if (fx< n 0)
-          (fxnot ($fxbit-count (fxnot n)))
-          ($fxbit-count n))))
+      ($fxbit-count n)))
   (set-who! bitwise-bit-count
     (lambda (n)
       (cond
@@ -2650,6 +3113,122 @@
          [(fixnum? bignum?) (intquotient-remainder x y)]
          [else (nonexact-integer-error who x)])]
       [else (nonexact-integer-error who y)])))
+
+(let ()
+  (define-record pseudo-random-generator
+    ((mutable double x10)
+     (mutable double x11)
+     (mutable double x12)
+     (mutable double x20)
+     (mutable double x21)
+     (mutable double x22))
+    ()
+    ((constructor create-pseudo-random-generator)
+     (predicate is-pseudo-random-generator?)))
+
+  (set! pseudo-random-generator?
+        (lambda (x) (is-pseudo-random-generator? x)))
+
+  (let ([init! (foreign-procedure "(cs)s_random_state_init" (scheme-object unsigned) void)])
+    (set! make-pseudo-random-generator
+          (lambda ()
+            (let ([s (create-pseudo-random-generator 0.0 0.0 0.0 0.0 0.0 0.0)]
+                  [t (current-time 'time-utc)])
+              (init! s (bitwise-and (+ (time-second t) (time-nanosecond t))
+                                    #xFFFFFFFF))
+              s)))
+    (set-who! pseudo-random-generator-seed!
+      (lambda (s n)
+        (unless (is-pseudo-random-generator? s) ($oops who "not a pseudo-random generator ~s" s))
+        (unless (or (and (fixnum? n) (fx>= n 0))
+                    (and (bignum? n)  ($bigpositive? n)))
+          ($oops who "not a nonnegative exact integer ~s" n))
+        (init! s (bitwise-and n #xFFFFFFFF)))))
+
+  (set-who! pseudo-random-generator-next!
+     (let ([random-double (foreign-procedure "(cs)s_random_state_next_double"
+                            (scheme-object) double)]
+           [random-int (foreign-procedure "(cs)s_random_state_next_integer"
+                            (scheme-object uptr) uptr)])
+       (case-lambda
+        [(s)
+         (unless (is-pseudo-random-generator? s) ($oops who "not a pseudo-random generator ~s" s))
+         (random-double s)]
+        [(s x)
+         (define (random-integer s x)
+           (let ([bits (integer-length x)])
+             (let loop ([shift 0])
+               (cond
+                 [(<= bits shift) 0]
+                 [else
+                  ;; Assuming that a `uptr` is at least 32 bits:
+                  (bitwise-ior (loop (+ shift 32))
+                               (let ([n (bitwise-bit-field x shift (+ shift 32))])
+                                 (if (zero? n)
+                                     0
+                                     (bitwise-arithmetic-shift-left
+                                      (random-int s n)
+                                      shift))))]))))
+         (unless (is-pseudo-random-generator? s) ($oops who "not a pseudo-random generator ~s" s))
+         (cond
+          [(fixnum? x)
+           (unless (fxpositive? x) ($oops who "not a positive exact integer ~s" x))
+           (meta-cond
+            [(<= (constant most-negative-fixnum) 4294967087 (constant most-positive-fixnum))
+             (if (fx<= x 4294967087)
+                 (random-int s x)
+                 (random-integer s x))]
+            [else
+             (random-int s x)])]
+          [(bignum? x)
+           (unless ($bigpositive? x) ($oops who "not a positive exact integer ~s" x))
+           (random-integer s x)]
+          [else
+           ($oops who "not a positive exact integer ~s" x)])])))
+
+  (set-who! pseudo-random-generator->vector
+    (lambda (s)
+      (unless (is-pseudo-random-generator? s) ($oops who "not a pseudo-random generator ~s" s))
+      (vector (inexact->exact (pseudo-random-generator-x10 s))
+              (inexact->exact (pseudo-random-generator-x11 s))
+              (inexact->exact (pseudo-random-generator-x12 s))
+              (inexact->exact (pseudo-random-generator-x20 s))
+              (inexact->exact (pseudo-random-generator-x21 s))
+              (inexact->exact (pseudo-random-generator-x22 s)))))
+
+  (let ([vector->prgen
+         (let ([ok? (foreign-procedure "(cs)s_random_state_check" (double double double double double double) boolean)])
+           (lambda (who s v)
+             (define (bad-vector)
+               ($oops who "not a valid pseudo-random generator state vector ~s" v))
+             (define (int->double i)
+               (unless (and (exact? i) (integer? i)) (bad-vector))
+               (exact->inexact i))
+             (unless (and (vector? v) (= 6 (vector-length v))) (bad-vector))
+             (let ([x10 (int->double (vector-ref v 0))]
+                   [x11 (int->double (vector-ref v 1))]
+                   [x12 (int->double (vector-ref v 2))]
+                   [x20 (int->double (vector-ref v 3))]
+                   [x21 (int->double (vector-ref v 4))]
+                   [x22 (int->double (vector-ref v 5))])
+               (unless (ok? x10 x11 x12 x20 x21 x22) (bad-vector))
+               (cond
+                [s
+                 (set-pseudo-random-generator-x10! s x10)
+                 (set-pseudo-random-generator-x11! s x11)
+                 (set-pseudo-random-generator-x12! s x12)
+                 (set-pseudo-random-generator-x20! s x20)
+                 (set-pseudo-random-generator-x21! s x21)
+                 (set-pseudo-random-generator-x22! s x22)]
+                [else
+                 (create-pseudo-random-generator x10 x11 x12 x20 x21 x22)]))))])
+
+    (set-who! vector->pseudo-random-generator
+      (lambda (vec) (vector->prgen who #f vec)))
+    (set-who! vector->pseudo-random-generator!
+      (lambda (s vec)
+        (unless (is-pseudo-random-generator? s) ($oops who "not a pseudo-random generator ~s" s))
+        (vector->prgen who s vec)))))
 
 (set! random
    (let ([fxrandom (foreign-procedure "(cs)s_fxrandom"
@@ -3095,5 +3674,5 @@
              [m^ 0 (logor (sll m^ w-1) ($fxreverse (logand m mask) w-1))]
              [k (- end start) (- k w-1)])
             ((<= k w-1) (logor (sll m^ k) ($fxreverse m k))))))))
-)))))))
+))))))))
 )

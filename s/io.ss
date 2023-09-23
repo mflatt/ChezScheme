@@ -283,15 +283,11 @@ implementation notes:
       (string boolean) scheme-object))
   (define $open-output-fd
     (foreign-procedure "(cs)new_open_output_fd"
-      (string int
-       boolean boolean boolean
-       boolean boolean boolean boolean)
+      (string int int)
       scheme-object))
   (define $open-input/output-fd
     (foreign-procedure "(cs)new_open_input_output_fd"
-      (string int
-       boolean boolean boolean
-       boolean boolean boolean boolean)
+      (string int int)
       scheme-object))
   (define $close-fd
     (foreign-procedure "(cs)close_fd"
@@ -2509,7 +2505,10 @@ implementation notes:
                  (define UTF-32B/LE
                    (constant-case native-endianness
                      [(little) "UTF-32LE"]
-                     [(big) "UTF-32BE"]))
+                     [(big) "UTF-32BE"]
+                     [(unknown) (case (native-endianness)
+                                  [(little) "UTF-32LE"]
+                                  [else "UTF-32BE"])]))
                  (define (iconv-open to from)
                    (let ([desc ($iconv-open to from)])
                      (when (string? desc) ($oops who "~a" desc))
@@ -4149,9 +4148,14 @@ implementation notes:
                 (when (file-exists? filename)
                   (collect (collect-maximum-generation))))))
           (let ([fd (critical-section
-                      ($open-output-fd filename perms
-                        no-create no-fail no-truncate
-                        append lock replace compressed))])
+                     ($open-output-fd filename perms
+                        (fxior (if no-create (constant open-fd-no-create) 0)
+                               (if no-fail (constant open-fd-no-fail) 0)
+                               (if no-truncate (constant open-fd-no-truncate) 0)
+                               (if append (constant open-fd-append) 0)
+                               (if lock (constant open-fd-lock) 0)
+                               (if replace (constant open-fd-replace) 0)
+                               (if compressed (constant open-fd-compressed) 0))))])
             (when (pair? fd) (open-oops who filename options fd))
             (open-binary-fd-output-port who filename fd #t b-mode lock compressed)))))
 
@@ -5131,8 +5135,13 @@ implementation notes:
                   (collect (collect-maximum-generation))))))
           (let ([fd (critical-section
                       ($open-input/output-fd filename perms
-                        no-create no-fail no-truncate
-                        append lock replace compressed))])
+                        (fxior (if no-create (constant open-fd-no-create) 0)
+                               (if no-fail (constant open-fd-no-fail) 0)
+                               (if no-truncate (constant open-fd-no-truncate) 0)
+                               (if append (constant open-fd-append) 0)
+                               (if lock (constant open-fd-lock) 0)
+                               (if replace (constant open-fd-replace) 0)
+                               (if compressed (constant open-fd-compressed) 0))))])
             (when (pair? fd) (open-oops who filename options fd))
             (open-binary-fd-input/output-port who filename fd #t b-mode lock compressed)))))
 
@@ -6212,53 +6221,60 @@ implementation notes:
         [op (standard-output-port (buffer-mode line) (current-transcoder))])
     (define same-device? (foreign-procedure "(cs)same_devicep" (int int) boolean))
     (if-feature pthreads
-      (let ()
-       ; it would be nice to make port->thread-safe-port available generally,
-       ; but since it grabs the tc mutex, making it public would be
-       ; inappropriate.  tried using a fresh mutex, but the thread mat
-       ; that runs compile-file freezes, possibly due to a deadlock where one
-       ; thread has the tc mutex and another has the port's mutex.  should
-       ; revisit...
+      (let ([$mutex-is-owner (foreign-procedure "(cs)mutex_is_owner" (scheme-object) boolean)])
         (define (make-thread-safe-handler ip op)
+          (define port-mutex (make-mutex))
+          (define-syntax (with-port-mutex stx)
+            (syntax-case stx ()
+              [(_ body ...)
+               ;; internally, the system might use the standard ports while holding tc mutex,
+               ;; in which case it's already atomic enough; for example, a port can be flushed
+               ;; and closed on exit; to accomocate those cases, check whether the tc mutex is held
+               ;; before grabbing the port mutex, so the lock order (port mutex before tc mutex)
+               ;; is preserved
+               #'(let ([f (lambda () body ...)])
+                   (if ($mutex-is-owner ($raw-tc-mutex))
+                       (f)
+                       (with-mutex port-mutex (f))))]))
           (make-port-handler
             [ready?
              (and ip
                (lambda (who p)
-                 (with-tc-mutex
+                 (with-port-mutex
                    (call-port-handler flush who op)
                    (call-port-handler ready? who ip))))]
             [lookahead
              (and ip
                (lambda (who p)
-                 (with-tc-mutex
+                 (with-port-mutex
                    (call-port-handler flush who op)
                    (call-port-handler lookahead who ip))))]
             [unget
              (and ip
                (lambda (who p x)
-                 (with-tc-mutex
+                 (with-port-mutex
                    (call-port-handler unget who ip x))))]
             [get
              (and ip
                (lambda (who p)
-                 (with-tc-mutex
+                 (with-port-mutex
                    (call-port-handler flush who op)
                    (call-port-handler get who ip))))]
             [get-some
              (and ip
                (lambda (who p str start count)
-                 (with-tc-mutex
+                 (with-port-mutex
                    (call-port-handler flush who op)
                    (call-port-handler get-some who ip str start count))))]
             [clear-input
              (and ip
                (lambda (who p)
-                 (with-tc-mutex
+                 (with-port-mutex
                    (call-port-handler clear-input who ip))))]
             [put
              (and op
                (lambda (who p x)
-                 (with-tc-mutex
+                 (with-port-mutex
                    (call-port-handler put who op x)
                    (if ($textual-port-bol? op)
                        ($set-port-flags! p (constant port-flag-bol))
@@ -6266,7 +6282,7 @@ implementation notes:
             [put-some
              (and op
                (lambda (who p str start count)
-                 (with-tc-mutex
+                 (with-port-mutex
                    (let ([count (call-port-handler put-some who op str start count)])
                      (if ($textual-port-bol? op)
                          ($set-port-flags! p (constant port-flag-bol))
@@ -6275,17 +6291,17 @@ implementation notes:
             [flush
              (and op
                (lambda (who p)
-                 (with-tc-mutex
+                 (with-port-mutex
                    (call-port-handler flush who op))))]
             [clear-output
              (and op
                (lambda (who p)
-                 (with-tc-mutex
+                 (with-port-mutex
                    (call-port-handler clear-output who op))))]
             [close-port ; refuse to close console ports---just flush instead
              (if op
                  (lambda (who p)
-                   (with-tc-mutex
+                   (with-port-mutex
                      (call-port-handler flush who op)))
                  (lambda (who p)
                    (void)))]
@@ -6360,6 +6376,11 @@ implementation notes:
       (register-open-file $console-output-port)
       (unless (eq? $console-error-port $console-output-port)
         (register-open-file $console-error-port))))
+
+  (set! $separator-character
+    (constant-case architecture
+      [(pb) (foreign-procedure "(cs)s_separatorchar" () ptr)]
+      [else (if-feature windows (lambda () #\;) (lambda () #\:))]))
 
   ; utf8->string, etc., are in prims.ss, since they are used by
   ; foreign procedures argument and return values

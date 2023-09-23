@@ -18,13 +18,14 @@
 #include <setjmp.h>
 
 /* locally defined functions */
-static void S_promote_to_multishot(ptr k);
 static void split(ptr k, ptr *s);
 static void reset_scheme(void);
 static NORETURN void do_error(iptr type, const char *who, const char *s, ptr args);
 static void handle_call_error(ptr tc, iptr type, ptr x);
 static void init_signal_handlers(void);
 static void keyboard_interrupt(ptr tc);
+
+static void (*register_modified_signal)(int);
 
 ptr S_get_scheme_arg(ptr tc, iptr n) {
 
@@ -38,7 +39,7 @@ void S_put_scheme_arg(ptr tc, iptr n, ptr x) {
     else FRAME(tc, n - asm_arg_reg_cnt) = x;
 }
 
-static void S_promote_to_multishot(ptr k) {
+void S_promote_to_multishot(ptr k) {
     while (CONTLENGTH(k) != CONTCLENGTH(k)) {
         CONTLENGTH(k) = CONTCLENGTH(k);
         k = CONTLINK(k);
@@ -50,26 +51,29 @@ static void S_promote_to_multishot(ptr k) {
 static void split(ptr k, ptr *s) {
     iptr m, n;
     seginfo *si;
+    ISPC spc;
 
-    tc_mutex_acquire()
   /* set m to size of lower piece, n to size of upper piece */
-    m = (uptr)s - (uptr)CONTSTACK(k);
+    m = (uptr)TO_PTR(s) - (uptr)CONTSTACK(k);
     n = CONTCLENGTH(k) - m;
 
     si = SegInfo(ptr_get_segment(k));
+    spc = si->space;
+    if (spc != space_new) spc = space_continuation; /* to avoid space_count_pure */
+
   /* insert a new continuation between k and link(k) */
-    CONTLINK(k) = S_mkcontinuation(si->space,
+    CONTLINK(k) = S_mkcontinuation(spc,
                                  si->generation,
                                  CLOSENTRY(k),
                                  CONTSTACK(k),
                                  m, m,
                                  CONTLINK(k),
                                  *s,
-                                 Snil);
+                                 Snil,
+                                 Sfalse);
     CONTLENGTH(k) = CONTCLENGTH(k) = n;
-    CONTSTACK(k) = (ptr)s;
-    *s = (ptr)DOUNDERFLOW;
-    tc_mutex_release()
+    CONTSTACK(k) = TO_PTR(s);
+    *s = TO_PTR(DOUNDERFLOW);
 }
 
 /* We may come in to S_split_and_resize with a multi-shot continuation whose
@@ -91,14 +95,14 @@ void S_split_and_resize(void) {
         iptr frame_size;
         ptr *front_stack_ptr, *end_stack_ptr, *split_point, *guard;
 
-        front_stack_ptr = (ptr *)CONTSTACK(k);
-        end_stack_ptr = (ptr *)((uptr)front_stack_ptr + CONTCLENGTH(k));
+        front_stack_ptr = TO_VOIDP(CONTSTACK(k));
+        end_stack_ptr = TO_VOIDP((uptr)TO_PTR(front_stack_ptr) + CONTCLENGTH(k));
 
-        guard = (ptr *)((uptr)end_stack_ptr - underflow_limit);
+        guard = TO_VOIDP((uptr)TO_PTR(end_stack_ptr) - underflow_limit);
 
       /* set split point to base of top frame */
         frame_size = ENTRYFRAMESIZE(CONTRET(k));
-        split_point = (ptr *)((uptr)end_stack_ptr - frame_size);
+        split_point = TO_VOIDP((uptr)TO_PTR(end_stack_ptr) - frame_size);
 
       /* split only if we have more than one frame */
         if (split_point != front_stack_ptr) {
@@ -107,7 +111,7 @@ void S_split_and_resize(void) {
             for (;;) {
                 ptr *p;
                 frame_size = ENTRYFRAMESIZE(*split_point);
-                p = (ptr *)((uptr)split_point - frame_size);
+                p = TO_VOIDP((uptr)TO_PTR(split_point) - frame_size);
                 if (p < guard) break;
                 split_point = p;
             }
@@ -125,11 +129,8 @@ void S_split_and_resize(void) {
    * and clength + size(values) < stack-size; also, size may include
    * argument register values */
     n = CONTCLENGTH(k) + (value_count * sizeof(ptr)) + stack_slop;
-    if (n >= SCHEMESTACKSIZE(tc)) {
-       tc_mutex_acquire()
+    if (n >= SCHEMESTACKSIZE(tc))
        S_reset_scheme_stack(tc, n);
-       tc_mutex_release()
-    }
 }
 
 iptr S_continuation_depth(ptr k) {
@@ -138,11 +139,11 @@ iptr S_continuation_depth(ptr k) {
     n = 0;
   /* terminate on shot 1-shot, which could be null_continuation */
     while (CONTLENGTH(k) != scaled_shot_1_shot_flag) {
-        stack_base = (ptr *)CONTSTACK(k);
+        stack_base = TO_VOIDP(CONTSTACK(k));
         frame_size = ENTRYFRAMESIZE(CONTRET(k));
-        stack_ptr = (ptr *)((uptr)stack_base + CONTCLENGTH(k));
+        stack_ptr = TO_VOIDP((uptr)TO_PTR(stack_base) + CONTCLENGTH(k));
         for (;;) {
-            stack_ptr = (ptr *)((uptr)stack_ptr - frame_size);
+            stack_ptr = TO_VOIDP((uptr)TO_PTR(stack_ptr) - frame_size);
             n += 1;
             if (stack_ptr == stack_base) break;
             frame_size = ENTRYFRAMESIZE(*stack_ptr);
@@ -157,8 +158,8 @@ ptr S_single_continuation(ptr k, iptr n) {
 
   /* bug out on shot 1-shots, which could be null_continuation */
     while (CONTLENGTH(k) != scaled_shot_1_shot_flag) {
-        stack_base = (ptr *)CONTSTACK(k);
-        stack_top = (ptr *)((uptr)stack_base + CONTCLENGTH(k));
+        stack_base = TO_VOIDP(CONTSTACK(k));
+        stack_top = TO_VOIDP((uptr)TO_PTR(stack_base) + CONTCLENGTH(k));
         stack_ptr = stack_top;
         frame_size = ENTRYFRAMESIZE(CONTRET(k));
         for (;;) {
@@ -172,14 +173,14 @@ ptr S_single_continuation(ptr k, iptr n) {
                     k = CONTLINK(k);
                 }
 
-                stack_ptr = (ptr *)((uptr)stack_ptr - frame_size);
+                stack_ptr = TO_VOIDP((uptr)TO_PTR(stack_ptr) - frame_size);
                 if (stack_ptr != stack_base)
                     split(k, stack_ptr);
 
                 return k;
             } else {
                 n -= 1;
-                stack_ptr = (ptr *)((uptr)stack_ptr - frame_size);
+                stack_ptr = TO_VOIDP((uptr)TO_PTR(stack_ptr) - frame_size);
                 if (stack_ptr == stack_base) break;
                 frame_size = ENTRYFRAMESIZE(*stack_ptr);
             }
@@ -190,21 +191,21 @@ ptr S_single_continuation(ptr k, iptr n) {
     return Sfalse;
 }
 
-void S_handle_overflow(void) {
+void S_handle_overflow() {
     ptr tc = get_thread_context();
 
  /* default frame size is enough */
     S_overflow(tc, 0);
 }
 
-void S_handle_overflood(void) {
+void S_handle_overflood() {
     ptr tc = get_thread_context();
 
  /* xp points to where esp needs to be */
-    S_overflow(tc, ((ptr *)XP(tc) - (ptr *)SFP(tc))*sizeof(ptr));
+    S_overflow(tc, ((ptr *)TO_VOIDP(XP(tc)) - (ptr *)TO_VOIDP(SFP(tc)))*sizeof(ptr));
 }
 
-void S_handle_apply_overflood(void) {
+void S_handle_apply_overflood() {
     ptr tc = get_thread_context();
 
  /* ac0 contains the argument count for the called procedure */
@@ -227,39 +228,39 @@ void S_overflow(ptr tc, iptr frame_request) {
     iptr split_stack_length, split_stack_clength;
     ptr nuate;
 
-    sfp = (ptr *)SFP(tc);
+    sfp = TO_VOIDP(SFP(tc));
     nuate = SYMVAL(S_G.nuate_id);
     if (!Scodep(nuate)) {
         S_error_abort("overflow: nuate not yet defined");
     }
 
-    guard = (ptr *)((uptr)sfp - underflow_limit);
+    guard = TO_VOIDP((uptr)TO_PTR(sfp) - underflow_limit);
   /* leave at least stack_slop headroom in the old stack to reduce the need for return-point overflow checks */
-    other_guard = (ptr *)((uptr)SCHEMESTACK(tc) + (uptr)SCHEMESTACKSIZE(tc) - (uptr)stack_slop);
-    if ((uptr)other_guard < (uptr)guard) guard = other_guard;
+    other_guard = TO_VOIDP((uptr)SCHEMESTACK(tc) + (uptr)SCHEMESTACKSIZE(tc) - (uptr)TO_PTR(stack_slop));
+    if ((uptr)TO_PTR(other_guard) < (uptr)TO_PTR(guard)) guard = other_guard;
 
   /* split only if old stack contains more than underflow_limit bytes */
-    if (guard > (ptr *)SCHEMESTACK(tc)) {
+    if (guard > (ptr *)TO_VOIDP(SCHEMESTACK(tc))) {
         iptr frame_size;
 
       /* set split point to base of the frame below the current one */
         frame_size = ENTRYFRAMESIZE(*sfp);
-        split_point = (ptr *)((uptr)sfp - frame_size);
+        split_point = TO_VOIDP((uptr)TO_PTR(sfp) - frame_size);
 
       /* split only if we have more than one frame */
-        if (split_point != (ptr *)SCHEMESTACK(tc)) {
+        if (split_point != TO_VOIDP(SCHEMESTACK(tc))) {
           /* walk the stack to set split_point at first frame above guard */
           /* note that first frame may have put us below the guard already */
             for (;;) {
                 ptr *p;
 
                 frame_size = ENTRYFRAMESIZE(*split_point);
-                p = (ptr *)((uptr)split_point - frame_size);
+                p = TO_VOIDP((uptr)TO_PTR(split_point) - frame_size);
                 if (p < guard) break;
                 split_point = p;
             }
 
-            split_stack_clength = (uptr)split_point - (uptr)SCHEMESTACK(tc);
+            split_stack_clength = (uptr)TO_PTR(split_point) - (uptr)SCHEMESTACK(tc);
 
           /* promote to multi-shot if current stack is shrimpy */
             if (SCHEMESTACKSIZE(tc) < default_stack_size / 4) {
@@ -270,7 +271,6 @@ void S_overflow(ptr tc, iptr frame_request) {
             }
 
           /* create a continuation */
-            tc_mutex_acquire()
             STACKLINK(tc) = S_mkcontinuation(space_new,
                                         0,
                                         CODEENTRYPOINT(nuate),
@@ -279,29 +279,27 @@ void S_overflow(ptr tc, iptr frame_request) {
                                         split_stack_clength,
                                         STACKLINK(tc),
                                         *split_point,
-                                        Snil);
-            tc_mutex_release()
+                                        Snil,
+                                        Sfalse);
 
           /* overwrite old return address with dounderflow */
-            *split_point = (ptr)DOUNDERFLOW;
+              *split_point = TO_PTR(DOUNDERFLOW);
         }
     } else {
-        split_point = (ptr *)SCHEMESTACK(tc);
+        split_point = TO_VOIDP(SCHEMESTACK(tc));
     }
 
-    above_split_size = SCHEMESTACKSIZE(tc) - ((uptr)split_point - (uptr)SCHEMESTACK(tc));
+    above_split_size = SCHEMESTACKSIZE(tc) - ((uptr)TO_PTR(split_point) - (uptr)SCHEMESTACK(tc));
 
   /* allocate a new stack, retaining same relative sfp */
-    sfp_offset = (uptr)sfp - (uptr)split_point;
-    tc_mutex_acquire()
+    sfp_offset = (uptr)TO_PTR(sfp) - (uptr)TO_PTR(split_point);
     S_reset_scheme_stack(tc, above_split_size + frame_request);
-    tc_mutex_release()
     SFP(tc) = (ptr)((uptr)SCHEMESTACK(tc) + sfp_offset);
 
   /* copy up everything above the split point.  we don't know where the
      current frame ends, so we copy through the end of the old stack */
     {ptr *p, *q; iptr n;
-     p = (ptr *)SCHEMESTACK(tc);
+     p = TO_VOIDP(SCHEMESTACK(tc));
      q = split_point;
      for (n = above_split_size; n != 0; n -= sizeof(ptr)) *p++ = *q++;
     }
@@ -312,23 +310,24 @@ void S_error_abort(const char *s) {
     S_abnormal_exit();
 }
 
-void S_abnormal_exit(void) {
+void S_abnormal_exit() {
   S_abnormal_exit_proc();
   fprintf(stderr, "abnormal_exit procedure did not exit\n");
-  exit(1);
+  abort();
 }
 
-static void reset_scheme(void) {
+static void reset_scheme() {
     ptr tc = get_thread_context();
 
-    tc_mutex_acquire()
+    alloc_mutex_acquire();
    /* eap should always be up-to-date now that we write-through to the tc
       when making any changes to eap when eap is a real register */
-    S_scan_dirty((ptr **)EAP(tc), (ptr **)REAL_EAP(tc));
+    S_scan_dirty(TO_VOIDP(EAP(tc)), TO_VOIDP(REAL_EAP(tc)));
     S_reset_allocation_pointer(tc);
     S_reset_scheme_stack(tc, stack_slop);
-    FRAME(tc,0) = (ptr)DOUNDERFLOW;
-    tc_mutex_release()
+    alloc_mutex_release();
+    FRAME(tc,0) = TO_PTR(DOUNDERFLOW);
+    S_maybe_fire_collector(THREAD_GC(tc));
 }
 
 /* error_resets occur with the system in an unknown state,
@@ -388,17 +387,24 @@ static void do_error(iptr type, const char *who, const char *s, ptr args) {
                        Scons(Sstring_utf8(s, -1), args)));
 
 #ifdef PTHREADS
-    while (S_tc_mutex_depth > 0) {
-      S_mutex_release(&S_tc_mutex);
+    while (S_mutex_is_owner(&S_alloc_mutex) && (S_alloc_mutex_depth > 0)) {
+      S_alloc_mutex_depth -= 1;
+      S_mutex_release(&S_alloc_mutex);
+    }
+    while (S_mutex_is_owner(&S_tc_mutex) && (S_tc_mutex_depth > 0)) {
       S_tc_mutex_depth -= 1;
+      S_mutex_release(&S_tc_mutex);
     }
 #endif /* PTHREADS */
-    
+
+    /* in case error is during fasl read: */
+    S_thread_end_code_write(tc, static_generation, 0, NULL, 0);
+
     TRAP(tc) = (ptr)1;
     AC0(tc) = (ptr)1;
     CP(tc) = S_symbol_value(S_G.error_id);
     S_put_scheme_arg(tc, 1, args);
-    LONGJMP(CAAR(CCHAIN(tc)), -1);
+    LONGJMP(TO_VOIDP(CAAR(CCHAIN(tc))), -1);
 }
 
 static void handle_call_error(ptr tc, iptr type, ptr x) {
@@ -421,19 +427,20 @@ static void handle_call_error(ptr tc, iptr type, ptr x) {
     TRAP(tc) = (ptr)1;         /* Why is this here? */
 }
 
-void S_handle_docall_error(void) {
+void S_handle_docall_error() {
     ptr tc = get_thread_context();
 
+    AC0(tc) = (ptr)0;
     handle_call_error(tc, ERROR_CALL_NONPROCEDURE, CP(tc));
 }
 
-void S_handle_arg_error(void) {
+void S_handle_arg_error() {
     ptr tc = get_thread_context();
 
     handle_call_error(tc, ERROR_CALL_ARGUMENT_COUNT, CP(tc));
 }
 
-void S_handle_nonprocedure_symbol(void) {
+void S_handle_nonprocedure_symbol() {
     ptr tc = get_thread_context();
     ptr s;
 
@@ -457,6 +464,38 @@ void S_handle_mvlet_error(void) {
     handle_call_error(tc, ERROR_MVLET, Sfalse);
 }
 
+void S_handle_event_detour() {
+    ptr tc = get_thread_context();
+    ptr resume_proc = CP(tc);
+    ptr resume_args = Snil;
+    iptr argcnt, stack_avail, i;
+
+    argcnt = (iptr)AC0(tc);
+    stack_avail = (((uptr)ESP(tc) - (uptr)SFP(tc)) >> log2_ptr_bytes) - 1;
+
+    if (argcnt < (stack_avail + asm_arg_reg_cnt)) {
+      /* Avoid allocation by passing arguments directly. The compiler
+         will only use `detour-event` when the expected number is
+         small enough to avoid allocation (unless the function expected
+         to allocate a list of arguments, anyway). */
+      for (i = argcnt; i > 0; i--)
+        S_put_scheme_arg(tc, i+1, S_get_scheme_arg(tc, i));
+      S_put_scheme_arg(tc, 1, resume_proc);
+      CP(tc) = S_symbol_value(S_G.event_and_resume_id);
+      AC0(tc) = (ptr)(argcnt+1);
+    } else {
+      /* We're assuming that either at least one argument can go in a
+         register or stack slop will save us. */
+      for (i = argcnt; i > 0; i--)
+        resume_args = Scons(S_get_scheme_arg(tc, i), resume_args);
+      resume_args = Scons(resume_proc, resume_args);
+ 
+      CP(tc) = S_symbol_value(S_G.event_and_resume_star_id);
+      S_put_scheme_arg(tc, 1, resume_args);
+      AC0(tc) = (ptr)1;
+    }
+}
+
 static void keyboard_interrupt(ptr tc) {
   KEYBOARDINTERRUPTPENDING(tc) = Strue;
   SOMETHINGPENDING(tc) = Strue;
@@ -475,12 +514,12 @@ void S_fire_collector(void) {
 
 /*  printf("firing collector!\n"); fflush(stdout); */
 
-  if (!Sboolean_value(S_symbol_value(crp_id))) {
+  if (!Sboolean_value(S_symbol_racy_value(crp_id))) {
     ptr ls;
 
 /*    printf("really firing collector!\n"); fflush(stdout); */
 
-    tc_mutex_acquire()
+    tc_mutex_acquire();
    /* check again in case some other thread beat us to the punch */
     if (!Sboolean_value(S_symbol_value(crp_id))) {
 /* printf("firing collector nthreads = %d\n", list_length(S_threads)); fflush(stdout); */
@@ -488,7 +527,7 @@ void S_fire_collector(void) {
       for (ls = S_threads; ls != Snil; ls = Scdr(ls))
         SOMETHINGPENDING(THREADTC(Scar(ls))) = Strue;
     }
-    tc_mutex_release()
+    tc_mutex_release();
   }
 }
 
@@ -500,16 +539,20 @@ void S_noncontinuable_interrupt(void) {
   do_error(ERROR_NONCONTINUABLE_INTERRUPT,"","",Snil);
 }
 
+void Sscheme_register_signal_registerer(void (*registerer)(int)) {
+  register_modified_signal = registerer;
+}
+
 #ifdef WIN32
-ptr S_dequeue_scheme_signals(ptr tc) {
+ptr S_dequeue_scheme_signals(UNUSED ptr tc) {
   return Snil;
 }
 
-ptr S_allocate_scheme_signal_queue(void) {
+ptr S_allocate_scheme_signal_queue() {
   return (ptr)0;
 }
 
-void S_register_scheme_signal(iptr sig) {
+void S_register_scheme_signal(UNUSED iptr sig) {
   S_error("register_scheme_signal", "unsupported in this version");
 }
 
@@ -529,7 +572,7 @@ static BOOL WINAPI handle_signal(DWORD dwCtrlType) {
 #else
       ptr tc = get_thread_context();
 #endif
-      if (!S_pants_down && Sboolean_value(KEYBOARDINTERRUPTPENDING(tc)))
+      if (!THREAD_GC(tc)->during_alloc && Sboolean_value(KEYBOARDINTERRUPTPENDING(tc)))
         return(FALSE);
       keyboard_interrupt(tc);
       return(TRUE);
@@ -538,8 +581,26 @@ static BOOL WINAPI handle_signal(DWORD dwCtrlType) {
   return(FALSE);
 }
 
+#if defined(_M_ARM64) && !defined(PORTABLE_BYTECODE)
+static LONG WINAPI fault_handler(LPEXCEPTION_POINTERS e) {
+  if (e->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION) {
+    ptr tc = get_thread_context();
+    if (THREAD_GC(tc)->during_alloc)
+      S_error_abort("nonrecoverable invalid memory reference");
+    else
+      S_error_reset("invalid memory reference");
+  }
+  return EXCEPTION_CONTINUE_SEARCH;
+}
+#endif
+
 static void init_signal_handlers(void) {
   SetConsoleCtrlHandler(handle_signal, TRUE);
+#if defined(_M_ARM64) && !defined(PORTABLE_BYTECODE)
+  /* On Arm64, the absence of unwind info means that the `__try`...`__catch`
+     in "scheme.c" doesn't get a chance to handle exceptions. */
+  AddVectoredExceptionHandler(TRUE, fault_handler);
+#endif
 }
 #else /* WIN32 */
 
@@ -573,7 +634,7 @@ struct signal_queue {
 };
 
 static IBOOL enqueue_scheme_signal(ptr tc, INT sig) {
-  struct signal_queue *queue = (struct signal_queue *)(SIGNALINTERRUPTQUEUE(tc));
+  struct signal_queue *queue = TO_VOIDP(SIGNALINTERRUPTQUEUE(tc));
   /* ignore the signal if we failed to allocate the queue */
   if (queue == NULL) return 0;
   INT tail = queue->tail;
@@ -588,7 +649,7 @@ static IBOOL enqueue_scheme_signal(ptr tc, INT sig) {
 
 ptr S_dequeue_scheme_signals(ptr tc) {
   ptr ls = Snil;
-  struct signal_queue *queue = (struct signal_queue *)(SIGNALINTERRUPTQUEUE(tc));
+  struct signal_queue *queue = TO_VOIDP(SIGNALINTERRUPTQUEUE(tc));
   if (queue == NULL) return ls;
   INT head = queue->head;
   INT tail = queue->tail;
@@ -618,7 +679,7 @@ static ptr allocate_scheme_signal_queue(void) {
   if (queue != (struct signal_queue *)0) {
     queue->head = queue->tail = 0;
   }
-  return (ptr)queue;
+  return TO_PTR(queue);
 }
 
 ptr S_allocate_scheme_signal_queue(void) {
@@ -628,7 +689,7 @@ ptr S_allocate_scheme_signal_queue(void) {
 void S_register_scheme_signal(iptr sig) {
     struct sigaction act;
 
-    tc_mutex_acquire()
+    tc_mutex_acquire();
     if (!scheme_signals_registered) {
       ptr ls;
       scheme_signals_registered = 1;
@@ -636,7 +697,7 @@ void S_register_scheme_signal(iptr sig) {
         SIGNALINTERRUPTQUEUE(THREADTC(Scar(ls))) = S_allocate_scheme_signal_queue();
       }
     }
-    tc_mutex_release()
+    tc_mutex_release();
 
     sigfillset(&act.sa_mask);
     act.sa_flags = 0;
@@ -652,8 +713,8 @@ static void handle_signal(INT sig, UNUSED siginfo_t *si, UNUSED void *data) {
             ptr tc = get_thread_context();
            /* disable keyboard interrupts in subordinate threads until we think
              of something more clever to do with them */
-            if (tc == S_G.thread_context) {
-              if (!S_pants_down && Sboolean_value(KEYBOARDINTERRUPTPENDING(tc))) {
+            if (tc == TO_PTR(&S_G.thread_context)) {
+              if (!THREAD_GC(tc)->during_alloc && Sboolean_value(KEYBOARDINTERRUPTPENDING(tc))) {
                /* this is a no-no, but the only other options are to ignore
                   the signal or to kill the process */
                 RESET_SIGNAL
@@ -682,11 +743,14 @@ static void handle_signal(INT sig, UNUSED siginfo_t *si, UNUSED void *data) {
         case SIGBUS:
 #endif /* SIGBUS */
         case SIGSEGV:
+          {
+            ptr tc = get_thread_context();
             RESET_SIGNAL
-            if (S_pants_down)
+            if (THREAD_GC(tc)->during_alloc)
                 S_error_abort("nonrecoverable invalid memory reference");
             else
                 S_error_reset("invalid memory reference");
+          }
 	    break;
         default:
             RESET_SIGNAL
@@ -695,20 +759,28 @@ static void handle_signal(INT sig, UNUSED siginfo_t *si, UNUSED void *data) {
     }
 }
 
+static void no_op_register(UNUSED int sigid) {
+}
+
+#define SIGACTION(id, act_p, old_p) (register_modified_signal(id), sigaction(id, act_p, old_p))
+
 static void init_signal_handlers(void) {
     struct sigaction act;
+
+    if (register_modified_signal == NULL)
+      register_modified_signal = no_op_register;
 
     sigemptyset(&act.sa_mask);
 
   /* drop pending keyboard interrupts */
     act.sa_flags = 0;
     act.sa_handler = SIG_IGN;
-    sigaction(SIGINT, &act, (struct sigaction *)0);
+    SIGACTION(SIGINT, &act, (struct sigaction *)0);
 
   /* ignore broken pipe signals */
     act.sa_flags = 0;
     act.sa_handler = SIG_IGN;
-    sigaction(SIGPIPE, &act, (struct sigaction *)0);
+    SIGACTION(SIGPIPE, &act, (struct sigaction *)0);
 
   /* set up to catch SIGINT w/no system call restart */
 #ifdef SA_INTERRUPT
@@ -717,7 +789,7 @@ static void init_signal_handlers(void) {
     act.sa_flags = SA_SIGINFO;
 #endif /* SA_INTERRUPT */
     act.sa_sigaction = handle_signal;
-    sigaction(SIGINT, &act, (struct sigaction *)0);
+    SIGACTION(SIGINT, &act, (struct sigaction *)0);
 #ifdef BSDI
     siginterrupt(SIGINT, 1);
 #endif
@@ -729,14 +801,14 @@ static void init_signal_handlers(void) {
     act.sa_flags |= SA_RESTART;
 #endif /* SA_RESTART */
 #ifdef SIGQUIT
-    sigaction(SIGQUIT, &act, (struct sigaction *)0);
+    SIGACTION(SIGQUIT, &act, (struct sigaction *)0);
 #endif /* SIGQUIT */
-    sigaction(SIGILL, &act, (struct sigaction *)0);
-    sigaction(SIGFPE, &act, (struct sigaction *)0);
+    SIGACTION(SIGILL, &act, (struct sigaction *)0);
+    SIGACTION(SIGFPE, &act, (struct sigaction *)0);
 #ifdef SIGBUS
-    sigaction(SIGBUS, &act, (struct sigaction *)0);
+    SIGACTION(SIGBUS, &act, (struct sigaction *)0);
 #endif /* SIGBUS */
-    sigaction(SIGSEGV, &act, (struct sigaction *)0);
+    SIGACTION(SIGSEGV, &act, (struct sigaction *)0);
 }
 
 #endif /* WIN32 */
@@ -744,6 +816,7 @@ static void init_signal_handlers(void) {
 void S_schsig_init(void) {
     if (S_boot_time) {
         ptr p;
+        ptr tc = get_thread_context();
 
         S_protect(&S_G.nuate_id);
         S_G.nuate_id = S_intern((const unsigned char *)"$nuate");
@@ -755,13 +828,15 @@ void S_schsig_init(void) {
         S_protect(&S_G.collect_request_pending_id);
         S_G.collect_request_pending_id = S_intern((const unsigned char *)"$collect-request-pending");
 
-        p = S_code(get_thread_context(), type_code | (code_flag_continuation << code_flags_offset), 0);
+        S_thread_start_code_write(tc, 0, 0, NULL, 0);
+        p = S_code(tc, type_code | (code_flag_continuation << code_flags_offset), 0);
         CODERELOC(p) = S_relocation_table(0);
         CODENAME(p) = Sfalse;
         CODEARITYMASK(p) = FIX(0);
         CODEFREE(p) = 0;
         CODEINFO(p) = Sfalse;
         CODEPINFOS(p) = Snil;
+        S_thread_end_code_write(tc, 0, 0, NULL, 0);
 
         S_set_symbol_value(S_G.null_continuation_id,
             S_mkcontinuation(space_new,
@@ -771,17 +846,24 @@ void S_schsig_init(void) {
                            scaled_shot_1_shot_flag, scaled_shot_1_shot_flag,
                            FIX(0),
                            FIX(0),
+                           Snil,
                            Snil));
 
         S_protect(&S_G.error_id);
         S_G.error_id = S_intern((const unsigned char *)"$c-error");
+
+        S_protect(&S_G.event_and_resume_id);
+        S_G.event_and_resume_id = S_intern((const unsigned char *)"$event-and-resume");
+
+        S_protect(&S_G.event_and_resume_star_id);
+        S_G.event_and_resume_star_id = S_intern((const unsigned char *)"$event-and-resume*");
+
 #ifndef WIN32
         scheme_signals_registered = 0;
 #endif
     }
 
 
-    S_pants_down = 0;
     S_set_symbol_value(S_G.collect_request_pending_id, Sfalse);
 
     init_signal_handlers();

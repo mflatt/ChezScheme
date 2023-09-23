@@ -20,7 +20,9 @@
 #define _REENTRANT
 #endif
 /* make two-argument ctime_r and two-argument asctime_r visible */
-#define _POSIX_PTHREAD_SEMANTICS
+# ifndef _POSIX_PTHREAD_SEMANTICS
+#  define _POSIX_PTHREAD_SEMANTICS
+# endif
 #endif /* defined(SOLARIS) */
 
 #include "system.h"
@@ -63,7 +65,55 @@ ptr S_unique_id(void) {
               Sunsigned32(u.foo[3]))));
 }
 
-#elif defined(USE_OSSP_UUID) /* WIN32 */
+#elif defined(USE_DEV_URANDOM_UUID) /* WIN32 */
+
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <errno.h>
+
+ptr S_unique_id() {
+  U32 r[4];
+  int fd, failed = 0;
+
+  /* Implements UUIDv4 (random) using /dev/urandom */
+
+  do {
+    fd = open("/dev/urandom", O_RDONLY);
+  } while ((fd == -1) && errno == EAGAIN);
+  
+  if (fd != -1) {
+    int delta = 0, got;
+    while (delta < (int)sizeof(r)) {
+      got = read(fd, (char *)r + delta, sizeof(r) - delta);
+      if (got < 0) {
+        if (errno != EAGAIN) {
+          failed = 1;
+          break;
+        }
+      } else
+        delta += got;
+    }
+    do {
+      got = close(fd);
+    } while ((got != 0) && (errno == EAGAIN));
+  } else
+    failed = 1;
+
+  if (failed)
+    S_error("S_unique_id", "failed to access random bytes");
+
+  /* Set bits to indidate UUIDv4: */
+  r[1] = (r[1] & (U32)0xFFFF0FFF) | (U32)0x00004000;
+  r[2] = (r[2] & (U32)0x3FFFFFFF) | (U32)0x80000000;
+
+  return S_add(S_ash(Sunsigned32(r[0]), Sinteger(8*3*sizeof(U32))),
+               S_add(S_ash(Sunsigned32(r[1]), Sinteger(8*2*sizeof(U32))),
+                     S_add(S_ash(Sunsigned32(r[2]), Sinteger(8*sizeof(U32))),
+                           Sunsigned32(r[3]))));
+}
+
+#elif defined(USE_OSSP_UUID) /* USE_DEV_URANDOM_UUID */
 
 #include <ossp/uuid.h>
 
@@ -259,6 +309,10 @@ void S_gettime(INT typeno, struct timespec *tp) {
 #endif
      /* fall back on getrusage if clock_gettime fails */
       {
+#ifdef __EMSCRIPTEN__
+        tp->tv_sec = 0;
+        tp->tv_nsec = 0;
+#else
         struct rusage rbuf;
 
         if (getrusage(RUSAGE_SELF,&rbuf) != 0)
@@ -269,6 +323,7 @@ void S_gettime(INT typeno, struct timespec *tp) {
           tp->tv_sec += 1;
           tp->tv_nsec -= 1000000000;
         }
+#endif
         return;
       }
     case time_duration:
@@ -349,7 +404,7 @@ ptr S_gmtime(ptr tzoff, ptr tspair) {
   if (tzoff == Sfalse) {
     if (localtime_r(&tx, &tmx) == NULL) return Sfalse;
     tmx.tm_isdst = -1; /* have mktime determine the DST status */
-    if (mktime(&tmx) == (time_t)-1) return Sfalse;
+    mktime(&tmx);
     (void) adjust_time_zone(dtvec, &tmx, Sfalse);
   } else {
     tx += Sinteger_value(tzoff);
@@ -371,11 +426,16 @@ ptr S_gmtime(ptr tzoff, ptr tspair) {
   return dtvec;
 }
 
+
+#ifndef GET_TIME
+# define GET_TIME time
+#endif
+
 ptr S_asctime(ptr dtvec) {
   char buf[26];
 
   if (dtvec == Sfalse) {
-    time_t tx = time(NULL);
+    time_t tx = GET_TIME(NULL);
     if (ctime_r(&tx, buf) == NULL) return Sfalse;
   } else {
     struct tm tmx;
@@ -460,9 +520,13 @@ static long adjust_time_zone(ptr dtvec, struct tm *tmxp, ptr given_tzoff) {
     }
   }
 #else
+# if defined(SOLARIS) || defined(sun)
+  tzoff = timezone;
+# else
   tzoff = tmxp->tm_gmtoff;
+# endif
   if (given_tzoff == Sfalse) {
-# if defined(__linux__) || defined(SOLARIS)
+# if defined(__linux__) || defined(SOLARIS) || defined(sun)
     /* Linux and Solaris set `tzname`: */
     tz_name = Sstring_utf8(tzname[tmxp->tm_isdst], -1);
 # else
@@ -517,7 +581,7 @@ void S_stats_init(void) {
   /* Use GetSystemTimePreciseAsFileTime when available (Windows 8 and later). */
   HMODULE h = LoadLibraryW(L"kernel32.dll");
   if (h != NULL) {
-    GetSystemTimeAsFileTime_t proc = (GetSystemTimeAsFileTime_t)GetProcAddress(h, "GetSystemTimePreciseAsFileTime");
+    GetSystemTimeAsFileTime_t proc = (void *)GetProcAddress(h, "GetSystemTimePreciseAsFileTime");
     if (proc != NULL)
       s_GetSystemTimeAsFileTime = proc;
     else

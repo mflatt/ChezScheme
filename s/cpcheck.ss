@@ -44,8 +44,11 @@
 
   (define record-field-offset
     (lambda (rtd index)
-      (let ([rtd (maybe-remake-rtd rtd)])
-        (fld-byte (list-ref (rtd-flds rtd) index)))))
+      (let* ([rtd (maybe-remake-rtd rtd)]
+             [flds (rtd-flds rtd)])
+        (if (fixnum? flds)
+            (fx+ (constant record-data-disp) (fxsll index (constant log2-ptr-bytes)))
+            (fld-byte (list-ref flds index))))))
 
   (define-pass cpcheck : Lsrc (ir) -> Lsrc ()
     (definitions
@@ -95,29 +98,37 @@
 
         (define argcnt-error
           (lambda (preinfo f args)
-            (let ([call (parameterize ([print-gensym #f] [print-level 3] [print-length 6])
-                          (format "~s" (preinfo-sexpr preinfo)))])
-              `(seq ,f
-                 ,(build-sequence args
-                    (cond
-                      [(preinfo-src preinfo) =>
-                       (lambda (src)
-                         ($source-warning 'compile src #t
-                           "possible incorrect argument count in call ~a"
-                           call)
+            (let* ([call (parameterize ([print-gensym #f] [print-level 3] [print-length 6])
+                           (format "~s" (preinfo-sexpr preinfo)))]
+                   [warn (lambda (src)
+                           ($source-warning 'compile src #t
+                             "possible incorrect argument count in call ~a"
+                             call))])
+              (cond
+               [(enable-error-source-expression)
+                `(seq ,f
+                   ,(build-sequence args
+                      (cond
+                        [(preinfo-src preinfo) =>
+                         (lambda (src)
+                           (warn src)
+                           `(call ,preinfo
+                              ,(lookup-primref 2 '$source-violation)
+                              (quote #f)
+                              (quote ,src)
+                              (quote #t)
+                              (quote "incorrect argument count in call ~a")
+                              (quote ,call)))]
+                        [else
                          `(call ,preinfo
-                            ,(lookup-primref 2 '$source-violation)
+                            ,(lookup-primref 2 '$oops)
                             (quote #f)
-                            (quote ,src)
-                            (quote #t)
                             (quote "incorrect argument count in call ~a")
-                            (quote ,call)))]
-                      [else
-                       `(call ,preinfo
-                          ,(lookup-primref 2 '$oops)
-                          (quote #f)
-                          (quote "incorrect argument count in call ~a")
-                          (quote ,call))]))))))))
+                            (quote ,call))])))]
+               [else
+                ;; Just report warning, if source, and keep original call
+                (cond [(preinfo-src preinfo) => warn])
+                `(call ,preinfo ,f ,args ...)]))))))
     (Expr : Expr (ir [ctxt #f]) -> Expr ()
       [(quote ,d) ir]
       [(ref ,maybe-src ,x)
@@ -169,38 +180,40 @@
             ,(Expr body ctxt)))]
       [,pr (let ([arity (primref-arity pr)]) (when arity (check! ctxt arity))) pr]
       [(record-ref ,rtd ,type ,index ,[e #f -> e])
-       `(call ,(make-preinfo) ,(lookup-primref 3 '$object-ref)
+       `(call ,(make-preinfo-call) ,(lookup-primref 3 '$object-ref)
           (quote ,type) ,e (quote ,(record-field-offset rtd index)))]
       [(record-set! ,rtd ,type ,index ,[e1 #f -> e1] ,[e2 #f -> e2])
-       `(call ,(make-preinfo) ,(lookup-primref 3 '$object-set!)
+       `(call ,(make-preinfo-call) ,(lookup-primref 3 '$object-set!)
           (quote ,type) ,e1 (quote ,(record-field-offset rtd index)) ,e2)]
       [(record ,rtd ,[rtd-expr #f -> rtd-expr] ,[e* #f -> e*] ...)
        (let ([rtd (maybe-remake-rtd rtd)])
          (let ([fld* (rtd-flds rtd)] [rec-t (make-prelex*)])
-           (safe-assert (fx= (length e*) (length fld*)))
-           (let ([filler* (fold-right
-                            (lambda (fld e filler*)
-                              (let ([type (fld-type fld)])
-                                (if (eq? (filter-foreign-type type) 'scheme-object)
-                                    filler*
-                                    (cons
-                                      `(call ,(make-preinfo) ,(lookup-primref 3 '$object-set!)
-                                         (quote ,type) (ref #f ,rec-t) (quote ,(fld-byte fld)) ,e)
-                                      filler*))))
-                            '() fld* e*)])
+           (safe-assert (fx= (length e*) (if (fixnum? fld*) fld* (length fld*))))
+           (let ([filler* (if (fixnum? fld*)
+                              '()
+                              (fold-right
+                               (lambda (fld e filler*)
+                                 (let ([type (fld-type fld)])
+                                   (if (eq? (filter-foreign-type type) 'scheme-object)
+                                       filler*
+                                       (cons
+                                        `(call ,(make-preinfo-call) ,(lookup-primref 3 '$object-set!)
+                                               (quote ,type) (ref #f ,rec-t) (quote ,(fld-byte fld)) ,e)
+                                        filler*))))
+                               '() fld* e*))])
              (if (null? filler*)
-                 `(call ,(make-preinfo) ,(lookup-primref 3 '$record) ,rtd-expr ,e* ...)
+                 `(call ,(make-preinfo-call) ,(lookup-primref 3 '$record) ,rtd-expr ,e* ...)
                  (begin
                    (set-prelex-referenced! rec-t #t)
                    (set-prelex-multiply-referenced! rec-t #t)
-                   `(call ,(make-preinfo)
+                   `(call ,(make-preinfo-call)
                       (case-lambda ,(make-preinfo-lambda)
                         (clause (,rec-t) 1 ,(build-sequence filler* `(ref #f ,rec-t))))
-                      (call ,(make-preinfo) ,(lookup-primref 3 '$record) ,rtd-expr
+                      (call ,(make-preinfo-call) ,(lookup-primref 3 '$record) ,rtd-expr
                         ,(map (lambda (arg) (cond [(eqv? arg 0) `(quote 0)] [else arg]))
                            (make-record-call-args fld* (rtd-size rtd) e*))
                         ...)))))))]
-      [(cte-optimization-loc ,box ,[e #f -> e]) e]
+      [(cte-optimization-loc ,box ,[e #f -> e] ,exts) e]
       [(immutable-list (,e* ...) ,[e]) e]
       [(moi) ir]
       [(pariah) ir]

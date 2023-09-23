@@ -212,15 +212,20 @@ by the \var{res-type}.
 Multiple procedures may be created for the same \index{foreign entry}foreign entry.
 
 \label{page:conv-description}%
-Each \var{conv} adjusts specifies the calling convention to be used.
+Each \var{conv} adjusts the calling convention to be used.
 A \scheme{#f} is allowed as \var{conv} to indicate the default calling convention
 on the target machine (so the \scheme{#f} has no effect).
 Three other conventions are currently supported under
 Windows: \scheme{__stdcall}, \scheme{__cdecl}, and \scheme{__com} (32-bit only).
 Since \scheme{__cdecl} is the default, specifying \scheme{__cdecl} is
 equivalent to specifying \scheme{#f} or no convention.
-Finally, \var{conv} can be \scheme{__collect_safe} to indicate that garbage
-collection is allowed concurrent to a call of the foreign procedure.
+Additionally, \var{conv} can be \scheme{__collect_safe} to indicate that garbage
+collection is allowed concurrently with a call of the foreign procedure, or it
+can be \scheme{__varargs} or \scheme{(__varargs_after \var{n})} to indicate
+that the procedure uses a convention that works with a variable number of arguments
+after the first \var{n} (which may differ from the convention used for the
+fixed-argument variant on some platforms and conventions).
+\scheme{__varargs} is a shorthand for \scheme{(__varargs_after 1)}.
 
 Use \scheme{__stdcall} to access most Windows API procedures.
 Use \scheme{__cdecl} for Windows API varargs procedures,
@@ -252,7 +257,7 @@ with the second argument being a double float and the return
 value being an integer.
 
 Use \scheme{__collect_safe} to declare that garbage collection is
-allowed concurrent to the foreign procedure. The
+allowed concurrently with the foreign procedure. The
 \scheme{__collect_safe} declaration allows concurrent collection by
 deactivating the current thread (see \scheme{fork-thread}) when the
 foreign procedure is called, and the thread is activated again when
@@ -291,8 +296,10 @@ The types
 \index{\scheme{u16*}}\scheme{u16*},
 \index{\scheme{u32*}}\scheme{u32*},
 \index{\scheme{utf-8}}\scheme{utf-8},
+\index{\scheme{utf-16}}\scheme{utf-16},
 \index{\scheme{utf-16le}}\scheme{utf-16le},
 \index{\scheme{utf-16be}}\scheme{utf-16be},
+\index{\scheme{utf-32}}\scheme{utf-32},
 \index{\scheme{utf-32le}}\scheme{utf-32le},
 and
 \index{\scheme{utf-32be}}\scheme{utf-32be},
@@ -309,8 +316,10 @@ foreign variables and data structures.
 
 For argument types \scheme{string}, \scheme{wstring},
 \index{\scheme{utf-8}}\scheme{utf-8},
+\index{\scheme{utf-16}}\scheme{utf-16},
 \index{\scheme{utf-16le}}\scheme{utf-16le},
 \index{\scheme{utf-16be}}\scheme{utf-16be},
+\index{\scheme{utf-32}}\scheme{utf-32},
 \index{\scheme{utf-32le}}\scheme{utf-32le}, and
 \index{\scheme{utf-32be}}\scheme{utf-32be}, an argument is converted
 to a fresh object that is passed to the foreign procedure. Since the
@@ -560,6 +569,12 @@ them between foreign procedure calls and use their storage for some
 other purpose. The \scheme{utf-8} argument type is not allowed for a
 \scheme{__collect_safe} foreign procedure.
 
+\foreigntype{\scheme{utf-16}}
+\index{\scheme{utf-16}}Arguments of this type are treated like arguments
+of type \scheme{utf-8}, except they are converted as if via
+\scheme{string->utf16} with endianness \scheme{(native-endianness)}, and they are
+extended by two null bytes rather than one.
+
 \foreigntype{\scheme{utf-16le}}
 \index{\scheme{utf-16le}}Arguments of this type are treated like arguments
 of type \scheme{utf-8}, except they are converted as if via
@@ -571,6 +586,12 @@ extended by two null bytes rather than one.
 of type \scheme{utf-8}, except they are converted as if via
 \scheme{string->utf16} with endianness \scheme{big}, and they are
 extended by two null bytes rather than one.
+
+\foreigntype{\scheme{utf-32}}
+\index{\scheme{utf-32}}Arguments of this type are treated like arguments
+of type \scheme{utf-8}, except they are converted as if via
+\scheme{string->utf32} with endianness \scheme{(native-endianness)}, and they are
+extended by four null bytes rather than one.
 
 \foreigntype{\scheme{utf-32le}}
 \index{\scheme{utf-32le}}Arguments of this type are treated like arguments
@@ -588,11 +609,10 @@ extended by four null bytes rather than one.
 \index{\scheme{string}}This type is an alias for \scheme{utf-8}.
 
 \foreigntype{\scheme{wstring}}
-\index{\scheme{string}}This type is an alias for \scheme{utf-16le},
-\scheme{utf-16be}, \scheme{utf-32le}, or \scheme{utf-32be} as
-appropriate depending on the size of a C \scheme{wchar_t} and
-the endianness of the target machine.
-For example, \scheme{wstring} is equivalent to \scheme{utf-16le}
+\index{\scheme{wstring}}This type is an alias for \scheme{utf-16}
+or \scheme{utf-32} as
+appropriate depending on the size of a C \scheme{wchar_t}.
+For example, \scheme{wstring} is equivalent to \scheme{utf-16}
 under Windows running on Intel hardware.
 
 \foreigntype{\scheme{(* \var{ftype-name})}}
@@ -817,6 +837,16 @@ If the result is a null pointer, \scheme{#f} is returned.
 Otherwise, the sequence of bytes is converted into a Scheme string, as if
 via \scheme{utf8->string}, and the string is returned to Scheme.
 
+\foreigntype{\scheme{utf-16}}
+\index{\scheme{utf-16}}The result is interpreted as a pointer to a
+null-terminated sequence of 16-bit unsigned integers.
+If the result is a null pointer, \scheme{#f} is returned.
+Otherwise, the sequence of integers is converted into a Scheme string, as if
+via \scheme{utf16->string} with endianness \scheme{(native-endianness)},
+and the string is returned to Scheme.
+A byte-order mark in the sequence of integers is treated as an ordinary
+character value and does not affect the byte ordering.
+
 \foreigntype{\scheme{utf-16le}}
 \index{\scheme{utf-16le}}The result is interpreted as a pointer to a
 null-terminated sequence of 16-bit unsigned integers.
@@ -824,7 +854,7 @@ If the result is a null pointer, \scheme{#f} is returned.
 Otherwise, the sequence of integers is converted into a Scheme string, as if
 via \scheme{utf16->string} with endianness \scheme{little},
 and the string is returned to Scheme.
-A byte-order mark in the sequence of integers as treated as an ordinary
+A byte-order mark in the sequence of integers is treated as an ordinary
 character value and does not affect the byte ordering.
 
 \foreigntype{\scheme{utf-16be}}
@@ -834,7 +864,17 @@ If the result is a null pointer, \scheme{#f} is returned.
 Otherwise, the sequence of integers is converted into a Scheme string, as if
 via \scheme{utf16->string} with endianness \scheme{big},
 and the string is returned to Scheme.
-A byte-order mark in the sequence of integers as treated as an ordinary
+A byte-order mark in the sequence of integers is treated as an ordinary
+character value and does not affect the byte ordering.
+
+\foreigntype{\scheme{utf-32}}
+\index{\scheme{utf-32}}The result is interpreted as a pointer to a
+null-terminated sequence of 32-bit unsigned integers.
+If the result is a null pointer, \scheme{#f} is returned.
+Otherwise, the sequence of integers is converted into a Scheme string, as if
+via \scheme{utf32->string} with endianness \scheme{(native-endianness)},
+and the string is returned to Scheme.
+A byte-order mark in the sequence of integers is treated as an ordinary
 character value and does not affect the byte ordering.
 
 \foreigntype{\scheme{utf-32le}}
@@ -844,7 +884,7 @@ If the result is a null pointer, \scheme{#f} is returned.
 Otherwise, the sequence of integers is converted into a Scheme string, as if
 via \scheme{utf32->string} with endianness \scheme{little},
 and the string is returned to Scheme.
-A byte-order mark in the sequence of integers as treated as an ordinary
+A byte-order mark in the sequence of integers is treated as an ordinary
 character value and does not affect the byte ordering.
 
 \foreigntype{\scheme{utf-32be}}
@@ -854,18 +894,16 @@ If the result is a null pointer, \scheme{#f} is returned.
 Otherwise, the sequence of integers is converted into a Scheme string, as if
 via \scheme{utf32->string} with endianness \scheme{big},
 and the string is returned to Scheme.
-A byte-order mark in the sequence of integers as treated as an ordinary
+A byte-order mark in the sequence of integers is treated as an ordinary
 character value and does not affect the byte ordering.
 
 \foreigntype{\scheme{string}}
 \index{\scheme{string}}This type is an alias for \scheme{utf-8}.
 
 \foreigntype{\scheme{wstring}}
-\index{\scheme{string}}This type is an alias for \scheme{utf-16le},
-\scheme{utf-16be}, \scheme{utf-32le}, or \scheme{utf-32be} as
-appropriate depending on the size of a C \scheme{wchar_t} and
-the endianness of the target machine.
-For example, \scheme{wstring} is equivalent to \scheme{utf-16le}
+\index{\scheme{wstring}}This type is an alias for \scheme{utf-16}
+or \scheme{utf-32} as appropriate depending on the size of a C \scheme{wchar_t}.
+For example, \scheme{wstring} is equivalent to \scheme{utf-16}
 under Windows running on Intel hardware.
 
 \foreigntype{\scheme{(* \var{ftype-name})}}
@@ -1070,13 +1108,13 @@ the address of the entry point within the code object.
 (The C-callable library function \scheme{Sforeign_callable_entry_point}, described in
 Section~\ref{SECTFOREIGNCLIB}, may be used to obtain the entry point
 as well.)  
-This is an implicit pointer into a Scheme object, and
-in many cases, it is necessary to lock the code object
-(using \index{\scheme{lock-object}}\scheme{lock-object})
-before converting it into an entry point
-to prevent Scheme's storage management system from
-relocating or destroying the code object, e.g., when the entry point is
+This is an implicit pointer into an immobile Scheme object, so
+it will not be relocated by the storage management system, but
+it may be reclaimed if the code object becomes unreachable on the Scheme
+side; lock the code object (using \index{\scheme{lock-object}}\scheme{lock-object})
+or otherwise retain it if the entry point is, for example,
 registered as a callback and retained in the ``C'' side indefinitely.
+
 
 The following code creates a foreign-callable code object, locks
 the code object, and returns the entry point.
@@ -1091,9 +1129,11 @@ the code object, and returns the entry point.
 \endschemedisplay
 
 \noindent
-Unless the entry point is intended to be permanent, a pointer to the
-code object returned by \scheme{foreign-callable} should be retained
-so that it can be unlocked when no longer needed.
+Unless the entry point is intended to be permanent, however, a pointer
+to the code object returned by \scheme{foreign-callable} should be retained
+(in which case locking is unnecessary, since the storage management system
+will not move the code object as long as it remains reachable on the
+Scheme side).
 
 Mixed use of \scheme{foreign-callable} and \scheme{foreign-procedure}
 may result in nesting of foreign and Scheme calls, and this
@@ -1291,7 +1331,7 @@ the C stack is reset to its original value.
 
 The procedures described in this section directly create and manipulate
 foreign data, i.e., data that resides outside of the Scheme heap.
-With the exception of \scheme{foreign-alloc} and \scheme{foreign-sizeof},
+With the exception of \scheme{foreign-alloc}, \scheme{foreign-sizeof}, and \scheme{foreign-alignof},
 these procedures are inherently unsafe in the sense that they do not (and
 cannot) check the validity of the addresses they are passed.
 Improper use of these procedures can result in invalid memory references,
@@ -1471,6 +1511,17 @@ of \scheme{foreign-ref} above.
 
 
 %----------------------------------------------------------------------------
+\entryheader
+\formdef{foreign-alignof}{\categoryprocedure}{(foreign-alignof \var{type})}
+\returns the alignment in bytes of \var{type}
+\listlibraries
+\endentryheader
+
+\var{type} must be one of the symbols listed in the description
+of \scheme{foreign-ref} above.
+
+
+%----------------------------------------------------------------------------
 \entryheader\label{defn:define-ftype}
 \formdef{define-ftype}{\categorysyntax}{(define-ftype \var{ftype-name} \var{ftype})}
 \formdef{define-ftype}{\categorysyntax}{(define-ftype (\var{ftype-name} \var{ftype}) \dots)}
@@ -1510,7 +1561,7 @@ where \var{length} is an exact nonnegative integer,
 \var{conv} is \scheme{#f} or a string naming a valid convention
 as described on page~\ref{page:conv-description},
 signedness is either \scheme{signed} or \scheme{unsigned}, and
-endianness is one of \scheme{native}, \scheme{big}, or \scheme{little}.
+endianness is one of \scheme{native}, \scheme{swapped}, \scheme{big}, or \scheme{little}.
 
 A restriction not reflected above is that 
 \scheme{function} ftypes cannot be used as the types of
@@ -1693,18 +1744,24 @@ the \scheme{endian} ftype with a \scheme{big} or \scheme{little}
 \var{endianness} specifier.
 The \scheme{native} specifier can be used to force a return
 back to \scheme{native} representation.
+The \scheme{swapped} specifier can be used to swap the
+representation relative to the default or enclosing representation.
 Each \scheme{endian} form affects only ftypes nested syntactically
 within it and not nested within a closer \scheme{endian} form.
 The endianness of an ftype is fixed once it is defined.
 
 The total size $n$ of the fields within an ftype bits form must
-be 8, 16, 24, 32, 40, 48, 56, or 64.  padding must be added manually if needed.
+be 8, 16, 24, 32, 40, 48, 56, or 64.  Padding must be added manually, if needed.
 In little-endian representation, the first field occupies
 the low-order bits of the containing 8, 16, 24, 32, 40, 48, 56, or 64-bit word,
 with each subsequent field just above the preceding field.
 In big-endian representation, the first field occupies the
 high-order bits, with each subsequent field just below the
-preceding field.
+preceding field. For a machine type where endianness is not
+known at compile time (such as the portable bytecode
+virtual machine), a bit field must be specified explicitly
+as \scheme{big} or \scheme{little} endian by an enclosing
+declaration.
 
 Two ftypes are considered equivalent only if defined by the
 same \scheme{ftype} binding.
@@ -1873,8 +1930,8 @@ Thus, \scheme{make-ftype-pointer} with a function ftype is an alternative
 to \scheme{foreign-callable} for creating C-callable wrappers for Scheme
 procedures.
 
-Since all Scheme objects, including code objects, can be relocated or
-even reclaimed by the garbage collector the foreign-callable code object
+Since the foreign-callable code object can be reclaimed by the garbage
+collector if it is not otherwise referenced, the implicit foreign-callable's code object
 is automatically locked, as if via \scheme{lock-object}, before it is
 embedded in the ftype pointer.
 The code object should be unlocked after its last use from C,
@@ -1892,7 +1949,10 @@ to \scheme{unlock-object}:
     (ftype-pointer-address fact-fptr)))
 \endschemedisplay
 
-Once unlocked, the ftype pointer should not be used again, unless
+Even after the code object is unlocked, the code object will remain
+immobile as long as a result of \scheme{foreign-callable-code-object}
+is retained. However, if only the ftype pointer object is retained,
+then the ftype pointer should not be used again unless
 it is relocked, e.g., via:
 
 \schemedisplay
@@ -2294,6 +2354,203 @@ value is the symbol \scheme{invalid}.
 \endschemedisplay
 
 
+\section{Foreign Arrays of Managed Objects\label{SECTREFERENCEARRAY}}
+
+When a bytevector value is passed in a foreign call as an argument of
+type \scheme{u8*}, the foreign procedure receives a pointer to the
+start of the bytevector's content. The function
+\scheme{object->reference-address} returns that same address, but it
+is valid only if the bytevector does not move. If the storage manager
+later moves the bytevector in memory, then the address becomes
+invalid. The bytevector can be locked with \scheme{lock-object} to
+prevent the storage manage from relocating it, so that the content
+address will remain valid, but then it must be explicitly unlocked
+later with \scheme{unlock-object}.
+
+Having to explicitly lock and unlock objects can make interoperating
+with foreign procedures difficult when the foreign procedure expects
+an array of references (for example, as a \scheme{char**} argument).
+It may seem that a vector of bytevectors could serve that
+purpose, but although a Scheme vector is an array of references at
+some level, a vector's reference to a bytevector does not point to the
+start of the bytevector's content.
+
+A \emph{reference bytevector} is a type of bytevector that can be used to
+solve this problem by storing the addresses of the \emph{contents} of
+scheme objects using \scheme{bytevector-reference-set!}.
+Reference bytevectors are recognized and treated
+specially by the storage manager, so that the addresses contained in the
+reference byte vector are both recognized as a reference to a scheme
+object and updated appropriately if the storage manager moves that
+object.  A reference bytevector can refer to any type of Scheme object,
+but the meaning of the address is specified for only three kinds of
+object:  The address for bytevectors and flvectors is the pointer to their
+content, and the address for \scheme{#f} is \scheme{0}.  In addition, a
+reference bytevector can
+contain foreign addresses, which are addresses of memory outside of
+the storage manager's ranges, but beware that an address range
+released by a foreign allocator might later become a range that
+belongs to the Scheme storage manager. During the time that a garbage
+collection is possible (i.e., when interrupts have not been disabled),
+every aligned word (i.e. byte offset that is a multiple of
+\scheme{(ftype-sizeof uptr)}) in a reference bytevector must hold a valid object
+reference or a foreign address.
+
+While all of the procedures described in this section support unaligned
+access (for consistency with other bytevector operations), use extreme
+caution when using any byte offset other than an even multiple of the
+current machine's pointer size (i.e., \scheme{(ftype-sizeof uptr)}).  Some
+procedures note cases in which behavior is undefined.  Undefined behavior
+may include invalid memory references, corrupted data, or system crashes.
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{make-reference-bytevector}{\categoryprocedure}{(make-reference-bytevector \var{n})}
+\returns a reference bytevector of length \var{n}
+\listlibraries
+\endentryheader
+
+\noindent
+Like \scheme{make-bytevector}, but the result is a reference
+bytevector that is initialized with all bytes being \scheme{0}
+(i.e., all referenced objects being \scheme{#f} and any trailing bytes
+after an even multiple of the current machine's pointer size being 0).
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{make-immobile-reference-bytevector}{\categoryprocedure}{(make-immobile-reference-bytevector \var{n})}
+\returns a reference bytevector of length \var{n}
+\listlibraries
+\endentryheader
+
+\noindent
+Like \scheme{make-reference-bytevector}, but creates a reference
+bytevector that will not be relocated in memory by the storage
+management system until it is reclaimed.
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{reference-bytevector?}{\categoryprocedure}{(reference-bytevector? \var{obj})}
+\returns \scheme{#t} if \var{obj} is an reference bytevector, \scheme{#f} otherwise
+\listlibraries
+\endentryheader
+
+Note that every reference bytevector is also a bytevector that is
+recognized by \scheme{bytevector?}, and \scheme{equal?} considers two
+bytevectors independent of whether either is a reference bytevector.
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{bytevector-reference-set!}{\categoryprocedure}{(bytevector-reference-set! \var{bytevector} \var{n} \var{obj})}
+\returns unspecified
+\listlibraries
+\endentryheader
+
+\noindent
+\var{bytevector} must be a reference bytevector, and \var{n} must
+be a nonnegative fixnum.  The sum of \var{n} and the size of a pointer
+(i.e., \scheme{(ftype-sizeof uptr)}) must not be greater than the length of
+\var{bytevector}.
+
+Installs a reference to \var{obj} at byte offset \var{n} within
+\var{bytevector}. In the case that \var{obj} is a bytevector or
+flvector, the reference is represented as the starting address of the
+bytevector or flvector's content.  If \var{obj} is \scheme{#f} then the
+reference is represented as \scheme{0}.  The reference occupies
+\scheme{(ftype-sizeof uptr)} bytes.
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{bytevector-reference-ref}{\categoryprocedure}{(bytevector-reference-ref \var{bytevector} \var{n})}
+\returns a Scheme object
+\listlibraries
+\endentryheader
+
+\noindent
+\var{bytevector} must be a reference bytevector, and \var{n} must
+be a nonnegative fixnum.  The sum of \var{n} and the size of a pointer
+(i.e., \scheme{(ftype-sizeof uptr)}) must not be greater than the length of
+\var{bytevector}.
+
+Returns the object that is referenced in \var{bytevector} at byte offset
+\var{n}.  If the \scheme{(ftype-sizeof uptr)} bytes at offset \var{n} do
+not represent a reference to a valid Scheme object then behavior is undefined.
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{bytevector-reference*-ref}{\categoryprocedure}{(bytevector-reference*-ref \var{bytevector} \var{n})}
+\returns an allocated Scheme object or a positive exact integer
+\listlibraries
+\endentryheader
+
+\noindent
+Like \scheme{bytevector-reference-ref}, but if \var{bytevector} at
+byte offset \var{n} holds a non-\scheme{0} foreign address,
+\scheme{bytevector-reference*-ref} returns an integer. The
+representation of a reference to a Scheme object can overlap with the
+representation of a foreign address; see
+\scheme{reference*-address->object}.
+
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{object->reference-address}{\categoryprocedure}{(object->reference-address \var{obj})}
+\returns a nonnegative exact integer
+\listlibraries
+\endentryheader
+
+\noindent
+The result is \scheme{0} if \scheme{obj} is \scheme{#f}, and it is the
+address of \var{objs}'s content in the case that \var{obj} is a
+bytevector or flvector---at least, at the point where
+\scheme{object->reference-address} was called. Unless \var{obj} is
+a locked or immobile bytevector or flvector, its address can change at
+any time that a garbage collection is possible (i.e., when interrupts
+are enabled). For other kinds of \var{objs}, the representation of the
+returned address is not specified, except that it is a nonnegative
+exact integer that is distinct from any other object's representation.
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{reference-address->object}{\categoryprocedure}{(reference-address->object \var{addr})}
+\returns a Scheme object
+\listlibraries
+\endentryheader
+
+\noindent
+\var{addr} must be a nonnegative exact integer that is a valid reference
+to a Scheme object, and the result is the referenced Scheme object.  If
+\var{addr} is not a valid reference to a Scheme object then behavior is undefined.
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{reference*-address->object}{\categoryprocedure}{(reference*-address->object \var{addr})}
+\returns a Scheme object, possibly \var{addr} itself
+\listlibraries
+\endentryheader
+
+\noindent
+\var{addr} must be a nonnegative exact integer that is a valid
+reference to a Scheme object, or it must be an foreign address that is
+outside the range that belongs to the storage manager.
+
+When \var{addr} is \scheme{0}, the result is \scheme{#f}. Otherwise,
+if \var{addr} is a foreign address, then \var{addr} itself is
+returned.
+
+The representation of a reference to a bytevector or flvector is
+guaranteed to be distinct from any foreign address, but other values
+may have a representation that overlaps with foreign addresses, in which case
+\var{addr} is returned (i.e., the foreign-address interpretation takes
+precedence). Thus, \scheme{reference*-address->object}
+and \scheme{bytevector-reference*-ref} are mainly useful for an address
+that is known to be either a bytevector reference, an flvector
+reference, or a foreign address.
+
+If \var{addr} is not a foreign address and does not reference a valid
+Scheme object then behavior is undefined.
+
+%----------------------------------------------------------------------------
 
 
 \section{Providing Access to Foreign Procedures\label{SECTFOREIGNACCESS}}
@@ -2787,6 +3044,11 @@ The preprocessor macros may evaluate their arguments more than once
 (or not at all), so care should be taken to ensure that this does not
 cause problems.
 
+\def\NLhphantom#1{\\\hphantom{#1}}
+\ifhtml
+\def\NLhphantom#1{ }
+\fi
+
 % these must be xdef, since their expansions contain \scheme{...}
 \xdef\cconst#1#2{\noindent\index{\scheme{#2}}%
 [macro] \scheme{#1} \scheme{#2}\\}
@@ -2796,6 +3058,9 @@ cause problems.
 
 \xdef\cfunction#1#2#3{\noindent\index{\scheme{#2}}%
 [func] \scheme{#1} \scheme{#2}\scheme{(#3)}\\}
+
+\xdef\cfunctTwo#1#2#3#4{\noindent\index{\scheme{#2}}%
+[func] \scheme{#1} \scheme{#2}\scheme{(#3}\NLhphantom{[func] \scheme{#1} \scheme{#2}\scheme{(}}\scheme{#4)}\\}
 
 \parheader{Customization}
 The functions described here are used to initialize the Scheme system,
@@ -2807,6 +3072,7 @@ program.
 \cfunction{void}{Sset_verbose}{int \var{v}}
 \cfunction{void}{Sregister_boot_file}{const char *\var{name}}
 \cfunction{void}{Sregister_boot_file_fd}{const char *\var{name}, int \var{fd}}
+\cfunctTwo{void}{Sregister_boot_file_fd_segment}{const char *\var{name}, int \var{fd},}{iptr \var{offset}, iptr \var{len}, int \var{close}_\var{after}}
 \cfunction{void}{Sbuild_heap}{const char *\var{exec}, void (*\var{custom}_\var{init})(void)}
 \cfunction{void}{Senable_expeditor}{const char *\var{history}_\var{file}}
 \cfunction{void}{Sretain_static_relocation}{void}
@@ -2847,6 +3113,19 @@ is used only for error reporting.
 For the first boot file registered only, the system also
 searches for the boot files upon which the named file
 depends, either directly or indirectly.
+
+The \scheme{Sregister_boot_file_fd_region} function is an alternative
+to \scheme{Sregister_boot_file_fd} that allows the same file
+descriptor to be used for multiple boot files using different offsets
+into the file. The \var{len} argument is used as a hint, but it can be
+0 to mean that the size is unknown, or it can be larger than the
+actual boot content; it must not be non-0 and smaller than the boot
+content, and the boot content must be self-terminating independent
+of \var{len}. No search is performed for dependencies. If the same file
+descriptor is used for multiple boot files, then
+\scheme{\var{close}_\var{after}} should be non-zero only for the last
+one. The boot file content is read only when \scheme{Sbuild_heap} is
+called.
 
 \scheme{Sbuild_heap} creates the Scheme heap from the registered boot
 files.
@@ -3025,7 +3304,7 @@ octet (unsigned char).
 
 \noindent
 A Scheme bytevector is represented as a length field followed by a
-sequence of octets (unsignec chars).
+sequence of octets (unsigned chars).
 \scheme{Sbytevector_data} returns a pointer to the start of the sequence
 of octets.
 Extreme care should be taken to stop dereferencing the pointer returned by
@@ -3037,6 +3316,24 @@ the pointer points and may copy other data over the object.
 
 \begin{flushleft}
 \cmacro{octet *}{Sbytevector_data}{ptr \var{bytevec}}
+\end{flushleft}
+
+\noindent
+\scheme{Srecord_type} and \scheme{Srecord_type_parent} correspond to the
+Scheme procedures \scheme{record-rtd} and \scheme{record-type-parent}.
+\scheme{Srecord_type_size} returns the allocation size in bytes of an
+instance of the record type.
+The \scheme{Srecord_uniform_ref} accessor should be used only on
+records whose fields are all Scheme values, which is a record
+for which \scheme{Srecord_type_uniformp} composed with
+\scheme{Srecord_type} returns true.
+
+\begin{flushleft}
+\cfunction{ptr}{Srecord_type}{ptr \var{rec}}
+\cfunction{ptr}{Srecord_type_parent}{ptr \var{rtd}}
+\cfunction{uptr}{Srecord_type_size}{ptr \var{rtd}}
+\cfunction{int}{Srecord_type_uniformp}{ptr \var{rtd}}
+\cmacro{ptr}{Srecord_uniform_ref}{ptr \var{rec}, iptr \var{i}}
 \end{flushleft}
 
 \parheader{Mutators}

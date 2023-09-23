@@ -13,6 +13,15 @@
 ;;; See the License for the specific language governing permissions and
 ;;; limitations under the License.
 
+(mat fixnum?
+   (fixnum? (bitwise-and (- (random 1) 1) 7))
+   (fixnum? (bitwise-and (- (random 1) 1) (most-positive-fixnum)))
+   (not (fixnum? (bitwise-and (- (random 1) 1) (add1 (most-positive-fixnum)))))
+   (fixnum? (bitwise-ior -7 (random 1)))
+   (fixnum? (bitwise-ior (most-negative-fixnum) (random 1)))
+   (not (fixnum? (bitwise-ior (sub1 (most-negative-fixnum)) (random 1))))
+ )
+
 (mat fx=
    (not (fx= 3 4))
    (not (fx= 4 3))
@@ -465,6 +474,25 @@
    (test-cp0-expansion eqv? '(r6rs:fx+ 3 3) 6)
  )
 
+(mat fx+/wraparound
+   (eqv? (fx+/wraparound 3 0) 3)
+   (eqv? (fx+/wraparound 3 1) 4)
+   (eqv? (fx+/wraparound -3 4) 1)
+   (error? (fx+/wraparound '(a . b) 0))
+   (error? (fx+ (add1 (most-positive-fixnum)) 1))
+   (error? (fx+ 1 (add1 (most-positive-fixnum))))
+   (error? (fx+ (sub1 (most-negative-fixnum)) 1))
+   (error? (fx+ 1 (sub1 (most-negative-fixnum))))
+   (eqv? (fx+/wraparound (most-positive-fixnum) 1) (most-negative-fixnum))
+   (eqv? (fx+/wraparound (most-positive-fixnum) 2) (add1 (most-negative-fixnum)))
+   (eqv? (fx+/wraparound (most-negative-fixnum) -1) (most-positive-fixnum))
+   (eqv? (fx+/wraparound (most-negative-fixnum) -2) (sub1 (most-positive-fixnum)))
+   (eqv? (fx+/wraparound (most-positive-fixnum) (most-positive-fixnum)) -2)
+   (eqv? (fx+/wraparound (most-negative-fixnum) (most-negative-fixnum)) 0)
+   (eqv? (fx+/wraparound (collect-maximum-generation) 0) (collect-maximum-generation))
+   (eqv? (fx+/wraparound 0 (collect-maximum-generation)) (collect-maximum-generation))
+   )
+
 (mat fx-
    (eqv? (fx- 3 0) 3)
    (eqv? (fx- 3 1) 2)
@@ -533,6 +561,24 @@
    (test-cp0-expansion eqv? '(r6rs:fx- 3) -3)
  )
 
+(mat fx-/wraparound
+   (eqv? (fx-/wraparound 3 0) 3)
+   (eqv? (fx-/wraparound 3 1) 2)
+   (eqv? (fx-/wraparound -3 4) -7)
+   (error? (fx-/wraparound '(a . b) 0))
+   (error? (fx- (add1 (most-positive-fixnum)) 1))
+   (error? (fx- 1 (add1 (most-positive-fixnum))))
+   (error? (fx- (sub1 (most-negative-fixnum)) 1))
+   (error? (fx- 1 (sub1 (most-negative-fixnum))))
+   (eqv? (fx-/wraparound (most-negative-fixnum) 1) (most-positive-fixnum))
+   (eqv? (fx-/wraparound (most-negative-fixnum) 2) (sub1 (most-positive-fixnum)))
+   (eqv? (fx-/wraparound (most-positive-fixnum) -1) (most-negative-fixnum))
+   (eqv? (fx-/wraparound (most-positive-fixnum) -2) (add1 (most-negative-fixnum)))
+   (eqv? (fx-/wraparound (most-positive-fixnum) (most-negative-fixnum)) -1)
+   (eqv? (fx-/wraparound (most-negative-fixnum) (most-positive-fixnum)) 1)
+   (eqv? (fx-/wraparound (collect-maximum-generation) 0) (collect-maximum-generation))
+   )
+
 (mat fx*
    (eqv? (fx* 3 0) 0)
    (eqv? (fx* 3 1) 3)
@@ -598,6 +644,26 @@
    (test-cp0-expansion eqv? '(r6rs:fx* 3 -3) -9)
    (test-cp0-expansion eqv? '(r6rs:fx* 3 3) 9)
  )
+
+(mat fx*/wraparound
+   (eqv? (fx*/wraparound 3 0) 0)
+   (eqv? (fx*/wraparound 3 1) 3)
+   (eqv? (fx*/wraparound -3 4) -12)
+   (error? (fx*/wraparound '(a . b) 0))
+   (error? (fx* (add1 (most-positive-fixnum)) 1))
+   (error? (fx* 1 (add1 (most-positive-fixnum))))
+   (error? (fx* (sub1 (most-negative-fixnum)) 1))
+   (error? (fx* 1 (sub1 (most-negative-fixnum))))
+   (eqv? (fx*/wraparound (most-negative-fixnum) -1) (most-negative-fixnum))
+   (eqv? (fx*/wraparound (most-negative-fixnum) 2) 0)
+   (eqv? (fx*/wraparound (most-positive-fixnum) -1) (add1 (most-negative-fixnum)))
+   (eqv? (fx*/wraparound (most-positive-fixnum) 2) -2)
+   (eqv? (fx*/wraparound (most-positive-fixnum) -2) 2)
+   (eqv? (fx*/wraparound (most-positive-fixnum) (most-negative-fixnum)) (most-negative-fixnum))
+   (eqv? (fx*/wraparound (most-negative-fixnum) (most-positive-fixnum)) (most-negative-fixnum))
+   (eqv? (fx*/wraparound (collect-maximum-generation) 1) (collect-maximum-generation))
+   (eqv? (fx*/wraparound 1 (collect-maximum-generation)) (collect-maximum-generation))
+   )
 
 (mat fxquotient
   (eqv? (fxquotient 3 1) 3)
@@ -1466,7 +1532,7 @@
   (test-cp0-expansion eqv? '(fxsll 1 3) 8)
   (test-cp0-expansion eqv? '(fxsll 1 4) 16)
   (test-cp0-expansion eqv? '(fxsll 1 (/ 8 2)) 16)
- )
+  )
 
 (mat fxarithmetic-shift-left
  ; bound on shift count is one less than for fxsll
@@ -1510,7 +1576,25 @@
   (test-cp0-expansion eqv? '(fxarithmetic-shift-left 1 3) 8)
   (test-cp0-expansion eqv? '(fxarithmetic-shift-left 1 4) 16)
   (test-cp0-expansion eqv? '(fxarithmetic-shift-left 1 (/ 8 2)) 16)
- )
+  )
+
+(mat fsll/wraparound
+   (eqv? (fxsll/wraparound 3 0) 3)
+   (eqv? (fxsll/wraparound 3 1) 6)
+   (eqv? (fxsll/wraparound -3 4) -48)
+   (error? (fxsll/wraparound '(a . b) 0))
+   (error? (fxsll/wraparound 4 -3))
+   (error? (fxsll/wraparound 4 1000))
+   (error? (fxsll/wraparound 4 -1000))
+   (error? (fxsll (add1 (most-positive-fixnum)) 1))
+   (error? (fxsll 1 (add1 (most-positive-fixnum))))
+   (error? (fxsll (sub1 (most-negative-fixnum)) 1))
+   (error? (fxsll 1 (sub1 (most-negative-fixnum))))
+   (eqv? (fxsll/wraparound (most-negative-fixnum) 1) 0)
+   (eqv? (fxsll/wraparound (most-negative-fixnum) 30) 0)
+   (eqv? (fxsll/wraparound (most-positive-fixnum) 1) -2)
+   (eqv? (fxsll/wraparound (most-positive-fixnum) 5) -32)
+   )
 
 (mat fxsrl
    (error? (fxsrl 1 -1))
@@ -2914,3 +2998,40 @@
     '(fxreverse-bit-field -1 0 (fx- (fixnum-width) 1))
     -1)
 )
+
+(mat cp-regression-check
+  (begin
+    (define ($regression-go th) (th 'break))
+    (define ($regression-slow v) (inexact->exact (exact->inexact v)))
+    
+    (let ()
+      (define l '(1 2 3 4 5))
+      (define expected (fxvector 1 2 3 4 5))
+
+      (define xs (make-fxvector (length l)))
+      
+      (define (list->fxvector vs)
+        (let ([n 5])
+          ($regression-go
+           (lambda (break)
+             (let loop ([i 0] [vs vs])
+               (unless (null? vs)
+                 (let ([v (car vs)])
+                   (#3%fxvector-set! xs i ($regression-slow v))
+                   (loop (fx+ i 1) (cdr vs)))))))
+          xs))
+
+      (let loop ([i 1000000])
+        (cond
+          [(zero? i) #t]
+          [else
+           (fxvector-set! xs 0 0)
+           (fxvector-set! xs 1 0)
+           (fxvector-set! xs 2 0)
+           (fxvector-set! xs 3 0)
+           (fxvector-set! xs 4 0)
+           (let ([v (list->fxvector l)])
+             (unless (equal? v expected)
+               (error 'failed "~a oops ~s\n" i v)))
+           (loop (sub1 i))]))))
+  )

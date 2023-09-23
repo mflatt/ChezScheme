@@ -32,20 +32,9 @@
     
 (define suppress-greeting (make-parameter #f (lambda (x) (and x #t))))
 
-(define-who eval-syntax-expanders-when
-   ($make-thread-parameter '(compile load eval)
-      (lambda (x)
-         (unless (let check ([x x] [l '(compile load eval visit revisit)])
-                    (or (null? x)
-                        (and (pair? x)
-                             (memq (car x) l)
-                             (check (cdr x) (remq (car x) l)))))
-            ($oops who "invalid eval-when list ~s" x))
-         x)))
-
 (define-who collect-maximum-generation
-  (let ([$get-maximum-generation (foreign-procedure "(cs)maxgen" () fixnum)]
-        [$set-maximum-generation! (foreign-procedure "(cs)set_maxgen" (fixnum) void)])
+  (let ([$get-maximum-generation (foreign-procedure "(cs)maxgen" () int)]
+        [$set-maximum-generation! (foreign-procedure "(cs)set_maxgen" (int) void)])
     (case-lambda
       [() ($get-maximum-generation)]
       [(g)
@@ -56,8 +45,8 @@
        ($set-maximum-generation! g)])))
 
 (define-who release-minimum-generation
-  (let ([$get-release-minimum-generation (foreign-procedure "(cs)minfreegen" () fixnum)]
-        [$set-release-minimum-generation! (foreign-procedure "(cs)set_minfreegen" (fixnum) void)])
+  (let ([$get-release-minimum-generation (foreign-procedure "(cs)minfreegen" () int)]
+        [$set-release-minimum-generation! (foreign-procedure "(cs)set_minfreegen" (int) void)])
     (case-lambda
       [() ($get-release-minimum-generation)]
       [(g)
@@ -66,12 +55,30 @@
          ($oops who "new release minimum generation must not be be greater than collect-maximum-generation"))
        ($set-release-minimum-generation! g)])))
 
+(define-who in-place-minimum-generation
+  (let ([$get-mark-minimum-generation (foreign-procedure "(cs)minmarkgen" () int)]
+        [$set-mark-minimum-generation! (foreign-procedure "(cs)set_minmarkgen" (int) void)])
+    (case-lambda
+      [() ($get-mark-minimum-generation)]
+      [(g)
+       (unless (and (fixnum? g) (fx>= g 0)) ($oops who "invalid generation ~s" g))
+       (let ([limit (fx- (constant static-generation) 1)])
+         (when (fx> g limit) ($oops who "~s exceeds maximum supported value ~s" g limit)))
+       ($set-mark-minimum-generation! g)])))
+
 (define-who enable-object-counts
   (let ([$get-enable-object-counts (foreign-procedure "(cs)enable_object_counts" () boolean)]
         [$set-enable-object-counts (foreign-procedure "(cs)set_enable_object_counts" (boolean) void)])
     (case-lambda
       [() ($get-enable-object-counts)]
       [(b) ($set-enable-object-counts b)])))
+
+(define-who enable-object-backreferences
+  (let ([$get-enable-object-backreferences (foreign-procedure "(cs)enable_object_backreferences" () boolean)]
+        [$set-enable-object-backreferences (foreign-procedure "(cs)set_enable_object_backreferences" (boolean) void)])
+    (case-lambda
+      [() ($get-enable-object-backreferences)]
+      [(b) ($set-enable-object-backreferences b)])))
 
 (define-who collect-trip-bytes
    (make-parameter
@@ -195,6 +202,16 @@
          [(high) (constant COMPRESS-HIGH)]
          [(maximum) (constant COMPRESS-MAX)]
          [else ($oops who "~s is not a supported level" x)]))]))
+
+(define-who compile-omit-concatenate-support
+  ($make-thread-parameter #f (lambda (x) (and x #t))))
+
+(define-who compile-procedure-realm
+  ($make-thread-parameter #f (lambda (x)
+                               (when x
+                                 (unless (symbol? x)
+                                   ($oops who "~a not is #f or a symbol" x)))
+                               x)))
 
 (define-who debug-level
   ($make-thread-parameter

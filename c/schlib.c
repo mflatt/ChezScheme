@@ -174,11 +174,11 @@ void Sinitframe(iptr n) {
 
 void S_initframe(ptr tc, iptr n) {
   /* check for and handle stack overflow */
-    if ((ptr *)SFP(tc) + n + 2 > (ptr *)ESP(tc))
+    if ((ptr *)TO_VOIDP(SFP(tc)) + n + 2 > (ptr *)TO_VOIDP(ESP(tc)))
         S_overflow(tc, (n+2)*sizeof(ptr));
 
   /* intermediate frame contains old RA + cchain */;
-    SFP(tc) = (ptr)((ptr *)SFP(tc) + 2);
+    SFP(tc) = TO_PTR((ptr *)TO_VOIDP(SFP(tc)) + 2);
 }
 
 void Sput_arg(iptr i, ptr x) {
@@ -216,9 +216,9 @@ void S_call_help(ptr tc_in, IBOOL singlep, IBOOL lock_ts) {
      the C stack and we may end up in a garbage collection */
     code = CP(tc);
     if (Sprocedurep(code)) code = CLOSCODE(code);
-    if (!IMMEDIATE(code) && !Scodep(code))
+    if (!FIXMEDIATE(code) && !Scodep(code))
       S_error_abort("S_call_help: invalid code pointer");
-    Slock_object(code);
+    S_immobilize_object(code);
 
     CP(tc) = AC1(tc);
 
@@ -228,10 +228,10 @@ void S_call_help(ptr tc_in, IBOOL singlep, IBOOL lock_ts) {
     if (lock_ts) {
       /* Lock a code object passed in TS, which is a more immediate
          caller whose return address is on the C stack */
-      Slock_object(TS(tc));
-      CCHAIN(tc) = Scons(Scons(jb, Scons(code,TS(tc))), CCHAIN(tc));
+      S_immobilize_object(TS(tc));
+      CCHAIN(tc) = Scons(Scons(TO_PTR(jb), Scons(code,TS(tc))), CCHAIN(tc));
     } else {
-      CCHAIN(tc) = Scons(Scons(jb, Scons(code,Sfalse)), CCHAIN(tc));
+      CCHAIN(tc) = Scons(Scons(TO_PTR(jb), Scons(code,Sfalse)), CCHAIN(tc));
     }
 
     FRAME(tc, -1) = CCHAIN(tc);
@@ -246,8 +246,20 @@ void S_call_help(ptr tc_in, IBOOL singlep, IBOOL lock_ts) {
             S_error_abort("S_generic_invoke return");
             break;
         case 1: { /* normal return */
-            ptr yp = CCHAIN(tc);
-            FREEJMPBUF(CAAR(yp));
+            ptr yp = FRAME(tc, 1);
+            CCHAIN(tc) = yp;
+            {
+              /* unlock code objects that we're escaping past */
+              ptr xp;
+              for (xp = CCHAIN(tc); ; xp = Scdr(xp)) {
+                ptr p = CDAR(xp);
+                S_mobilize_object(Scar(p));
+                if (Scdr(p) != Sfalse) S_mobilize_object(Scdr(p));
+                if (xp == yp) break;
+                FREEJMPBUF(TO_VOIDP(CAAR(xp)));
+              }
+            }
+            FREEJMPBUF(TO_VOIDP(CAAR(yp)));
             CCHAIN(tc) = Scdr(yp);
             break;
         }
@@ -282,7 +294,7 @@ void S_return(void) {
     ptr tc = get_thread_context();
     ptr xp, yp;
 
-    SFP(tc) = (ptr)((ptr *)SFP(tc) - 2);
+    SFP(tc) = TO_PTR((ptr *)TO_VOIDP(SFP(tc)) - 2);
 
   /* grab saved cchain */
     yp = FRAME(tc, 1);
@@ -292,16 +304,10 @@ void S_return(void) {
         if (xp == Snil)
             S_error("", "attempt to return to stale foreign context");
 
-  /* error checks are done; now unlock affected code objects */
-    for (xp = CCHAIN(tc); ; xp = Scdr(xp)) {
-        ptr p = CDAR(xp);
-        Sunlock_object(Scar(p));
-        if (Scdr(p) != Sfalse) Sunlock_object(Scdr(p));
-        if (xp == yp) break;
-        FREEJMPBUF(CAAR(xp));
-    }
+  /* return handling at setjmp will release frames not in the `yp` sublist;
+     we don't do that here, because Windows might need the full chain for
+     unwind handling */
 
-  /* reset cchain and return via longjmp */
-    CCHAIN(tc) = yp;
-    LONGJMP(CAAR(yp), 1);
+  /* return via longjmp */
+    LONGJMP(TO_VOIDP(CAAR(yp)), 1);
 }

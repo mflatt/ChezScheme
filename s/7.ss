@@ -86,6 +86,13 @@
       [(g) (ba (filter-generation g) -1)]
       [(g s) (ba (if g (filter-generation g) -1) (if s (filter-space s) -1))])))
 
+(define-who bytes-finalized
+  (let ([bf (foreign-procedure "(cs)bytes_finalized"
+              ()
+              scheme-object)])
+    (lambda ()
+      (bf))))
+
 (define $spaces (lambda () (map car (constant real-space-alist))))
 
 (define current-memory-bytes (foreign-procedure "(cs)curmembytes" () uptr))
@@ -107,13 +114,7 @@
                 (let ([path (let ([dir (car ls)])
                               (if (or (string=? dir "") (string=? dir "."))
                                   fn
-                                  (format
-                                    (if (directory-separator?
-                                          (string-ref dir
-                                            (fx- (string-length dir) 1)))
-                                        "~a~a"
-                                        "~a/~a")
-                                    dir fn)))])
+                                  (path-build dir fn)))])
                   (if (guard (c [#t #f]) (close-input-port (open-input-file path)) #t)
                       (p path)
                       (loop (cdr ls))))))))))
@@ -127,21 +128,21 @@
 
 (set-who! fasl-read
   (let ()
-    (define $fasl-read (foreign-procedure "(cs)fasl_read" (int fixnum ptr) ptr))
-    (define $bv-fasl-read (foreign-procedure "(cs)bv_fasl_read" (ptr ptr) ptr))
+    (define $fasl-read (foreign-procedure "(cs)fasl_read" (int int ptr ptr) ptr))
+    (define $bv-fasl-read (foreign-procedure "(cs)bv_fasl_read" (ptr int uptr uptr ptr ptr) ptr))
     (define (get-uptr p)
       (let ([k (get-u8 p)])
-        (let f ([k k] [n (fxsrl k 1)])
-          (if (fxlogbit? 0 k)
+        (let f ([k k] [n (fxand k #x7F)])
+          (if (fxlogbit? 7 k)
               (let ([k (get-u8 p)])
-                (f k (logor (ash n 7) (fxsrl k 1))))
+                (f k (logor (ash n 7) (fxand k #x7F))))
               n))))
     (define (get-uptr/bytes p)
       (let ([k (get-u8 p)])
-        (let f ([k k] [n (fxsrl k 1)] [bytes 1])
-          (if (fxlogbit? 0 k)
+        (let f ([k k] [n (fxand k #x7F)] [bytes 1])
+          (if (fxlogbit? 7 k)
               (let ([k (get-u8 p)])
-                (f k (logor (ash n 7) (fxsrl k 1)) (fx+ bytes 1)))
+                (f k (logor (ash n 7) (fxand k #x7F)) (fx+ bytes 1)))
               (values n bytes)))))
     (define (malformed p what) ($oops who "malformed fasl-object found in ~s (~a)" p what))
     (define (check-header p)
@@ -167,13 +168,29 @@
                        (and (not (eof-object? n)) ;(
                             (or (eqv? n (char->integer #\))) (f))))))
         (malformed p "invalid list of base boot files")))
-    (define (go p situation)
+    (define (call-with-bytevector-and-offset p len proc)
+      ;; fasl-read directly from the port buffer if it has `len`
+      ;; bytes ready, which works for a bytevector port; disable
+      ;; interrupt to make sure the bytes stay available (and
+      ;; `$bv-fasl-read` take tc-mutex, anyway)
+      ((with-interrupts-disabled
+        (let ([idx (binary-port-input-index p)])
+          (cond
+            [(<= len (fx- (binary-port-input-size p) idx))
+             (let ([result (proc (binary-port-input-buffer p) idx)])
+               (set-binary-port-input-index! p (fx+ idx len))
+               (lambda () result))]
+            [else
+             ;; Call `get-bytevector-n`, etc. with interrupts reenabled
+             (lambda ()
+               (proc (get-bytevector-n p len) 0))])))))
+    (define (go p situation externals)
       (define (go1)
         (if (and ($port-flags-set? p (constant port-flag-file))
                  (or (not ($port-flags-set? p (constant port-flag-compressed)))
                      (begin ($compressed-warning who p) #f))
                  (eqv? (binary-port-input-count p) 0))
-            ($fasl-read ($port-info p) situation (port-name p))
+            ($fasl-read ($port-info p) situation (port-name p) externals)
             (let fasl-entry ()
               (let ([ty (get-u8 p)])
                 (cond
@@ -196,32 +213,44 @@
                     (set-port-position! p (+ (port-position p) n))
                     (get-bytevector-n p n))
                 (go1))
-              (let ([compressed-flag (get-u8 p)])
+              (let* ([compressed-flag (get-u8 p)]
+                     [kind (get-u8 p)])
                 (cond
                   [(or (eqv? compressed-flag (constant fasl-type-gzip)) (eqv? compressed-flag (constant fasl-type-lz4)))
                    (let-values ([(dest-size dest-size-bytes) (get-uptr/bytes p)])
-                     (let* ([src-size (- n 1 dest-size-bytes)]
-                            [bv (get-bytevector-n p src-size)]
-                            [bv ($bytevector-uncompress bv dest-size
-                                  (if (eqv? compressed-flag (constant fasl-type-gzip))
-                                      (constant COMPRESS-GZIP)
-                                      (constant COMPRESS-LZ4)))])
-                       ($bv-fasl-read bv (port-name p))))]
+                     (let* ([src-size (- n 2 dest-size-bytes)]
+                            [bv (call-with-bytevector-and-offset
+                                 p src-size
+                                 (lambda (bv offset)
+                                   ($bytevector-uncompress bv offset src-size dest-size
+                                      (if (eqv? compressed-flag (constant fasl-type-gzip))
+                                          (constant COMPRESS-GZIP)
+                                          (constant COMPRESS-LZ4)))))])
+                       ($bv-fasl-read bv kind 0 dest-size (port-name p) externals)))]
                   [(eqv? compressed-flag (constant fasl-type-uncompressed))
-                   ($bv-fasl-read (get-bytevector-n p (- n 1)) (port-name p))]
+                   (let ([len (- n 2)])
+                     (call-with-bytevector-and-offset
+                      p len
+                      (lambda (bv offset)
+                        ($bv-fasl-read bv kind offset len (port-name p) externals))))]
                   [else (malformed p "invalid compression")])))))
       (unless (and (input-port? p) (binary-port? p))
         ($oops who "~s is not a binary input port" p))
       (go1))
+    (define (parse-situation situation)
+      (case situation
+        [(visit) (constant fasl-type-visit)]
+        [(revisit) (constant fasl-type-revisit)]
+        [(load) (constant fasl-type-visit-revisit)]
+        [else ($oops who "invalid situation ~s" situation)]))
     (case-lambda
-      [(p) (go p (constant fasl-type-visit-revisit))]
-      [(p situation)
-       (go p
-         (case situation
-           [(visit) (constant fasl-type-visit)]
-           [(revisit) (constant fasl-type-revisit)]
-           [(load) (constant fasl-type-visit-revisit)]
-           [else ($oops who "invalid situation ~s" situation)]))])))
+      [(p) (go p (constant fasl-type-visit-revisit) '#())]
+      [(p situation) (go p (parse-situation situation) '#())]
+      [(p situation externals)
+       (let ([situation (parse-situation situation)])
+         (unless (vector? externals)
+           ($oops who "not a vector ~s" externals))
+         (go p situation externals))])))
 
 (define ($compiled-file-header? ip)
   (let ([pos (port-position ip)])
@@ -235,12 +264,12 @@
 
 (let ()
   (define do-load-binary
-    (lambda (who fn ip situation for-import? importer)
+    (lambda (who fn ip situation for-import? importer externals)
       (let ([load-binary (make-load-binary who fn situation for-import? importer)])
-        (let ([x (fasl-read ip situation)])
+        (let ([x (fasl-read ip situation externals)])
           (unless (eof-object? x)
             (let loop ([x x])
-              (let ([next-x (fasl-read ip situation)])
+              (let ([next-x (fasl-read ip situation externals)])
                 (if (eof-object? next-x)
                     (load-binary x)
                     (begin (load-binary x) (loop next-x))))))))))
@@ -250,17 +279,30 @@
       (import (nanopass))
       (include "base-lang.ss")
       (include "expand-lang.ss"))
-    (lambda (x)
-      (cond
-        [(procedure? x) (x)]
-        [(library/rt-info? x) ($install-library/rt-desc x for-import? importer fn)]
-        [(library/ct-info? x) ($install-library/ct-desc x for-import? importer fn)]
-        [(program-info? x) ($install-program-desc x)]
-        [(recompile-info? x) (void)]
-        [(Lexpand? x) ($interpret-backend x situation for-import? importer fn)]
-        ; NB: this is here to support the #t inserted by compile-file-help2 after header information
-        [(eq? x #t) (void)]
-        [else ($oops who "unexpected value ~s read from ~a" x fn)])))
+    (define run-vector
+      (lambda (v)
+        (let ([n (vector-length v)])
+          (unless (fx= n 0)
+            (let loop ([i 0])
+              (let ([x (vector-ref v i)] [i (fx+ i 1)])
+                (if (fx= i n)
+                    (run-outer x) ; return value(s) of last form for load-compiled-from-port
+                    (begin (run-outer x) (loop i)))))))))
+    (define run-outer
+      (lambda (x)
+        (cond
+         [(procedure? x) (x)]
+         [(library/rt-info? x) ($install-library/rt-desc x for-import? importer fn)]
+         [(library/ct-info? x) ($install-library/ct-desc x for-import? importer fn)]
+         [(program-info? x) ($install-program-desc x)]
+         [(recompile-info? x) (void)]
+         [(Lexpand? x) ($interpret-backend x situation for-import? importer fn)]
+         ; NB: this is here to support the #t inserted by compile-file-help2 after header information
+         [(eq? x #t) (void)]
+         ;; for vfasl combinations:
+         [(vector? x) (run-vector x)]
+         [else ($oops who "unexpected value ~s read from ~a" x fn)])))
+    (lambda (x) (run-outer x)))
 
   (define (do-load who fn situation for-import? importer ksrc)
     (let ([ip ($open-file-input-port who fn)])
@@ -280,7 +322,7 @@
                         (begin (set-port-position! ip start-pos) 0)))])
           (if ($compiled-file-header? ip)
               (begin
-                (do-load-binary who fn ip situation for-import? importer)
+                (do-load-binary who fn ip situation for-import? importer '#())
                 (close-port ip))
               (begin
                 (unless ksrc
@@ -298,22 +340,27 @@
       (make-load-binary '$make-load-binary fn 'load #f #f)))
 
   (set-who! load-compiled-from-port
-    (lambda (ip)
-      (unless (and (input-port? ip) (binary-port? ip))
-        ($oops who "~s is not a binary input port" ip))
-      (do-load-binary who (port-name ip) ip 'load #f #f)))
+    (rec load-compiled-from-port
+      (case-lambda
+       [(ip) (load-compiled-from-port ip '#())]
+       [(ip externals)
+        (unless (and (input-port? ip) (binary-port? ip))
+          ($oops who "~s is not a binary input port" ip))
+        (unless (vector? externals)
+          ($oops who "~s is not a vector" ip))
+        (do-load-binary who (port-name ip) ip 'load #f #f externals)])))
 
   (set-who! visit-compiled-from-port
     (lambda (ip)
       (unless (and (input-port? ip) (binary-port? ip))
         ($oops who "~s is not a binary input port" ip))
-      (do-load-binary who (port-name ip) ip 'visit #f #f)))
+      (do-load-binary who (port-name ip) ip 'visit #f #f '#())))
 
   (set-who! revisit-compiled-from-port
     (lambda (ip)
       (unless (and (input-port? ip) (binary-port? ip))
         ($oops who "~s is not a binary input port" ip))
-      (do-load-binary who (port-name ip) ip 'revisit #f #f)))
+      (do-load-binary who (port-name ip) ip 'revisit #f #f '#())))
 
   (set-who! load-program
     (rec load-program
@@ -562,6 +609,14 @@
             ($oops 'collect-generation-radix "~s is not a positive fixnum" v))
          v)))
 
+(define collect-maximum-generation-threshold-factor
+  (make-parameter
+   2
+   (lambda (v)
+     (unless (and (real? v) (not (negative? v)))
+       ($oops 'collect-maximum-generation-threshold-factor "~s is not a nonnegative real" v))
+     v)))
+  
 (define $reset-protect
   (lambda (body out)
     ((call/cc
@@ -646,18 +701,22 @@
       [() ((abort-handler)) (unexpected-return who)]
       [(x) ((abort-handler) x) (unexpected-return who)])))
 
+(define-who assert-unreachable
+  (lambda ()
+    ($oops who "unreachable code reached")))
+
 (define $interrupt ($make-thread-parameter void))
 
 (define $format-scheme-version
   (lambda (n)
-    (if (= (logand n 255) 0)
+    (if (= (logand (ash n -8) 255) 0)
         (format "~d.~d"
-          (ash n -16)
-          (logand (ash n -8) 255))
+          (ash n -24)
+          (logand (ash n -16) 255))
         (format "~d.~d.~d"
-          (ash n -16)
-          (logand (ash n -8) 255)
-          (logand n 255)))))
+          (ash n -24)
+          (logand (ash n -16) 255)
+          (logand (ash n -8) 255)))))
 
 ; set in back.ss
 (define $scheme-version)
@@ -666,19 +725,40 @@
   (lambda ()
     (let ([n (constant scheme-version)])
       (values
-        (ash n -16)
-        (logand (ash n -8) 255)
-        (logand n 255)))))
+        (ash n -24)
+        (logand (ash n -16) 255)
+        (logand (ash n -8) 255)))))
+
+(define scheme-pre-release
+  (lambda ()
+    (let ([n (logand (constant scheme-version) 255)])
+      (and (fx> n 0)
+           n))))
 
 (define scheme-version
-  (let ([s #f])
-    (lambda ()
-      (unless s
-        (set! s
-          (format "~:[Petite ~;~]Chez Scheme Version ~a"
-            $compiler-is-loaded?
-            $scheme-version)))
-      s)))
+  (let ([s #f]
+        [s+pre #f])
+    (rec scheme-version
+      (case-lambda
+       [() (scheme-version #f)]
+       [(show-pre-release?)
+        (or (if show-pre-release? s+pre s)
+            (let* ([pre-n (scheme-pre-release)]
+                   [str (format "~:[Petite ~;~]Chez Scheme Version ~a~a"
+                                $compiler-is-loaded?
+                                $scheme-version
+                                (if show-pre-release?
+                                    (if pre-n (format "-pre-release.~a" pre-n) "")
+                                    ""))])
+              (cond
+                [(not pre-n)
+                 (set! s str)
+                 (set! s+pre str)]
+                [show-pre-release?
+                 (set! s+pre str)]
+                [else
+                 (set! s str)])
+              str))]))))
 
 (define petite?
   (lambda ()
@@ -706,7 +786,7 @@
 (define $scheme-greeting
   (lambda ()
     (format "~a\nCopyright 1984-2023 Cisco Systems, Inc.\n"
-      (scheme-version))))
+      (scheme-version #t))))
 
 (define $session-key #f)
 (define $scheme-init)
@@ -728,15 +808,17 @@
   (define gc-bytes 0)
   (define gc-count 0)
   (define start-bytes 0)
+  (define allocated-after-max 0)
   (define docollect
-    (let ([do-gc (foreign-procedure "(cs)do_gc" (int int int) void)])
+    (let ([do-gc (foreign-procedure "(cs)do_gc" (int int int ptr) ptr)])
       (lambda (p)
         (with-tc-mutex
           (unless (= $active-threads 1)
             ($oops 'collect "cannot collect when multiple threads are active"))
-          (let-values ([(trip g gmintarget gmaxtarget) (p gc-trip)])
+          (let-values ([(trip g gmintarget gmaxtarget count-roots reset-alloc-after?)
+                        (p gc-trip allocated-after-max)])
             (set! gc-trip trip)
-            (let ([cpu (current-time 'time-thread)] [real (current-time 'time-monotonic)])
+            (let ([cpu (current-time 'time-process)] [real (current-time 'time-monotonic)])
               (set! gc-bytes (+ gc-bytes (bytes-allocated)))
               (when (collect-notify)
                 (fprintf (console-output-port)
@@ -745,17 +827,21 @@
                 (flush-output-port (console-output-port)))
               (when (eqv? g (collect-maximum-generation))
                 ($clear-source-lines-cache))
-              (do-gc g gmintarget gmaxtarget)
-              ($close-resurrected-files)
-              (when-feature pthreads
-                ($close-resurrected-mutexes&conditions))
-              (when (collect-notify)
-                (fprintf (console-output-port) "done]~%")
-                (flush-output-port (console-output-port)))
-              (set! gc-bytes (- gc-bytes (bytes-allocated)))
-              (set! gc-cpu (add-duration gc-cpu (time-difference (current-time 'time-thread) cpu)))
-              (set! gc-real (add-duration gc-real (time-difference (current-time 'time-monotonic) real)))
-              (set! gc-count (1+ gc-count))))))))
+              (let ([gc-result (do-gc g gmintarget gmaxtarget count-roots)])
+                ($close-resurrected-files)
+                (when-feature pthreads
+                  ($close-resurrected-mutexes&conditions))
+                (when (collect-notify)
+                  (fprintf (console-output-port) "done]~%")
+                  (flush-output-port (console-output-port)))
+                (let ([allocated (bytes-allocated)])
+                  (when reset-alloc-after?
+                    (set! allocated-after-max allocated))
+                  (set! gc-bytes (- gc-bytes allocated))
+                  (set! gc-cpu (add-duration gc-cpu (time-difference (current-time 'time-process) cpu)))
+                  (set! gc-real (add-duration gc-real (time-difference (current-time 'time-monotonic) real)))
+                  (set! gc-count (1+ gc-count)))
+                gc-result)))))))
   (define collect-init
     (lambda ()
       (set! gc-trip 0)
@@ -763,7 +849,8 @@
       (set! gc-real (make-time 'time-collector-real 0 0))
       (set! gc-count 0)
       (set! gc-bytes 0)
-      (set! start-bytes (bytes-allocated))))
+      (set! start-bytes (bytes-allocated))
+      (set! allocated-after-max start-bytes)))
   (set! $gc-real-time (lambda () gc-real))
   (set! $gc-cpu-time (lambda () gc-cpu))
   (set! initial-bytes-allocated (lambda () start-bytes))
@@ -785,31 +872,40 @@
     (define collect0
       (lambda ()
         (docollect
-          (lambda (gct)
+          (lambda (gct prev-allocated-after-max)
             (let ([gct (+ gct 1)])
               (let ([cmg (collect-maximum-generation)])
                 (let loop ([g cmg])
                   (if (= (modulo gct (expt (collect-generation-radix) g)) 0)
                       (if (fx= g cmg)
-                          (values 0 g (fxmin g 1) g)
-                          (values gct g 1 (fx+ g 1)))
+                          (let ([allocated (bytes-allocated)])
+                            (if (>= allocated (* prev-allocated-after-max
+                                                 (collect-maximum-generation-threshold-factor)))
+                                (values 0 g g g #f #t)
+                                ;; GC the next-to-max collection this time, but arrange to
+                                ;; check the max for the next time that we'd collect the
+                                ;; next-to-max generation:
+                                (let ([gct (- gct (expt (collect-generation-radix) (- cmg 1)))])
+                                  (values gct (fx- g 1) 1 g #f #f))))
+                          (values gct g 1 (fx+ g 1) #f #f))
                       (loop (fx- g 1))))))))))
     (define collect2
-      (lambda (g gmintarget gmaxtarget)
+      (lambda (g gmintarget gmaxtarget count-roots)
         (docollect
-          (lambda (gct)
-            (values 
-             ; make gc-trip to look like we've just collected generation g
-             ; w/o also having collected generation g+1
-              (if (fx= g (collect-maximum-generation))
-                  0
-                  (let ([gct (+ gct 1)])
-                    (define (trip g)
-                      (let ([n (expt (collect-generation-radix) g)])
-                        (+ gct (modulo (- n gct) n))))
-                    (let ([next (trip g)] [limit (trip (fx+ g 1))])
-                      (if (< next limit) next (- limit 1)))))
-              g gmintarget gmaxtarget)))))
+          (lambda (gct prev-allocated-after-max)
+            (let ([max-gen? (fx= g (collect-maximum-generation))])
+              (values 
+               ; make gc-trip to look like we've just collected generation g
+               ; w/o also having collected generation g+1
+               (if max-gen?
+                   0
+                   (let ([gct (+ gct 1)])
+                     (define (trip g)
+                       (let ([n (expt (collect-generation-radix) g)])
+                         (+ gct (modulo (- n gct) n))))
+                     (let ([next (trip g)] [limit (trip (fx+ g 1))])
+                       (if (< next limit) next (- limit 1)))))
+               g gmintarget gmaxtarget count-roots max-gen?))))))
     (case-lambda
       [() (collect0)]
       [(g)
@@ -817,7 +913,7 @@
          (unless (and (fixnum? g) (fx<= 0 g cmg))
            ($oops who "invalid generation ~s" g))
          (let ([gtarget (if (fx= g cmg) g (fx+ g 1))])
-           (collect2 g gtarget gtarget)))]
+           (collect2 g gtarget gtarget #f)))]
       [(g gtarget)
        (let ([cmg (collect-maximum-generation)])
          (unless (and (fixnum? g) (fx<= 0 g cmg))
@@ -827,8 +923,9 @@
                      (or (eqv? gtarget g) (eqv? gtarget (fx+ g 1))))
            ($oops who "invalid target generation ~s for generation ~s" gtarget g)))
        (let ([gtarget (if (eq? gtarget 'static) (constant static-generation) gtarget)])
-         (collect2 g gtarget gtarget))]
-      [(g gmintarget gmaxtarget)
+         (collect2 g gtarget gtarget #f))]
+      [(g gmintarget gmaxtarget) (collect g gmintarget gmaxtarget #f)]
+      [(g gmintarget gmaxtarget count-roots)
        (let ([cmg (collect-maximum-generation)])
          (unless (and (fixnum? g) (fx<= 0 g cmg))
            ($oops who "invalid generation ~s" g))
@@ -840,9 +937,12 @@
                      (and (fixnum? gmintarget)
                           (fx<= 1 gmintarget (if (fixnum? gmaxtarget) gmaxtarget cmg))))
            ($oops who "invalid minimum target generation ~s for generation ~s and maximum target generation ~s" gmintarget g gmaxtarget)))
+       (unless (or (not count-roots) (list? count-roots))
+         ($oops who "invalid counting-roots list ~s" count-roots))
        (collect2 g
          (if (eq? gmintarget 'static) (constant static-generation) gmintarget)
-         (if (eq? gmaxtarget 'static) (constant static-generation) gmaxtarget))])))
+         (if (eq? gmaxtarget 'static) (constant static-generation) gmaxtarget)
+         count-roots)])))
 
 (set! collect-rendezvous
   (let ([fire-collector (foreign-procedure "(cs)fire_collector" () void)])
@@ -1152,33 +1252,50 @@
 )
 
 (define $collect-rendezvous
-  (lambda ()
-    (define once
-      (let ([once #f])
-        (lambda ()
-          (when (eq? once #t)
-            ($oops '$collect-rendezvous
-              "cannot return to the collect-request-handler"))
-          (set! once #t))))
-    (if-feature pthreads
-      (with-tc-mutex
-        (let f ()
-          (when $collect-request-pending
-            (if (= $active-threads 1) ; last one standing
-                (dynamic-wind
-                  once
-                  (collect-request-handler)
-                  (lambda ()
-                    (set! $collect-request-pending #f)
-                    (condition-broadcast $collect-cond)))
-                (begin
-                  (condition-wait $collect-cond $tc-mutex)
-                  (f))))))
-      (critical-section
-        (dynamic-wind 
-          once
-          (collect-request-handler)
-          (lambda () (set! $collect-request-pending #f)))))))
+  (let ([thread0-waiting? #f])
+    (lambda ()
+      (define once
+        (let ([once #f])
+          (lambda ()
+            (when (eq? once #t)
+              ($oops '$collect-rendezvous
+                "cannot return to the collect-request-handler"))
+            (set! once #t))))
+      (if-feature pthreads
+        ;; If the main thread is active, perform the GC there
+        (with-tc-mutex
+          (let f ()
+            (when $collect-request-pending
+              (cond
+                [(= $active-threads 1) ; last one standing
+                 (cond
+                   [(or (eqv? 0 (get-thread-id))
+                        (not thread0-waiting?))
+                    (dynamic-wind
+                      once
+                      (collect-request-handler)
+                      (lambda ()
+                        (set! $collect-request-pending #f)
+                        (condition-broadcast $collect-cond)
+                        (condition-broadcast $collect-thread0-cond)))]
+                   [else
+                    ;; get main thread to perform the GC, instead
+                    (condition-broadcast $collect-thread0-cond)
+                    (condition-wait $collect-cond $tc-mutex)
+                    (f)])]
+                [(eqv? 0 (get-thread-id))
+                 (set! thread0-waiting? #t)
+                 (condition-wait $collect-thread0-cond $tc-mutex)
+                 (set! thread0-waiting? #f)
+                 (f)]
+                [else
+                 (condition-wait $collect-cond $tc-mutex)
+                 (f)]))))
+        (critical-section
+          (dynamic-wind 
+            once
+            (collect-request-handler)
+            (lambda () (set! $collect-request-pending #f))))))))
 
 (define collect-request-handler
    (make-parameter
@@ -1214,7 +1331,7 @@
       [(ERROR_CALL_NONPROCEDURE) (cnt nonprocedure arg1?)
        ($oops #f "attempt to apply non-procedure ~s" nonprocedure)]
       [(ERROR_CALL_ARGUMENT_COUNT) (cnt procedure arg1?)
-       ($oops #f "incorrect number of arguments to ~s" procedure)]
+       ($oops #f "incorrect number of arguments ~s to ~s" cnt procedure)]
       [(ERROR_RESET) (who msg . args)
        ($oops who "~?.  Some debugging context lost" msg args)]
       [(ERROR_NONCONTINUABLE_INTERRUPT) args
@@ -1229,7 +1346,7 @@
           (noncontinuable-interrupt))]
       [(ERROR_VALUES) (cnt)
        ($oops #f
-         "returned ~r values to single value return context"
+         "returned ~a values to single value return context"
          cnt)]
       [(ERROR_MVLET) (cnt)
        ($oops #f

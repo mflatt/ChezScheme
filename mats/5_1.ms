@@ -36,6 +36,7 @@
     (not (eqv? "hi there" (string-append "hi " "there")))
     (not (eqv? (vector 1 2 (vector 3 4) 5) '#(1 2 #(3 4) 5)))
     (eqv? +nan.0 +nan.0)
+    (eqv? +nan.0 (abs +nan.0))
     (eqv? +inf.0 +inf.0)
     (eqv? -inf.0 -inf.0)
     (not (eqv? -inf.0 +inf.0))
@@ -64,6 +65,7 @@
     (equal? (vector 1 2 (vector 3 4) 5) '#(1 2 #(3 4) 5))
     (not (equal? (vector 1 2 (vector 3 4) 5) '#(1 2 3 4 5)))
     (equal? +nan.0 +nan.0)
+    (equal? +nan.0 (abs +nan.0))
     (equal? +inf.0 +inf.0)
     (equal? -inf.0 -inf.0)
     (not (equal? -inf.0 +inf.0))
@@ -818,9 +820,21 @@
     (fxvector? (fxvector 1 2 3 4))
     (not (fxvector? '(1 2 3)))
     (not (fxvector? '#(1 2 3)))
+    (not (fxvector? '#vfl(1.0 2.0 3.0)))
     (not (fxvector? '#vu8(1 2 3)))
     (not (fxvector? "hi there"))
     (not (fxvector? 234234))
+ )
+
+(mat flvector?
+    (flvector? #vfl(1.0 2.0 3.0))
+    (flvector? (flvector 1.0 2.0 3.0 4.0))
+    (not (flvector? '(1 2 3)))
+    (not (flvector? '#(1.0 2.0 3.0)))
+    (not (flvector? '#vfx(1 2 3)))
+    (not (flvector? '#vu8(1 2 3)))
+    (not (flvector? "hi there"))
+    (not (flvector? 234234))
  )
 
 (mat bytevector?

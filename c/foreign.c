@@ -23,8 +23,8 @@
 /* we can now return arbitrary values (aligned or not)
  * since the garbage collector ignores addresses outside of the heap
  * or within foreign segments */
-#define ptr_to_addr(p) ((void *)p)
-#define addr_to_ptr(a) ((ptr)a)
+#define ptr_to_addr(p) TO_VOIDP(p)
+#define addr_to_ptr(a) TO_PTR(a)
 
 /* buckets should be prime */
 #define buckets 457
@@ -51,12 +51,14 @@
 #endif /* LOAD_SHARED_OBJECT */
 
 /* locally defined functions */
-static uptr symhash(const char *s);
+static iptr symhash(const char *s);
 static ptr lookup_static(const char *s);
+#ifdef LOAD_SHARED_OBJECT
 static ptr lookup_dynamic(const char *s, ptr tbl);
+#endif
 static ptr lookup(const char *s);
 static ptr remove_foreign_entry(const char *s);
-static void *lookup_foreign_entry(const char *s);
+static ptr lookup_foreign_entry(const char *s);
 static ptr foreign_entries(void);
 static ptr foreign_static_table(void);
 static ptr foreign_dynamic_table(void);
@@ -85,16 +87,16 @@ static ptr bvstring(const char *s) {
 }
 
 /* multiplier weights each character, h = n factors in the length */
-static uptr symhash(const char *s) {
+static iptr symhash(const char *s) {
   uptr n, h;
 
   h = n = strlen(s);
-  while (n--) h = h * multiplier + (unsigned char)*s++;
-  return h % buckets;
+  while (n--) h = h * multiplier + *s++;
+  return (h & 0x7fffffff) % buckets;
 }
 
 static ptr lookup_static(const char *s) {
-  uptr b; ptr p;
+  iptr b; ptr p;
 
   b = symhash(s);
   for (p = Svector_ref(S_G.foreign_static, b); p != Snil; p = Scdr(p))
@@ -130,10 +132,9 @@ static ptr lookup_dynamic(const char *s, ptr tbl) {
 
 static ptr lookup(const char *s) {
     iptr b; ptr p;
-
-#ifdef LOOKUP_DYNAMIC
     ptr x;
 
+#ifdef LOOKUP_DYNAMIC
     x = lookup_dynamic(s, S_foreign_dynamic);
     if (x == addr_to_ptr(0))
 #endif /* LOOKUP_DYNAMIC */
@@ -141,7 +142,7 @@ static ptr lookup(const char *s) {
     x = lookup_static(s);
     if (x == addr_to_ptr(0)) return x;
 
-    tc_mutex_acquire()
+    tc_mutex_acquire();
 
     b = ptrhash(x);
     for (p = Svector_ref(S_G.foreign_names, b); p != Snil; p = Scdr(p)) {
@@ -154,14 +155,14 @@ static ptr lookup(const char *s) {
                                       Svector_ref(S_G.foreign_names, b)));
 
 quit:
-    tc_mutex_release()
+    tc_mutex_release();
     return x;
 }
 
 void Sforeign_symbol(const char *s, void *v) {
     iptr b; ptr x;
 
-    tc_mutex_acquire()
+    tc_mutex_acquire();
 
 #ifdef HPUX
     v = proc2entry(v,name);
@@ -174,15 +175,15 @@ void Sforeign_symbol(const char *s, void *v) {
     } else if (ptr_to_addr(x) != v)
         S_error1("Sforeign_symbol", "duplicate symbol entry for ~s", Sstring_utf8(s, -1));
 
-    tc_mutex_release()
+    tc_mutex_release();
 }
 
 /* like Sforeign_symbol except it silently redefines the symbol
    if it's already in S_G.foreign_static */
 void Sregister_symbol(const char *s, void *v) {
-  uptr b; ptr p;
+  iptr b; ptr p;
 
-  tc_mutex_acquire()
+  tc_mutex_acquire();
 
   b = symhash(s);
   for (p = Svector_ref(S_G.foreign_static, b); p != Snil; p = Scdr(p))
@@ -194,14 +195,14 @@ void Sregister_symbol(const char *s, void *v) {
                                       Svector_ref(S_G.foreign_static, b)));
 
  quit:
-  tc_mutex_release()
+  tc_mutex_release();
 }
 
 static ptr remove_foreign_entry(const char *s) {
-    uptr b;
+    iptr b;
     ptr tbl, p1, p2;
 
-    tc_mutex_acquire()
+    tc_mutex_acquire();
 
     b = symhash(s);
     tbl = S_G.foreign_static;
@@ -214,11 +215,11 @@ static ptr remove_foreign_entry(const char *s) {
             } else {
                 SETCDR(p1, Scdr(p2))
             }
-            tc_mutex_release()
+            tc_mutex_release();
             return Strue;
         }
     }
-    tc_mutex_release()
+    tc_mutex_release();
     return Sfalse;
 }
 
@@ -226,14 +227,14 @@ static ptr remove_foreign_entry(const char *s) {
 static void load_shared_object(const char *path) {
     void *handle;
 
-    tc_mutex_acquire()
+    tc_mutex_acquire();
 
     handle = dlopen(path, RTLD_NOW);
     if (handle == (void *)NULL)
         S_error2("", "(while loading ~a) ~a", Sstring_utf8(path, -1), s_dlerror());
     S_foreign_dynamic = Scons(addr_to_ptr(handle), S_foreign_dynamic);
 
-    tc_mutex_release()
+    tc_mutex_release();
 
     return;
 }
@@ -270,8 +271,8 @@ void S_foreign_entry(void) {
     AC0(tc) = x;
 }
 
-static void *lookup_foreign_entry(const char *s) {
-  return ptr_to_addr(lookup(s));
+static ptr lookup_foreign_entry(const char *s) {
+  return lookup(s);
 }
 
 static ptr foreign_entries(void) {

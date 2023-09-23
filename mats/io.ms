@@ -20,7 +20,7 @@
 ; are enabled in io.ss
 (define (custom-port-warning? x) #t)
 
-(define prettytest.ss (format "~a/prettytest.ss" *mats-dir*))
+(define prettytest.ss (find-source "prettytest.ss"))
 
 (mat port-operations
   (error? (close-port cons))
@@ -534,8 +534,25 @@
      1)
  )
 
-(if (embedded?)
+(if (case (machine-type)
+     [(pb tpb) #t]
+     [else (embedded?)])
     (mat iconv-codec
+      (error? (errorf 'iconv-codec "-73 is not a string"))
+      (error? (errorf 'transcoded-port "unsupported encoding almost certainly bogus"))
+      (error? (errorf 'display-string "iconv CP1252 codec cannot encode #\\x3BB"))
+      (error? (errorf 'newline "iconv CP1252 codec cannot encode #\\newline with eol-style ls"))
+      (error? (errorf 'newline "latin-1 codec cannot encode #\\newline with eol-style ls"))
+      (error? (errorf 'iconv-codec "-73 is not a string"))
+      (error? (errorf 'transcoded-port "unsupported encoding almost certainly bogus"))
+      (error? (errorf 'display-string "iconv CP1252 codec cannot encode #\\x3BB"))
+      (error? (errorf 'newline "iconv CP1252 codec cannot encode #\\newline with eol-style ls"))
+      (error? (errorf 'newline "latin-1 codec cannot encode #\\newline with eol-style ls"))
+      (error? (errorf 'iconv-codec "-73 is not a string"))
+      (error? (errorf 'transcoded-port "unsupported encoding almost certainly bogus"))
+      (error? (errorf 'close-port "iconv CP1252 codec cannot encode #\\x3BB"))
+      (error? (errorf 'close-port "iconv CP1252 codec cannot encode #\\newline with eol-style ls"))
+      (error? (errorf 'close-port "latin-1 codec cannot encode #\\newline with eol-style ls"))
       (error? (errorf 'iconv-codec "-73 is not a string"))
       (error? (errorf 'transcoded-port "unsupported encoding almost certainly bogus"))
       (error? (errorf 'close-port "iconv CP1252 codec cannot encode #\\x3BB"))
@@ -5197,15 +5214,16 @@
     (define test-str "A full \x1F315;.")
     (define (bytes-for thunk)
       (collect (collect-maximum-generation))
-      (let* ([s0 (statistics)]
-             [s1 (statistics)] ;; measure overhead
-             [val (thunk)]
-             [s2 (statistics)])
-        (values val
-          (sstats-bytes
-           (sstats-difference
-            (sstats-difference s2 s1)
-            (sstats-difference s1 s0))))))
+      (with-interrupts-disabled
+        (let* ([s0 (statistics)]
+               [s1 (statistics)] ;; measure overhead
+               [val (thunk)]
+               [s2 (statistics)])
+          (values val
+            (sstats-bytes
+             (sstats-difference
+              (sstats-difference s2 s1)
+              (sstats-difference s1 s0)))))))
     (define (predicted-one-block two-blocks make-buffer two-block-buffer-len one-block-buffer-len)
       ;; originally we allocated a result-sized obj (and copy! the data) whether
       ;; we had a single block or more, so the allocation for the one-block case
@@ -5284,4 +5302,77 @@
     (< (check-b->s one-block-buffer-len)
        (predicted-one-block (check-b->s two-block-buffer-len)
          make-string two-block-buffer-len one-block-buffer-len)))
+  )
+
+(mat print-parameters
+  (error? (print-precision "off"))
+  (error? (print-select-flonum-exponential-format #f))
+  (error? (print-select-flonum-exponential-format 0))
+
+  (equal? (parameterize ([print-subnormal-precision 'anything])
+            (print-subnormal-precision))
+          #t)
+  (equal? (parameterize ([print-positive-exponent-sign 'anything])
+            (print-positive-exponent-sign))
+          #t)
+
+  (equal? (number->string 0.0)
+          "0.0")
+  (equal? (parameterize ([print-precision 32])
+            (number->string 0.0))
+          "0.0|32")
+  (equal? (number->string 3.14)
+          "3.14")
+  (equal? (parameterize ([print-precision 32])
+            (number->string 3.14))
+          "3.14|53")
+  (equal? (number->string 1e-310) "1e-310|45")
+  (equal? (parameterize ([print-subnormal-precision #f])
+            (number->string 1e-310))
+          "1e-310")
+
+  (equal? (number->string 3.2e20)
+          "3.2e20")
+  (equal? (parameterize ([print-positive-exponent-sign #t])
+            (number->string 3.2e20))
+          "3.2e+20")
+
+  (equal? (number->string 1e9)
+          "1000000000.0")
+  (equal? (number->string 1e10)
+          "1e10")
+  (equal? (parameterize ([print-select-flonum-exponential-format (lambda (radix exp n-digits) #f)])
+            (number->string 1e10))
+          "10000000000.0")
+  (equal? (parameterize ([print-select-flonum-exponential-format (lambda (radix exp n-digits) #t)])
+            (number->string 1e2))
+          "1e2")
+  (equal? (parameterize ([print-select-flonum-exponential-format (lambda (radix exp n-digits) #t)])
+            (number->string 0.0))
+          "0e0")
+  (equal? (parameterize ([print-select-flonum-exponential-format (lambda (radix exp n-digits) #t)])
+            (number->string -0.0))
+          "-0e0")
+  (equal? (parameterize ([print-select-flonum-exponential-format (lambda (radix exp n-digits)
+                                                                   (unless (= radix 10) (error 'choose "wrong radix"))
+                                                                   (unless (= exp 0) (error 'choose "wrong exponent"))
+                                                                   (unless (= n-digits 3) (error 'choose "wrong digits"))
+                                                                   #f)])
+            (number->string 3.14))
+          "3.14")
+  (equal? (parameterize ([print-select-flonum-exponential-format (lambda (radix exp n-digits)
+                                                                   (unless (= radix 10) (error 'choose "wrong radix"))
+                                                                   (unless (= exp -5) (error 'choose "wrong exponent"))
+                                                                   (unless (= n-digits 3) (error 'choose "wrong digits"))
+                                                                   #f)])
+            (number->string 314e-7))
+          "0.0000314")
+  (equal? (parameterize ([print-select-flonum-exponential-format (lambda (radix exp n-digits)
+                                                                   (unless (= radix 8) (error 'choose "wrong radix"))
+                                                                   (unless (= exp -5) (error 'choose "wrong exponent"))
+                                                                   (unless (= n-digits 19) (error 'choose "wrong digits ~s" n-digits))
+                                                                   #f)])
+            (number->string 314e-7 8))
+          "0.00001016633744345556774")
+  
   )

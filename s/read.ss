@@ -751,16 +751,18 @@
           (state-case c
             [eof
              (with-unread-char c
-               (if (valid-prefix? s '("fx" "u8"))
+               (if (valid-prefix? s '("fx" "fl" "u8" "s"))
                    (xcall rd-eof-error "#v prefix")
                    (xcall rd-error #f #t "invalid syntax #v~a" s)))]
             [#\( ;)
              (cond
                [(string=? s "fx") (nonstandard "#vfx(...) fxvector") (state-return vfxparen #f)]
+               [(string=? s "fl") (nonstandard "#vfl(...) flvector") (state-return vflparen #f)]
                [(string=? s "u8") (state-return vu8paren #f)]
+               [(string=? s "s") (nonstandard "#vs(...) stencil vector") (state-return vsparen #f)]
                [else (xcall rd-error #f #t "invalid syntax #v~a(" s)])] ;)
             [else
-             (if (valid-prefix? s '("fx" "u8"))
+             (if (valid-prefix? s '("fx" "fl" "u8" "s"))
                  (xcall rd-error #f #t "expected left paren after #v~a prefix" s)
                  (xcall rd-error #f #t "invalid syntax #v~a~a" s c))]))))))
 
@@ -778,7 +780,9 @@
             [#\( ;)
              (cond
                [(string=? s "fx") (nonstandard "#<n>vfx(...) fxvector") (state-return vfxnparen nelts)]
+               [(string=? s "fl") (nonstandard "#<n>vfl(...) flvector") (state-return vflnparen nelts)]
                [(string=? s "u8") (nonstandard "#<n>vu8(...) bytevector") (state-return vu8nparen nelts)]
+               [(string=? s "s") (nonstandard "#<n>vs(...) stencil vector") (state-return vsnparen nelts)]
                [else (xcall rd-error #f #t "invalid syntax #~v,'0dv~a(" (- preflen 1) nelts s)])] ;)
             [else
              (if (valid-prefix? s '("fx" "u8"))
@@ -1203,8 +1207,12 @@
     [(vnparen) (xcall rd-sized-vector value)]
     [(vfxparen) (xmvlet ((v) (xcall rd-fxvector bfp 0)) (xvalues v v))]
     [(vfxnparen) (xmvlet ((v) (xcall rd-sized-fxvector value)) (xvalues v v))]
+    [(vflparen) (xmvlet ((v) (xcall rd-flvector bfp 0)) (xvalues v v))]
+    [(vflnparen) (xmvlet ((v) (xcall rd-sized-flvector value)) (xvalues v v))]
     [(vu8paren) (xmvlet ((v) (xcall rd-bytevector bfp 0)) (xvalues v v))]
     [(vu8nparen) (xmvlet ((v) (xcall rd-sized-bytevector value)) (xvalues v v))]
+    [(vsparen) (xcall rd-error #f #t "mask required for stencil vector")]
+    [(vsnparen) (xcall rd-stencil-vector value)]
     [(box) (xcall rd-box)]
     [(fasl)
      (xcall rd-error #f #t
@@ -1417,6 +1425,29 @@
          (and stripped-v (vector-set! stripped-v i stripped-x))
          (xcall rd-fill-vector expr-bfp v stripped-v (fx+ i 1) n))])))
 
+(xdefine (rd-stencil-vector m)
+  (unless (and (fixnum? m) (fxnonnegative? m) (fx< m (fxsll 1 (constant stencil-vector-mask-bits))))
+    (let ([bfp (and bfp (+ bfp 1))] [fp (and fp (- fp 1))])
+      (xcall rd-error #f #t "invalid stencil vector mask ~s" m)))
+  (xcall rd-fill-stencil-vector bfp ($make-empty-stencil-vector m) (and (rcb-a? rcb) ($make-empty-stencil-vector m)) 0 (fxpopcount m)))
+
+(xdefine (rd-fill-stencil-vector expr-bfp v stripped-v i n)
+  (with-token (type value)
+    (case type
+      [(rparen)
+       (when (fx< i n)
+         (xcall rd-error #f #t "not enough stencil vector elements supplied"))
+       (xvalues v stripped-v)]
+      [(eof) (let ([bfp expr-bfp]) (xcall rd-eof-error "stencil vector"))]
+      [else
+       (xmvlet ((x stripped-x) (xcall rd type value))
+         (unless (fx< i n)
+           (let ([bfp expr-bfp])
+             (xcall rd-error #f #t "too many stencil vector elements supplied")))
+         (stencil-vector-set! v i x)
+         (and stripped-v (stencil-vector-set! stripped-v i stripped-x))
+         (xcall rd-fill-stencil-vector expr-bfp v stripped-v (fx+ i 1) n))])))
+
 ;; an fxvector contains a sequence of fixnum tokens.  we don't handle
 ;; graph marks and references because to do so generally, we'd have to
 ;; put non-fixnums (insert records) into the fxvector or perhaps
@@ -1458,6 +1489,48 @@
            (xcall rd-error #f #t "too many fxvector elements supplied")))
        (fxvector-set! v i value)
        (xcall rd-fill-fxvector expr-bfp v (fx+ i 1) n)])))
+
+;; an flvector contains a sequence of flonum tokens.  we don't handle
+;; graph marks and references because to do so generally, we'd have to
+;; put non-flonums (insert records) into the flonum or perhaps
+;; somehow generalize delayed records to handle flonums
+(xdefine (rd-flvector expr-bfp i)
+  (with-token (type value)
+    (case type
+      [(rparen) (xvalues (make-flvector i))]
+      [(eof) (let ([bfp expr-bfp]) (xcall rd-eof-error "flvector"))]
+      [else
+       (unless (and (eq? type 'atomic) (flonum? value))
+         (xcall rd-error #f #t "non-fixnum found in flvector"))
+       (xmvlet ((v) (xcall rd-flvector expr-bfp (fx+ i 1)))
+         (flvector-set! v i value)
+         (xvalues v))])))
+
+(xdefine (rd-sized-flvector n)
+  (unless (and (fixnum? n) (fxnonnegative? n))
+    (let ([bfp (and bfp (+ bfp 1))] [fp (and fp (- fp 1))])
+      (xcall rd-error #f #t "invalid flvector length ~s" n)))
+  (xcall rd-fill-flvector bfp (make-flvector n) 0 n))
+
+(xdefine (rd-fill-flvector expr-bfp v i n)
+  (with-token (type value)
+    (case type
+      [(rparen)
+       (when (fx< 0 i n)
+         (let ((prev (flvector-ref v (fx- i 1))))
+           (do ([i i (fx+ i 1)])
+               ((fx= i n))
+               (flvector-set! v i prev))))
+       (xvalues v)]
+      [(eof) (let ([bfp expr-bfp]) (xcall rd-eof-error "flvector"))]
+      [else
+       (unless (and (eq? type 'atomic) (flonum? value))
+         (xcall rd-error #f #t "non-fixnum found in flvector"))
+       (unless (fx< i n)
+         (let ([bfp expr-bfp])
+           (xcall rd-error #f #t "too many flvector elements supplied")))
+       (flvector-set! v i value)
+       (xcall rd-fill-flvector expr-bfp v (fx+ i 1) n)])))
 
 ;; a bytevector contains a sequence of fixnum tokens.  we don't handle
 ;; graph marks and references because to do so generally, we'd have to
@@ -1533,15 +1606,15 @@
                  (let ([ins (cadr a)] [stripped-ins (cddr a)])
                    (if (eq? stripped-obj stripped-ins)
                        (begin
-                         (insert-obj-set! ins '#1#)
-                         (insert-obj-set! stripped-ins '#1#))
+                         (insert-obj-set! ins '#1=#1#)
+                         (insert-obj-set! stripped-ins '#2=#2#))
                        (begin
                         ; remove annotation below mark to avoid redundant annotation
                          (insert-obj-set! ins (annotation-expression obj))
                          (insert-obj-set! stripped-ins stripped-obj)))
                    (xvalues ins stripped-ins))
                  (let ([ins (cadr a)])
-                   (insert-obj-set! ins (if (eq? obj ins) '#1=#1# obj))
+                   (insert-obj-set! ins (if (eq? obj ins) '#3=#3# obj))
                    (xvalues ins #f))))])))))
 
 (xdefine (rd-insert n)
@@ -1654,21 +1727,17 @@
                  (let ([dir (car dir*)])
                    (if (or (string=? dir "") (string=? dir "."))
                        name
-                       (format (if (directory-separator?
-                                     (string-ref dir
-                                       (fx- (string-length dir) 1)))
-                                   "~a~a"
-                                   "~a/~a")
-                         dir name))))
+                       (path-build dir name))))
                (search name (cdr dir*)))))
     (let ([name (source-file-descriptor-name sfd)])
-      (or (and ($fixed-path? name) (source-port name))
-          (let ([dir* (append (source-directories) (map car (library-directories)))])
-            (let pathloop ([name name])
-              (or (search name dir*)
-                  (let ([rest (path-rest name)])
-                    (and (not (string=? rest name))
-                         (pathloop rest))))))))))
+      (and (string? name)
+           (or (and ($fixed-path? name) (source-port name))
+               (let ([dir* (append (source-directories) (map car (library-directories)))])
+                 (let pathloop ([name name])
+                   (or (search name dir*)
+                       (let ([rest (path-rest name)])
+                         (and (not (string=? rest name))
+                              (pathloop rest)))))))))))
 
 (let ([source-lines-cache (make-weak-eq-hashtable)])
 
@@ -1836,7 +1905,6 @@
       (unless (and (list? x) (andmap string? x))
         ($oops 'source-directories "invalid path list ~s" x))
       x)))
-
 
 (define record-reader
   (case-lambda

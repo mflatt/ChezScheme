@@ -207,31 +207,21 @@
  )
 
 (mat $fxvector-ref-check?
-  (let ([fv (make-fxvector 3)] [imm-fv (fxvector->immutable-fxvector (make-fxvector 3))] [not-fv (make-vector 3)])
+  (let ([fv (make-fxvector 3)] [not-fv (make-vector 3)])
     (let ([i-1 -1] [i0 0] [i1 1] [i2 2] [i3 3] [ifalse #f] [ibig (+ (most-positive-fixnum) 1)])
       (and
         (not (#%$fxvector-ref-check? not-fv i0))
         (not (#%$fxvector-ref-check? fv ifalse))
         (not (#%$fxvector-ref-check? fv i-1))
-        (not (#%$fxvector-ref-check? imm-fv i-1))
         (#%$fxvector-ref-check? fv 0)
         (#%$fxvector-ref-check? fv 1)
         (#%$fxvector-ref-check? fv 2)
-        (#%$fxvector-ref-check? imm-fv 0)
-        (#%$fxvector-ref-check? imm-fv 1)
-        (#%$fxvector-ref-check? imm-fv 2)
         (#%$fxvector-ref-check? fv i0)
         (#%$fxvector-ref-check? fv i1)
         (#%$fxvector-ref-check? fv i2)
-        (#%$fxvector-ref-check? imm-fv i0)
-        (#%$fxvector-ref-check? imm-fv i1)
-        (#%$fxvector-ref-check? imm-fv i2)
         (not (#%$fxvector-ref-check? fv 3))
         (not (#%$fxvector-ref-check? fv i3))
-        (not (#%$fxvector-ref-check? fv ibig))
-        (not (#%$fxvector-ref-check? imm-fv 3))
-        (not (#%$fxvector-ref-check? imm-fv i3))
-        (not (#%$fxvector-ref-check? imm-fv ibig)))))
+        (not (#%$fxvector-ref-check? fv ibig)))))
  )
 
 (mat fxvector-ref
@@ -324,6 +314,161 @@
     (equal? (fxvector->list '#vfx(1 2 3)) '(1 2 3))
     (equal? (fxvector->list '#vfx()) '())
     (error? (fxvector->list '(a b c)))
+ )
+
+(mat flvector
+    (equal? (flvector 1.0 2.0 3.0 4.0) '#vfl(1.0 2.0 3.0 4.0))
+    (eq? (flvector) '#vfl())
+    (flvector? (flvector 1.0))
+    (flvector? (flvector -1.0))
+    (error? (flvector 1))
+    (error? (flvector 'a))
+    (error? (flvector 1.0 2.0 'a 4.0))
+ )
+
+(mat make-flvector
+    (eqv? (flvector-length (make-flvector 10)) 10)
+    (eqv? (flvector-length (make-flvector 100)) 100)
+    (eqv? (flvector-length (make-flvector (+ 100 17))) 117)
+    (eq? (make-flvector 0) '#vfl())
+    (let ([x (make-flvector 10)])
+      (and (= (flvector-length x) 10)
+           (andmap flonum? (flvector->list x))))
+    (error? (make-flvector 3 'a))
+    (error? (make-flvector 10 1))
+    (error? (make-flvector 10 'a))
+    (equal? (make-flvector 10 7.0) (flvector 7.0 7.0 7.0 7.0 7.0 7.0 7.0 7.0 7.0 7.0))
+    (equal? (make-flvector (- 4 2) (+ 1.0 1.0)) (flvector 2.0 2.0))
+    (eqv? (make-flvector (- 4 4) (+ 1.0 1.0)) (flvector))
+ )
+
+(mat flvector-syntax
+  (eq? '#vfl() '#vfl())
+  (eq? '#0vfl() #vfl())
+  (equal? 
+    '(#vfl(1.0 2.0 3.0) #3vfl(1.0 2.0 3.0) #6vfl(1.0 2.0 3.0))
+    (list (flvector 1.0 2.0 3.0) (flvector 1.0 2.0 3.0) (flvector 1.0 2.0 3.0 3.0 3.0 3.0)))
+  (let ([x #10vfl()])
+    (and (= (flvector-length x) 10)
+         (andmap flonum? (flvector->list x))))
+ ; the following is invalid because the reader doesn't allow graph marks
+ ; and references within an flvector
+ ; (equal? '(#0=#vfl(#1=33 #2# #1# #2=44 #3#) #2# #3=55)
+ ;         '(#vfl(33 44 33 44 55) 44 55))
+)
+
+(mat flvector-length
+    (eqv? (flvector-length '#vfl(3.0 4.0 5.0)) 3)
+    (eqv? (flvector-length '#100vfl(5.0 4.0 3.0)) 100)
+    (eqv? (flvector-length '#vfl()) 0)
+    (error? (flvector-length '(a b c)))
+ )
+
+(mat $flvector-ref-check?
+  (let ([fv (make-flvector 3)] [not-fv (make-vector 3)])
+    (let ([i-1 -1] [i0 0] [i1 1] [i2 2] [i3 3] [ifalse #f] [ibig (+ (most-positive-fixnum) 1)])
+      (and
+        (not (#%$flvector-ref-check? not-fv i0))
+        (not (#%$flvector-ref-check? fv ifalse))
+        (not (#%$flvector-ref-check? fv i-1))
+        (#%$flvector-ref-check? fv 0)
+        (#%$flvector-ref-check? fv 1)
+        (#%$flvector-ref-check? fv 2)
+        (#%$flvector-ref-check? fv i0)
+        (#%$flvector-ref-check? fv i1)
+        (#%$flvector-ref-check? fv i2)
+        (not (#%$flvector-ref-check? fv 3))
+        (not (#%$flvector-ref-check? fv i3))
+        (not (#%$flvector-ref-check? fv ibig)))))
+ )
+
+(mat flvector-ref
+    (eqv? (flvector-ref '#vfl(3.0 4.0 5.0) 0) '3.0)
+    (eqv? (flvector-ref '#vfl(3.0 4.0 5.0) 1) '4.0)
+    (eqv? (flvector-ref '#vfl(3.0 4.0 5.0) 2) '5.0)
+    (error? (flvector-ref '#vfl(3.0 4.0 5.0) 3))
+    (error? (flvector-ref '#vfl(3.0 4.0 5.0) -1))
+    (error? (flvector-ref '#vfl(3.0 4.0 5.0) 'a))
+    (error? (flvector-ref '#(3.0 4.0 5.0) 2))
+    (error? (flvector-ref '(3.0 4.0 5.0) 2))
+ )
+
+(mat flvector-set!
+    (let ((v (flvector '3.0 '4.0 '5.0)))
+        (and
+            (begin (flvector-set! v 0 '33.0) (equal? v '#vfl(33.0 4.0 5.0)))
+            (begin (flvector-set! v 1 '44.0) (equal? v '#vfl(33.0 44.0 5.0)))
+            (begin (flvector-set! v 2 '55.0) (equal? v '#vfl(33.0 44.0 55.0)))))
+    (error? (flvector-set! (flvector '3.0 '4.0 '5.0) 3 'd))
+    (error? (flvector-set! (flvector '3.0 '4.0 '5.0) -1 'd))
+    (error? (flvector-set! (flvector '3.0 '4.0 '5.0) 'a 'd))
+    (error? (flvector-set! (flvector '3.0 '4.0 '5.0) 2 'd))
+    (error? (flvector-set! (list '3.0 '4.0 '5.0) 2 'd))
+    (error? (flvector-set! (flvector 3.0 4.0 5.0) 1 1))
+    (error? (flvector-set! (flvector 3.0 4.0 5.0) 0 'a))
+    (begin
+      (define test-flvector-set!
+        (lambda (v i x)
+          (flvector-set! v i x)))
+      #t)
+    (equal?
+      (let ([v (flvector 3.0 4.0 5.0)])
+        (test-flvector-set! v 0 -3.0)
+        (test-flvector-set! v 1 -4.0)
+        (test-flvector-set! v 2 17.0)
+        v)
+      #vfl(-3.0 -4.0 17.0))
+    (error? (test-flvector-set! (list 3.0 4.0 5.0) 0 9.0))
+    (error? (test-flvector-set! (vector 3.0 4.0) 0 9.0))
+    (error? (test-flvector-set! (flvector 3.0 4.0 5.0) 3 9.0))
+    (error? (test-flvector-set! (flvector 3.0 4.0 5.0) -3 9.0))
+    (error? (test-flvector-set! (flvector 3.0 4.0 5.0) (+ (most-positive-fixnum) 1) 9.0))
+    (error? (test-flvector-set! (flvector 3.0 4.0 5.0) (- (most-negative-fixnum) 1) 9.0))
+    (error? (test-flvector-set! (flvector 3.0 4.0 5.0) 'a 9.0))
+    (error? (test-flvector-set! (flvector 3.0 4.0 5.0) 2 1))
+    (error? (test-flvector-set! (flvector 3.0 4.0 5.0) 2 'a))
+ )
+
+(mat flvector-copy
+    (equal? (flvector-copy '#vfl()) '#vfl())
+    (equal? (flvector-copy '#vfl(3.0 4.0 5.0)) '#vfl(3.0 4.0 5.0))
+    (let* ((x1 (flvector 1.0 2.0 3.0)) (x2 (flvector-copy x1)))
+        (and (equal? x2 x1) (not (eq? x2 x1))))
+    (andmap
+      (lambda (n)
+        (let ([v (list->flvector (map (lambda (x) (random (inexact x))) (make-list n 1000)))])
+          (equal? (flvector-copy v) v)))
+      (map random (make-list 500 2500)))
+    (error? (flvector-copy '(a b c)))
+ )
+
+(mat flvector-fill!
+    (let ([v (flvector-copy '#5vfl(1.0 2.0 3.0 4.0 5.0))])
+       (and (equal? v '#5vfl(1.0 2.0 3.0 4.0 5.0))
+            (begin
+               (flvector-fill! v 9.0)
+               (equal? v '#5vfl(9.0)))))
+    (let ([v (flvector-copy '#5vfl(1.0 2.0 3.0 4.0 5.0))])
+       (and (equal? v '#5vfl(1.0 2.0 3.0 4.0 5.0))
+            (begin
+               (flvector-fill! v -17.0)
+               (equal? v '#5vfl(-17.0)))))
+    (error? (let ([v (flvector 1.0)]) (flvector-fill! v 'a)))
+    (error? (let ([v (vector 1.0)]) (flvector-fill! v 3.0)))
+ )
+
+(mat list->flvector
+    (equal? (list->flvector '(1.0 2.0 3.0)) '#vfl(1.0 2.0 3.0))
+    (equal? (list->flvector '()) '#vfl())
+    (error? (list->flvector '#(a b c)))
+    (error? (list->flvector '(1.0 2.0 . 3.0)))
+    (error? (list->flvector (let ([ls (list 1.0 2.0 3.0)]) (set-cdr! (cddr ls) (cdr ls)) ls)))
+ )
+
+(mat flvector->list
+    (equal? (flvector->list '#vfl(1.0 2.0 3.0)) '(1.0 2.0 3.0))
+    (equal? (flvector->list '#vfl()) '())
+    (error? (flvector->list '(a b c)))
  )
 
 (mat vector-map
@@ -1226,35 +1371,6 @@
     (error? (vector-sort! < immutable-123-vector))
 )
 
-
-
-(mat fxvector->immutable-fxvector
-    (begin
-      (define immutable-123-fxvector
-        (fxvector->immutable-fxvector (fxvector 1 2 3)))
-      #t)
-    
-    (immutable-fxvector? immutable-123-fxvector)
-    (not (mutable-fxvector? immutable-123-fxvector))
-    
-    (equal? '#vfx(1 2 3) immutable-123-fxvector)
-    (eq? immutable-123-fxvector
-         (fxvector->immutable-fxvector immutable-123-fxvector))
-    
-    (mutable-fxvector? (make-fxvector 5))
-    (not (immutable-fxvector? (make-fxvector 5)))
-    
-    (immutable-fxvector? (fxvector->immutable-fxvector (fxvector)))
-    (not (mutable-fxvector? (fxvector->immutable-fxvector (fxvector))))
-    (not (immutable-fxvector? (fxvector)))
-    (mutable-fxvector? (fxvector))
-    
-    (not (immutable-fxvector? (fxvector-copy immutable-123-fxvector)))
-
-    (error? (fxvector-set! immutable-123-fxvector 0 1))
-    (error? (fxvector-fill! immutable-123-fxvector 0))
-)
-
 (mat vector-cas!
   (begin
     (define vec1 (vector 1 2 3))
@@ -1289,7 +1405,10 @@
   (error? (vector-cas! vec1 vec1 2 3)) ; not a fixnum
   (error? (vector-cas! vec1 (expt 2 100) 2 3)) ; not a fixnum
   (error? (vector-cas! vec1 -1 2 3)) ; out of range
+  (error? (vector-cas! vec1 -2 2 3)) ; out of range
   (error? (vector-cas! vec1 5 2 3)) ; out of range
+  (error? (vector-cas! vec1 (expt 2 26) 2 3)) ; out of range
+  (error? (vector-cas! vec1 (expt 2 40) 2 3)) ; out of range
 
   ;; make sure `vector-cas!` works with GC generations:
   (begin
@@ -1300,3 +1419,274 @@
              (collect 0)
              (eq? g1 (vector-ref vec2 2))))))
 )
+
+(mat stencil-vector
+  (>= (stencil-vector-mask-width) 24)
+  (stencil-vector? (stencil-vector 1 0))
+  (not (stencil-vector? 10))
+
+  (begin
+    (define alphabet-sv (stencil-vector #b10101010101010101010 'a 'b 'c 'd 'e 'f 'g 'h 'i 'j))
+    (define mod-sv (stencil-vector #b1001 'a 'b))
+    (and (stencil-vector? alphabet-sv)
+         (stencil-vector? mod-sv)))
+
+  (error? (stencil-vector 'x))
+  (error? (stencil-vector -1))
+  (error? (stencil-vector 0 'apple))
+  (error? (stencil-vector 3 'apple))
+  (error? (stencil-vector 3 'apple))
+
+  (<= (stencil-vector-mask-width) 58) ; so the next test reports the same error on all platforms
+  (error? (stencil-vector (expt 2 58) 'a))
+
+  (error? (stencil-vector-length 3))
+  (error? (stencil-vector-mask 3))
+  (error? (stencil-vector-ref 3 0))
+
+  (eqv? 2 (stencil-vector-length (stencil-vector 3 'apple 'banana)))
+  (eqv? 3 (stencil-vector-mask (stencil-vector 3 'apple 'banana)))
+  (eqv? 2 (stencil-vector-length (stencil-vector 514 'apple 'banana)))
+  (eqv? 514 (stencil-vector-mask (stencil-vector 514 'apple 'banana)))
+  (eqv? 10 (stencil-vector-length (stencil-vector 1023 'a 'b 'c 'd 'e 'f 'g 'h 'i 'j)))
+  (eqv? 1 (stencil-vector-length (stencil-vector (expt 2 (sub1 (stencil-vector-mask-width))) 'a)))
+  (eqv? 1 (stencil-vector-length (stencil-vector (expt 2 (- (stencil-vector-mask-width) 2)) 'a)))
+
+  (error? (stencil-vector-ref (stencil-vector 0) 0))
+  (error? (stencil-vector-ref (stencil-vector 3 'apple 'banana) 2))
+  (error? (stencil-vector-ref (stencil-vector 3 'apple 'banana) -1))
+  (error? (stencil-vector-ref (stencil-vector 3 'apple 'banana) (expt 2 100)))
+  (error? (stencil-vector-ref (stencil-vector 3 'apple 'banana) 1.0))
+
+  (eq? 'a (stencil-vector-ref alphabet-sv 0))
+  (eq? 'f (stencil-vector-ref alphabet-sv 5))
+  (eq? 'j (stencil-vector-ref alphabet-sv 9))
+
+  (error? (stencil-vector-set! (stencil-vector 0) 0 'x))
+  (error? (stencil-vector-set! (stencil-vector 3 'apple 'banana) 2 'x))
+  (error? (stencil-vector-set! (stencil-vector 3 'apple 'banana) -1 'x))
+  (error? (stencil-vector-set! (stencil-vector 3 'apple 'banana) (expt 2 100) 'x))
+  (error? (stencil-vector-set! (stencil-vector 3 'apple 'banana) 1.0 'x))
+
+  (equal? '(ok b) (begin
+                    (stencil-vector-set! mod-sv 0 'ok)
+                    (list (stencil-vector-ref mod-sv 0)
+                          (stencil-vector-ref mod-sv 1))))
+
+  (error? (stencil-vector-update 1 0 1 'z))
+  (error? (stencil-vector-update alphabet-sv 0 2 'z))
+  (error? (stencil-vector-update alphabet-sv 1 0))
+  (error? (stencil-vector-update alphabet-sv 0 1))
+  (error? (stencil-vector-update alphabet-sv 0 1 'a 'b))
+
+  ;; add 1
+  (let ([v (stencil-vector-update alphabet-sv 0 1 'z)])
+    (and (eqv? 11 (stencil-vector-length v))
+         (eq? 'z (stencil-vector-ref v 0))
+         (eq? 'a (stencil-vector-ref v 1))
+         (eq? 'b (stencil-vector-ref v 2))
+         (eq? 'j (stencil-vector-ref v 10))))
+  ;; add 2
+  (let ([v (stencil-vector-update alphabet-sv 0 #b10001 'z 'w)])
+    (and (eqv? 12 (stencil-vector-length v))
+         (eq? 'z (stencil-vector-ref v 0))
+         (eq? 'a (stencil-vector-ref v 1))
+         (eq? 'b (stencil-vector-ref v 2))
+         (eq? 'w (stencil-vector-ref v 3))
+         (eq? 'c (stencil-vector-ref v 4))
+         (eq? 'j (stencil-vector-ref v 11))))
+  ;; remove 1
+  (let ([v (stencil-vector-update alphabet-sv 2 0)])
+    (and (eqv? 9 (stencil-vector-length v))
+         (eq? 'b (stencil-vector-ref v 0))
+         (eq? 'c (stencil-vector-ref v 1))
+         (eq? 'j (stencil-vector-ref v 8))))
+  ;; remove 2
+  (let ([v (stencil-vector-update alphabet-sv #b10000010 0)])
+    (and (eqv? 8 (stencil-vector-length v))
+         (eq? 'b (stencil-vector-ref v 0))
+         (eq? 'c (stencil-vector-ref v 1))
+         (eq? 'e (stencil-vector-ref v 2))
+         (eq? 'j (stencil-vector-ref v 7))))
+  ;; add 2 and remove 2
+  (let ([v (stencil-vector-update alphabet-sv #b10000010 #b10001 'z 'w)])
+    (and (eqv? 10 (stencil-vector-length v))
+         (eq? 'z (stencil-vector-ref v 0))
+         (eq? 'b (stencil-vector-ref v 1))
+         (eq? 'w (stencil-vector-ref v 2))
+         (eq? 'c (stencil-vector-ref v 3))
+         (eq? 'e (stencil-vector-ref v 4))
+         (eq? 'j (stencil-vector-ref v 9))))
+  ;; remove all
+  (eqv? 0 (stencil-vector-length (stencil-vector-update alphabet-sv #b10101010101010101010 0)))
+
+  (error? (stencil-vector-truncate! 1 0))
+  (error? (stencil-vector-truncate! (stencil-vector 0) 1))
+  (error? (stencil-vector-truncate! (stencil-vector 7) 15))
+  (error? (stencil-vector-truncate! (stencil-vector 6) 7))
+  (let ([sv (stencil-vector 7 1 2 3)])
+    (stencil-vector-truncate! sv 3)
+    (and (stencil-vector? sv)
+         (eqv? (stencil-vector-mask sv) 3)
+         (eqv? (stencil-vector-ref sv 0) 1)
+         (eqv? (stencil-vector-ref sv 1) 2)))
+  (let ([sv (stencil-vector 7 1 2 3)])
+    (stencil-vector-truncate! sv 6)
+    (and (stencil-vector? sv)
+         (eqv? (stencil-vector-mask sv) 6)
+         (eqv? (stencil-vector-ref sv 0) 1)
+         (eqv? (stencil-vector-ref sv 1) 2)))
+
+  ;; check fasl:
+  (let ([s (stencil-vector 42 'a 'b 'c)])
+    (define-values (o get) (open-bytevector-output-port))
+    (fasl-write s o)
+    (equal? s (fasl-read (open-bytevector-input-port (get)))))
+   
+  ;; try to check GC interaction
+  (let loop ([n 100000]
+             [v1 (stencil-vector 7 'a 'b 'c)]
+             [v2 (stencil-vector 28 "a" "b" "c")]
+             [v3 (stencil-vector 15 (vector 'x) (vector 'y) (vector 'z)  (vector 'w))])
+    (or (fx= n 0)
+        (and
+         (fx= (stencil-vector-mask v1) 7)
+         (eqv? (stencil-vector-ref v1 1) 'b)
+         (fx= (stencil-vector-mask v2) 28)
+         (equal? (stencil-vector-ref v2 0) "a")
+         (equal? (stencil-vector-ref v2 1) "b")
+         (equal? (stencil-vector-ref v2 2) "c")
+         (fx= (stencil-vector-mask v3) 15)
+         (equal? (stencil-vector-ref v3 0) '#(x))
+         (equal? (stencil-vector-ref v3 1) '#(y))
+         (equal? (stencil-vector-ref v3 2) '#(z))
+         (equal? (stencil-vector-ref v3 3) '#(w))
+         (loop (fx- n 1)
+               (stencil-vector-update
+                (stencil-vector-update v1 3 1 'a)
+                0 2 'b)
+               (stencil-vector-update v2 12 12 (string #\a) (string #\b))
+               (stencil-vector-update
+                (stencil-vector-update v3 6 16 (vector 'extra))
+                16 6 (vector 'y) (vector 'z))))))
+
+  )
+
+(mat system-stencil-vector
+  (#%$stencil-vector? (stencil-vector 1 0))
+  (not (#%$stencil-vector? 10))
+  (#%$system-stencil-vector? (#%$system-stencil-vector 1 0))
+  (not (#%$system-stencil-vector? (stencil-vector 1 0)))
+  (not (#%$system-stencil-vector? 10))
+  (not (stencil-vector? (#%$system-stencil-vector 1 0)))
+
+  (begin
+    (define alphabet-sv (#%$system-stencil-vector #b10101010101010101010 'a 'b 'c 'd 'e 'f 'g 'h 'i 'j))
+    (define mod-sv (#%$system-stencil-vector #b1001 'a 'b))
+    (and (#%$stencil-vector? alphabet-sv)
+         (#%$stencil-vector? mod-sv)
+         (#%$system-stencil-vector? alphabet-sv)
+         (#%$system-stencil-vector? mod-sv)))
+
+  (error? (#%$system-stencil-vector 'x))
+  (error? (#%$system-stencil-vector -1))
+  (error? (#%$system-stencil-vector 0 'apple))
+  (error? (#%$system-stencil-vector 3 'apple))
+  (error? (#%$system-stencil-vector 3 'apple))
+
+  (<= (stencil-vector-mask-width) 58) ; so the next test reports the same error on all platforms
+  (error? (#%$system-stencil-vector (expt 2 58) 'a))
+
+  (error? (#%$stencil-vector-length 3))
+  (error? (#%$stencil-vector-mask 3))
+  (error? (#%$stencil-vector-ref 3 0))
+
+  (eqv? 2 (#%$stencil-vector-length (stencil-vector 3 'apple 'banana)))
+  (eqv? 2 (#%$stencil-vector-length (#%$system-stencil-vector 3 'apple 'banana)))
+  (eqv? 3 (#%$stencil-vector-mask (stencil-vector 3 'apple 'banana)))
+  (eqv? 3 (#%$stencil-vector-mask (#%$system-stencil-vector 3 'apple 'banana)))
+  (eqv? 514 (#%$stencil-vector-mask (#%$system-stencil-vector 514 'apple 'banana)))
+  (eqv? 10 (#%$stencil-vector-length (#%$system-stencil-vector 1023 'a 'b 'c 'd 'e 'f 'g 'h 'i 'j)))
+  (eqv? 1 (#%$stencil-vector-length (#%$system-stencil-vector (expt 2 (sub1 (stencil-vector-mask-width))) 'a)))
+  (eqv? 1 (#%$stencil-vector-length (#%$system-stencil-vector (expt 2 (- (stencil-vector-mask-width) 2)) 'a)))
+
+  (error? (#%$stencil-vector-ref (stencil-vector 0) 0))
+  (error? (#%$stencil-vector-ref (#%$system-stencil-vector 0) 0))
+  (error? (#%$stencil-vector-ref (stencil-vector 3 'apple 'banana) 2))
+  (error? (#%$stencil-vector-ref (#%$system-stencil-vector 3 'apple 'banana) 2))
+
+  (error? (#%$stencil-vector-set! (stencil-vector 0) 0 'x))
+  (error? (#%$stencil-vector-set! (#%$system-stencil-vector 0) 0 'x))
+
+  (equal? '(ok b) (begin
+                    (#%$stencil-vector-set! mod-sv 0 'ok)
+                    (list (#%$stencil-vector-ref mod-sv 0)
+                          (#%$stencil-vector-ref mod-sv 1))))
+
+  (error? (#%$system-stencil-vector-update 1 0 1 'z))
+
+  ;; add 1
+  (let ([v (#%$system-stencil-vector-update alphabet-sv 0 1 'z)])
+    (and (eqv? 11 (#%$stencil-vector-length v))
+         (eq? 'z (#%$stencil-vector-ref v 0))
+         (eq? 'a (#%$stencil-vector-ref v 1))
+         (eq? 'b (#%$stencil-vector-ref v 2))
+         (eq? 'j (#%$stencil-vector-ref v 10))))
+  ;; add 2
+  (let ([v (#%$system-stencil-vector-update alphabet-sv 0 #b10001 'z 'w)])
+    (and (eqv? 12 (#%$stencil-vector-length v))
+         (eq? 'z (#%$stencil-vector-ref v 0))
+         (eq? 'a (#%$stencil-vector-ref v 1))
+         (eq? 'b (#%$stencil-vector-ref v 2))
+         (eq? 'w (#%$stencil-vector-ref v 3))
+         (eq? 'c (#%$stencil-vector-ref v 4))
+         (eq? 'j (#%$stencil-vector-ref v 11))))
+  ;; remove 1
+  (let ([v (#%$system-stencil-vector-update alphabet-sv 2 0)])
+    (and (eqv? 9 (#%$stencil-vector-length v))
+         (eq? 'b (#%$stencil-vector-ref v 0))
+         (eq? 'c (#%$stencil-vector-ref v 1))
+         (eq? 'j (#%$stencil-vector-ref v 8))))
+  ;; remove 2
+  (let ([v (#%$system-stencil-vector-update alphabet-sv #b10000010 0)])
+    (and (eqv? 8 (#%$stencil-vector-length v))
+         (eq? 'b (#%$stencil-vector-ref v 0))
+         (eq? 'c (#%$stencil-vector-ref v 1))
+         (eq? 'e (#%$stencil-vector-ref v 2))
+         (eq? 'j (#%$stencil-vector-ref v 7))))
+  ;; add 2 and remove 2
+  (let ([v (#%$system-stencil-vector-update alphabet-sv #b10000010 #b10001 'z 'w)])
+    (and (eqv? 10 (#%$stencil-vector-length v))
+         (eq? 'z (#%$stencil-vector-ref v 0))
+         (eq? 'b (#%$stencil-vector-ref v 1))
+         (eq? 'w (#%$stencil-vector-ref v 2))
+         (eq? 'c (#%$stencil-vector-ref v 3))
+         (eq? 'e (#%$stencil-vector-ref v 4))
+         (eq? 'j (#%$stencil-vector-ref v 9))))
+  ;; remove all
+  (eqv? 0 (#%$stencil-vector-length (#%$system-stencil-vector-update alphabet-sv #b10101010101010101010 0)))
+
+  (error? (#%$system-stencil-vector-truncate! 1 0))
+  (error? (#%$system-stencil-vector-truncate! (#%$system-stencil-vector 0) 1))
+  (error? (#%$system-stencil-vector-truncate! (#%$system-stencil-vector 7) 15))
+  (error? (#%$system-stencil-vector-truncate! (#%$system-stencil-vector 6) 7))
+  (let ([sv (#%$system-stencil-vector 7 1 2 3)])
+    (#%$system-stencil-vector-truncate! sv 3)
+    (and (#%$system-stencil-vector? sv)
+         (eqv? (#%$stencil-vector-mask sv) 3)
+         (eqv? (#%$stencil-vector-ref sv 0) 1)
+         (eqv? (#%$stencil-vector-ref sv 1) 2)))
+  (let ([sv (#%$system-stencil-vector 7 1 2 3)])
+    (#%$system-stencil-vector-truncate! sv 6)
+    (and (#%$system-stencil-vector? sv)
+         (eqv? (#%$stencil-vector-mask sv) 6)
+         (eqv? (#%$stencil-vector-ref sv 0) 1)
+         (eqv? (#%$stencil-vector-ref sv 1) 2)))
+
+  ;; check fasl:
+  (let ([s (#%$system-stencil-vector 13 'a 'b 'c)])
+    (define-values (o get) (open-bytevector-output-port))
+    (fasl-write s o)
+    (equal? s (fasl-read (open-bytevector-input-port (get)))))
+
+  )

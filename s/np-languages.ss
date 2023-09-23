@@ -17,7 +17,7 @@
 (module np-languages ()
   (export sorry! var? var-index var-index-set! prelex->uvar make-tmp make-assigned-tmp
     make-unspillable make-cpvar make-restricted-unspillable
-    uvar? uvar-name uvar-type uvar-source
+    uvar? uvar-name uvar-type uvar-type-set! uvar-source
     uvar-referenced? uvar-referenced! uvar-assigned? uvar-assigned!
     uvar-was-closure-ref? uvar-was-closure-ref!
     uvar-unspillable? uvar-spilled? uvar-spilled! uvar-local-save? uvar-local-save!
@@ -29,13 +29,14 @@
     uvar-ref-weight uvar-ref-weight-set! uvar-save-weight uvar-save-weight-set!
     uvar-live-count uvar-live-count-set!
     uvar
-    fv-offset
+    fv-offset fv-type
     var-spillable-conflict* var-spillable-conflict*-set!
     var-unspillable-conflict* var-unspillable-conflict*-set!
+    var-spillinfo-redirect! make-redirect-var
     uvar-degree uvar-degree-set!
     uvar-info-lambda uvar-info-lambda-set!
     uvar-iii uvar-iii-set!
-    ur?
+    ur? fpur?
     block make-block block? block-label block-effect* block-src* block-pseudo-src block-in-link* block-flags
     block-label-set! block-effect*-set! block-src*-set! block-pseudo-src-set! block-in-link*-set! block-flags-set! 
     block-live-in block-live-in-set! block-fp-offset block-fp-offset-set!
@@ -45,11 +46,11 @@
     block-pariah! block-seen! block-finished! block-return-point! block-repeater! block-loop-header!
     block-pariah? block-seen? block-finished? block-return-point? block-repeater? block-loop-header?
     L1 unparse-L1 L2 unparse-L2 L3 unparse-L3 L4 unparse-L4
-    L4.5 unparse-L4.5 L4.75 unparse-L4.75 L4.875 unparse-L4.875
+    L4.5 unparse-L4.5 L4.75 unparse-L4.75 L4.875 unparse-L4.875 L4.9375 unparse-L4.9375
     L5 unparse-L5 L6 unparse-L6 L7 unparse-L7
     L9 unparse-L9 L9.5 unparse-L9.5 L9.75 unparse-L9.75
     L10 unparse-L10 L10.5 unparse-L10.5 L11 unparse-L11
-    L11.5 unparse-L11.5 L12 unparse-L12 L13 unparse-L13 L13.5 unparse-L13.5 L14 unparse-L14
+    L12 unparse-L12 L12.5 unparse-L12.5 L13 unparse-L13 L13.5 unparse-L13.5 L14 unparse-L14
     L15a unparse-L15a L15b unparse-L15b L15c unparse-L15c L15d unparse-L15d
     L15e unparse-L15e
     L16 unparse-L16
@@ -57,7 +58,7 @@
     live-info make-live-info live-info-live live-info-live-set! live-info-useless live-info-useless-set!
     primitive-pure? primitive-type primitive-handler primitive-handler-set!
     %primitive value-primitive? pred-primitive? effect-primitive?
-    fv? $make-fv make-reg reg? reg-name reg-tc-disp reg-callee-save? reg-mdinfo
+    fv? $make-fv make-reg reg? reg-name reg-tc-disp reg-callee-save? reg-mdinfo reg-type
     reg-precolored reg-precolored-set!
     label? label-name
     libspec-label? make-libspec-label libspec-label-libspec libspec-label-live-reg*
@@ -70,9 +71,13 @@
     local-label-trap-check local-label-trap-check-set!
     direct-call-label? make-direct-call-label
     direct-call-label-referenced direct-call-label-referenced-set!
+    aligned-label? make-aligned-label
+    return-point-label? make-return-point-label
+    return-point-label-compact? return-point-label-compact?-set!
     Lsrc Lsrc? Ltype Ltype? unparse-Ltype unparse-Lsrc
     lookup-primref primref? primref-level primref-name primref-flags primref-arity
     preinfo-src preinfo-sexpr preinfo-lambda-name preinfo-lambda-flags preinfo-lambda-libspec
+    preinfo-call? preinfo-call-check? preinfo-call-no-return?
     prelex-name prelex-name-set!)
 
   (import (nanopass))
@@ -83,19 +88,94 @@
   (define datum? (lambda (x) #t))
 
   (define-record-type var
-    (fields (mutable index) (mutable spillable-conflict*) (mutable unspillable-conflict*))
-    (nongenerative)
+    (fields (mutable index-or-redirect) (mutable spillable-conflict*-or-redirect) (mutable unspillable-conflict*-or-redirect))
+    (nongenerative #{var fjh3mleeyv82pb1x1uhd4vsbv-1})
     (protocol (lambda (new) (lambda () (new #f #f #f)))))
+
+  ;; relies on pairs being distinct from conflict sets and indices:
+  (define (make-spillinfo-redirect index) (cons index '()))
+  (define (spillinfo-redirect? v) (pair? v))
+  (define (spillinfo-redirect-index r) (car r))
+
+  (define-record-type precolor-var
+    (parent var)
+    (fields (mutable precolored))
+    (nongenerative #{precolor-var fjh3mleeyv82pb1x1uhd4vsbv-5})
+    (protocol (lambda (pargs->new) (lambda () ((pargs->new) #f)))))
+  
+  (define (make-redirect-var name)
+    (make-precolor-var))
+
+  (define (var-spillinfo-redirect! v index)
+    (let ([r (make-spillinfo-redirect index)])
+      (var-index-or-redirect-set! v r)
+      (var-spillable-conflict*-or-redirect-set! v r)
+      (var-unspillable-conflict*-or-redirect-set! v r)))
+
+  (define var-index
+    (case-lambda
+     [(v) ; when index is not used for spill information
+      (safe-assert (not (spillinfo-redirect? (var-index-or-redirect v))))
+      (var-index-or-redirect v)]
+     [(v reg-spillinfo) ; when index is used for spill information
+      (let ([i (var-index-or-redirect v)])
+        (if (spillinfo-redirect? i)
+            (var-index-or-redirect
+             (vector-ref reg-spillinfo (spillinfo-redirect-index i)))
+            i))]))
+
+  (define var-index-set!
+    (case-lambda
+     [(v i) ; when index is not used for spill information
+      (safe-assert (not (spillinfo-redirect? (var-index-or-redirect v))))
+      (var-index-or-redirect-set! v i)]
+     [(v reg-spillinfo i) ; when index is used for spill information
+      (let ([old-i (var-index-or-redirect v)])
+        (if (spillinfo-redirect? old-i)
+            (var-index-or-redirect-set!
+             (vector-ref reg-spillinfo (spillinfo-redirect-index old-i))
+             i)
+            (var-index-or-redirect-set! v i)))]))
+      
+  (define (var-spillable-conflict* v reg-spillinfo)
+    (let ([c* (var-spillable-conflict*-or-redirect v)])
+      (if (spillinfo-redirect? c*)
+          (var-spillable-conflict*-or-redirect
+           (vector-ref reg-spillinfo (spillinfo-redirect-index c*)))
+          c*)))
+
+  (define (var-unspillable-conflict* v reg-spillinfo)
+    (let ([c* (var-unspillable-conflict*-or-redirect v)])
+      (if (spillinfo-redirect? c*)
+          (var-unspillable-conflict*-or-redirect
+           (vector-ref reg-spillinfo (spillinfo-redirect-index c*)))
+          c*)))
+
+  (define (var-spillable-conflict*-set! v reg-spillinfo c*)
+    (let ([old-c* (var-spillable-conflict*-or-redirect v)])
+      (if (spillinfo-redirect? old-c*)
+          (var-spillable-conflict*-or-redirect-set!
+           (vector-ref reg-spillinfo (spillinfo-redirect-index old-c*))
+           c*)
+          (var-spillable-conflict*-or-redirect-set! v c*))))
+
+  (define (var-unspillable-conflict*-set! v reg-spillinfo c*)
+    (let ([old-c* (var-unspillable-conflict*-or-redirect v)])
+      (if (spillinfo-redirect? old-c*)
+          (var-unspillable-conflict*-or-redirect-set!
+           (vector-ref reg-spillinfo (spillinfo-redirect-index old-c*))
+           c*)
+          (var-unspillable-conflict*-or-redirect-set! v c*))))
 
   (define-record-type (fv $make-fv fv?)
     (parent var)
-    (fields offset)
-    (nongenerative)
+    (fields offset type)
+    (nongenerative #{fv fjh3mleeyv82pb1x1uhd4vsbv-2})
     (sealed #t)
     (protocol
       (lambda (pargs->new)
-        (lambda (offset)
-          ((pargs->new) offset)))))
+        (lambda (offset type)
+          ((pargs->new) offset type)))))
 
   (module ()
     (record-writer (record-type-descriptor fv)
@@ -104,13 +184,20 @@
 
   (define-record-type reg
     (parent var)
-    (fields name mdinfo tc-disp callee-save? (mutable precolored))
-    (nongenerative)
+    (fields name mdinfo tc-disp callee-save? type)
+    (nongenerative #{reg fjh3mleeyv82pb1x1uhd4vsbv-6})
     (sealed #t)
     (protocol
       (lambda (pargs->new)
-        (lambda (name mdinfo tc-disp callee-save?)
-          ((pargs->new) name mdinfo tc-disp callee-save? #f)))))
+        (lambda (name mdinfo tc-disp callee-save? type)
+          ((pargs->new) name mdinfo tc-disp callee-save? type)))))
+
+  (define (reg-precolored reg reg-spillinfo)
+    (let ([i (var-index-or-redirect reg)])
+      (precolor-var-precolored (vector-ref reg-spillinfo (spillinfo-redirect-index i)))))
+  (define (reg-precolored-set! reg reg-spillinfo v)
+    (let ([i (var-index-or-redirect reg)])
+      (precolor-var-precolored-set! (vector-ref reg-spillinfo (spillinfo-redirect-index i)) v)))
 
   (module ()
     (record-writer (record-type-descriptor reg)
@@ -166,7 +253,7 @@
     (fields 
       name
       source
-      type
+      (mutable type)
       conflict*
       (mutable flags)
       (mutable info-lambda)
@@ -178,7 +265,7 @@
       (mutable save-weight)   ; must be a fixnum!
       (mutable live-count)    ; must be a fixnum!
      )
-    (nongenerative)
+    (nongenerative #{uvar fjh3mleeyv82pb1x1uhd4vsbv-4})
     (sealed #t)
     (protocol
       (lambda (pargs->new)
@@ -203,8 +290,8 @@
       [(name) (make-assigned-tmp name 'ptr)]
       [(name type) ($make-uvar name #f type '() (uvar-flags-mask referenced assigned))]))
   (define make-unspillable
-    (lambda (name)
-      ($make-uvar name #f 'ptr '() (uvar-flags-mask referenced unspillable))))
+    (lambda (name type)
+      ($make-uvar name #f type '() (uvar-flags-mask referenced unspillable))))
   (define make-cpvar
     (lambda ()
       (include "types.ss")
@@ -217,7 +304,9 @@
   (module ()
     (record-writer (record-type-descriptor uvar)
       (lambda (x p wr)
-        (write (lookup-unique-uvar x) p))))
+        (write (lookup-unique-uvar x) p)
+        (when (eq? (uvar-type x) 'fp)
+          (write 'fp p)))))
 
   (define lookup-unique-uvar
     (let ([ht (make-eq-hashtable)])
@@ -227,7 +316,8 @@
               (eq-hashtable-set! ht x sym)
               sym)))))
 
-  (define-record-type info (nongenerative))
+  (define-record-type info
+    (nongenerative #{info n93q6qho9id46fha8itaytldd-5}))
 
   (define null-info (make-info))
 
@@ -237,12 +327,12 @@
         (fprintf p "#<info>"))))
 
   (define-record-type label
-    (nongenerative)
+    (nongenerative #{label n93q6qho9id46fha8itaytldd-6})
     (fields name))
 
   (define-record-type libspec-label
     (parent label)
-    (nongenerative)
+    (nongenerative #{label n93q6qho9id46fha8itaytldd-7})
     (sealed #t)
     (fields libspec live-reg*)
     (protocol
@@ -254,7 +344,7 @@
   ; different purposes in different passes.
   (define-record-type local-label
     (parent label)
-    (nongenerative)
+    (nongenerative #{label n93q6qho9id46fha8itaytldd-8})
     (fields (mutable func) (mutable offset) (mutable iteration) (mutable block)
       ; following used by place-overflow-and-trap-check pass
       (mutable overflow-check) (mutable trap-check))
@@ -265,9 +355,27 @@
 
   (define-record-type direct-call-label
     (parent local-label)
-    (nongenerative)
+    (nongenerative #{label n93q6qho9id46fha8itaytldd-9})
     (sealed #t)
     (fields (mutable referenced))
+    (protocol
+      (lambda (pargs->new)
+        (lambda (name)
+          ((pargs->new name) #f)))))
+
+  (define-record-type aligned-label
+    (parent local-label)
+    (nongenerative #{label n93q6qho9id46fha8itaytlxx-12})
+    (protocol
+      (lambda (pargs->new)
+        (lambda (name)
+          ((pargs->new name))))))
+
+  (define-record-type return-point-label
+    (parent aligned-label)
+    (nongenerative #{label n93q6qho9id46fha8itaytlxx-10})
+    (sealed #t)
+    (fields (mutable compact?))
     (protocol
       (lambda (pargs->new)
         (lambda (name)
@@ -296,10 +404,15 @@
     (lambda (x)
       (or (eq? x #f) (label? x))))
 
+  (define return-label?
+    (lambda (x)
+      (or (eq? x 'continue) (maybe-label? x))))
+
  ; language to replace prelex with uvar, create info records out of some of the complex
  ; records, and make sure other record types have been discarded.  also formally sets up
  ; CaseLambdaClause as entry point for language.
   (define-language L1
+    (nongenerative-id #{L1 jczowy6yjfz400ntojb6av7y0-1})
     (terminals
       (uvar (x))
       (datum (d))
@@ -337,24 +450,28 @@
 
  ; introducing let
   (define-language L2 (extends L1)
+    (nongenerative-id #{L2 jczowy6yjfz400ntojb6av7y0-2})
     (entry CaseLambdaExpr)
     (Expr (e body)
       (+ (let ([x e] ...) body))))
 
  ; removes moi; also adds name to info-lambda & info-foreign
   (define-language L3 (extends L2)
+    (nongenerative-id #{L3 jczowy6yjfz400ntojb6av7y0-3})
     (entry CaseLambdaExpr)
     (Expr (e body)
       (- (moi))))
 
  ; removes assignable indefinite-extent variables from the language
   (define-language L4 (extends L3)
+    (nongenerative-id #{L4 jczowy6yjfz400ntojb6av7y0-4})
     (entry CaseLambdaExpr)
     (Expr (e body)
       (- (set! x e))))
 
  ; introducing mvlet, and mvcall
   (define-language L4.5 (extends L4)
+    (nongenerative-id #{L4.5 jczowy6yjfz400ntojb6av7y0-4.5})
     (terminals
       (+ (maybe-label (mdcl))))
     (entry CaseLambdaExpr)
@@ -366,6 +483,7 @@
 
  ; removes foreign, adds foreign-call, updates fcallable
   (define-language L4.75 (extends L4.5)
+    (nongenerative-id #{L4.75 jczowy6yjfz400ntojb6av7y0-4.75})
     (entry CaseLambdaExpr)
     (terminals
       (+ (label (l))))
@@ -378,18 +496,44 @@
 
  ; adds loop form
   (define-language L4.875 (extends L4.75)
+    (nongenerative-id #{L4.875 jczowy6yjfz400ntojb6av7y0-4.875})
     (entry CaseLambdaExpr)
     (Expr (e body)
       (+ (loop x (x* ...) body) => (loop x body))))
 
+  (define attachment-op?
+    (lambda (x)
+      (memq x '(push pop set reify-and-set check-and-set))))
+
+  (define continuation-op?
+    (lambda (x)
+      (memq x '(set redirect-and-set))))
+
+ ; exposes continuation-attachment operations
+  (define-language L4.9375 (extends L4.875)
+    (nongenerative-id #{L4.9375 jczowy6yjfz400ntojb6av7y0-4.9375})
+    (terminals
+     (+ (attachment-op (aop)))
+     (+ (continuation-op (cop)))
+     (+ (boolean (reified))))
+    (entry CaseLambdaExpr)
+    (Expr (e body)
+      (+ (attachment-set aop (maybe e))
+         (attachment-get reified (maybe e))
+         (attachment-consume reified (maybe e))
+         (continuation-get)
+         (continuation-set cop e1 e2))))
+
  ; moves all case lambda expressions into rhs of letrec
-  (define-language L5 (extends L4.875)
+  (define-language L5 (extends L4.9375)
+    (nongenerative-id #{L5 jczowy6yjfz400ntojb6av7y0-5})
     (entry CaseLambdaExpr)
     (Expr (e body)
       (- le)))
 
  ; replaces letrec with labels and closures forms
   (define-language L6 (extends L5)
+    (nongenerative-id #{L6 jczowy6yjfz400ntojb6av7y0-6})
     (terminals
       (+ (maybe-var (mcp))))
     (entry CaseLambdaExpr)
@@ -400,14 +544,22 @@
       (- (clause (x* ...) interface body))
       (+ (clause (x* ...) mcp interface body))))
 
+  (define (mref-type? t)
+    ;; Currently, only 'fp vesus non-'fp matters
+    (or (eq? t 'ptr)
+        (eq? t 'uptr)
+        (eq? t 'fp)))
+
  ; move labels to top level and expands closures forms to more primitive operations
   (define-language L7 (extends L6)
+    (nongenerative-id #{L7 cdzl2w7vcr40l9ebd38t92bxg-7})
     (terminals
       (- (uvar (x))
          (fixnum (interface)))
       (+ (var (x))
          (primitive (prim)) ; moved up one language to support closure instrumentation
          (fixnum (interface offset))
+         (mref-type (type))
          (immediate (imm))))
     (entry Program)
     (Program (prog)
@@ -416,7 +568,7 @@
       (+ (fcallable info l)                            => (fcallable info l)))
     (Lvalue (lvalue)
       (+ x
-         (mref e1 e2 imm)))
+         (mref e1 e2 imm type)))
     (Expr (e body)
       (- x
          (fcallable info)
@@ -439,11 +591,13 @@
          (set! lvalue e)
          ; these two forms are added here so expand-inline handlers can expand into them
          (values info e* ...)
-         (goto l))))
+         (goto l)
+         ; for floating-point unboxing during expand-line:
+         (unboxed-fp e))))
 
   (define-record-type primitive
     (fields name type pure? (mutable handler))
-    (nongenerative)
+    (nongenerative #{var n93q6qho9id46fha8itaytldd-11})
     (sealed #t)
     (protocol
       (lambda (new)
@@ -476,7 +630,7 @@
         [(_ name type pure?)
          (with-syntax ([%name (construct-name #'name "%" #'name)])
            #'(begin
-               (define %name (make-primitive 'name 'type pure?))
+               (define-once %name (make-primitive '%name 'type pure?))
                (export %name)))])))
 
   (define-syntax %primitive
@@ -492,53 +646,53 @@
   (declare-primitive c-call effect #f)
   (declare-primitive c-simple-call effect #f)
   (declare-primitive c-simple-return effect #f)
+  (declare-primitive check-stack-align effect #f) ; x86
   (declare-primitive deactivate-thread effect #f) ; threaded version only
-  (declare-primitive fl* effect #f)
-  (declare-primitive fl+ effect #f)
-  (declare-primitive fl- effect #f)
-  (declare-primitive fl/ effect #f)
+  (declare-primitive debug effect #f) ; x86_64 and arm64
   (declare-primitive fldl effect #f) ; x86
   (declare-primitive flds effect #f) ; x86
-  (declare-primitive flsqrt effect #f) ; not implemented for some ppc32 (so we don't use it)
-  (declare-primitive flt effect #f)
   (declare-primitive inc-cc-counter effect #f)
   (declare-primitive inc-profile-counter effect #f)
   (declare-primitive invoke-prelude effect #f)
   (declare-primitive keep-live effect #f)
-  (declare-primitive load-double effect #f)
-  (declare-primitive load-double->single effect #f)
-  (declare-primitive load-single effect #f)
-  (declare-primitive load-single->double effect #f)
   (declare-primitive locked-decr! effect #f)
   (declare-primitive locked-incr! effect #f)
   (declare-primitive pause effect #f)
   (declare-primitive push effect #f)
   (declare-primitive pop-multiple effect #f) ; arm
   (declare-primitive push-multiple effect #f) ; arm
+  (declare-primitive call-arena-in effect #f) ;pb
+  (declare-primitive fp-call-arena-in effect #f) ;pb
+  (declare-primitive c-stack-call effect #f) ;pb
   (declare-primitive remember effect #f)
   (declare-primitive restore-flrv effect #f)
   (declare-primitive restore-lr effect #f) ; ppc
   (declare-primitive save-flrv effect #f)
   (declare-primitive save-lr effect #f) ; ppc
   (declare-primitive store effect #f)
-  (declare-primitive store-double effect #f)
-  (declare-primitive store-single effect #f)
-  (declare-primitive store-single->double effect #f)
+  (declare-primitive store-single effect #f); not required by cpnanopass
+  (declare-primitive store-double->single effect #f)
   (declare-primitive store-with-update effect #f) ; ppc
   (declare-primitive unactivate-thread effect #f) ; threaded version only
-  (declare-primitive vpush-multiple effect #f) ; arm
-  (declare-primitive vpop-multiple effect #f) ; arm
+  (declare-primitive vpush-multiple effect #f) ; arm32
+  (declare-primitive vpop-multiple effect #f) ; arm32
+  (declare-primitive push-fpmultiple effect #f) ; arm64
+  (declare-primitive pop-fpmultiple effect #f) ; arm64
   (declare-primitive cas effect #f)
-
+  (declare-primitive store-store-fence effect #f)
+  (declare-primitive acquire-fence effect #f)
+  (declare-primitive release-fence effect #f)
+  (declare-primitive set-cr-bit effect #f) ; ppc32
+  
   (declare-primitive < pred #t)
   (declare-primitive <= pred #t)
   (declare-primitive > pred #t)
   (declare-primitive >= pred #t)
   (declare-primitive condition-code pred #t)
   (declare-primitive eq? pred #t)
-  (declare-primitive fl< pred #t)
-  (declare-primitive fl<= pred #t)
-  (declare-primitive fl= pred #t)
+  (declare-primitive fp< pred #t)
+  (declare-primitive fp<= pred #t)
+  (declare-primitive fp= pred #t)
   (declare-primitive lock! pred #f)
   (declare-primitive logtest pred #t)
   (declare-primitive log!test pred #t)
@@ -552,7 +706,9 @@
   (declare-primitive +/carry value #f)
   (declare-primitive -/ovfl value #f)
   (declare-primitive -/eq value #f)
+  (declare-primitive -/pos value #f)
   (declare-primitive asmlibcall value #f)
+  (declare-primitive cpuid value #t) ; x86_64 only, actually side-effects ebx/ecx/edx
   (declare-primitive fstpl value #f) ; x86 only
   (declare-primitive fstps value #f) ; x86 only
   (declare-primitive get-double value #t) ; x86_64
@@ -565,6 +721,7 @@
   (declare-primitive logor value #t)
   (declare-primitive logxor value #t)
   (declare-primitive lognot value #t)
+  (declare-primitive popcount value #t) ; x86_64 only
   (declare-primitive move value #t)
   (declare-primitive * value #t)
   (declare-primitive */ovfl value #f)
@@ -577,10 +734,33 @@
   (declare-primitive sll value #t)
   (declare-primitive srl value #t)
   (declare-primitive sra value #t)
-  (declare-primitive trunc value #t)
+  (declare-primitive slol value #t) ; runtime-detemined endianness only: shift toward lo byte
   (declare-primitive zext8 value #t)
   (declare-primitive zext16 value #t)
   (declare-primitive zext32 value #t) ; 64-bit only
+
+  (declare-primitive fpmove value #t)
+  (declare-primitive fp+ value #t)
+  (declare-primitive fp- value #t)
+  (declare-primitive fp* value #t)
+  (declare-primitive fp/ value #t)
+  (declare-primitive fpt value #t)
+  (declare-primitive fpsqrt value #t) ; not implemented for some ppc32 (so we don't use it)
+  (declare-primitive fptrunc value #t)
+  (declare-primitive fpsingle value #t)
+  (declare-primitive double->single value #t) ; not required by cpnanopass
+  (declare-primitive single->double value #t) ; not required by cpnanopass
+
+  (declare-primitive load-single value #t) ; not required by cpnanopass
+  (declare-primitive load-single->double value #t)
+
+  (declare-primitive call-arena-out value #f) ;pb
+  (declare-primitive fp-call-arena-out value #f) ;pb
+
+  (declare-primitive fpcastto value #t) ; 64-bit only
+  (declare-primitive fpcastto/hi value #t) ; 32-bit only
+  (declare-primitive fpcastto/lo value #t) ; 32-bit only
+  (declare-primitive fpcastfrom value #t) ; 64-bit: 1 argument; 32-bit: 2 arguments
 
   (define immediate?
     (let ([low (- (bitwise-arithmetic-shift-left 1 (fx- (constant ptr-bits) 1)))]
@@ -610,6 +790,7 @@
  ; '(), (eof-object), ($unbound-object), #!bwp, characters, and fixnums as
  ; scheme-object ptrs and inlines primitive calls
   (define-language L9 (extends L7)
+    (nongenerative-id #{L9 cdzl2w7vcr40l9ebd38t92bxg-9})
     (entry Program)
     (terminals
       (- (datum (d))
@@ -619,10 +800,12 @@
       (+ (hand-coded sym)))
     (Expr (e body)
       (- (quote d)
-         pr)))
+         pr
+         (unboxed-fp e))))
 
  ; determine where we should be placing interrupt and overflow
   (define-language L9.5 (extends L9)
+    (nongenerative-id #{L9.5 cdzl2w7vcr40l9ebd38t92bxg-9.5})
     (entry Program)
     (terminals
       (+ (boolean (ioc))))
@@ -632,6 +815,7 @@
 
  ; remove the loop form
   (define-language L9.75 (extends L9.5)
+    (nongenerative-id #{L9.75 cdzl2w7vcr40l9ebd38t92bxg-9.75})
     (entry Program)
     (Expr (e body)
       (- (loop x (x* ...) body))))
@@ -643,6 +827,7 @@
  ; Rhs expressions can appear on the right-hand-side of a set! or anywhere arbitrary
  ; Exprs can appear.  Exprs appear in the body of a case-lambda clause.
   (define-language L10 (extends L9.75)
+    (nongenerative-id #{L10 cdzl2w7vcr40l9ebd38t92bxg-10})
     (terminals
       (+ (uvar (local))))
     (entry Program)
@@ -650,8 +835,8 @@
       (- (clause (x* ...) mcp interface body))
       (+ (clause (x* ...) (local* ...) mcp interface body)))
     (Lvalue (lvalue)
-      (- (mref e1 e2 imm))
-      (+ (mref x1 x2 imm)))
+      (- (mref e1 e2 imm type))
+      (+ (mref x1 x2 imm type)))
     (Triv (t)
       (+ lvalue
          (literal info)                          => info
@@ -663,7 +848,10 @@
          (alloc info t)                          => (alloc info t)
          (inline info prim t* ...)               => (inline info prim t* ...)
          (mvcall info e t)                       => (mvcall e t)
-         (foreign-call info t t* ...)))
+         (foreign-call info t t* ...)
+         (attachment-get reified (maybe t))
+         (attachment-consume reified (maybe t))
+         (continuation-get)))
     (Expr (e body)
       (- lvalue
          (values info e* ...)
@@ -677,12 +865,16 @@
          (set! lvalue e)
          (mvcall info e1 e2)
          (raw e)
-         (foreign-call info e e* ...))
+         (foreign-call info e e* ...)
+         (attachment-get reified (maybe e))
+         (attachment-consume reified (maybe e))
+         (continuation-get))
       (+ rhs
          (values info t* ...)
          (set! lvalue rhs))))
 
   (define-language L10.5 (extends L10)
+    (nongenerative-id #{L10.5 jczowy6yjfz400ntojb6av7y0-10.5})
     (entry Program)
     (Rhs (rhs)
       (- (call info mdcl (maybe t0) t1 ...)
@@ -700,6 +892,7 @@
  ; labels used as arguments to make-closure, closure-ref, and closure-set! are
  ; marked as literals so they will not be turned into scheme constants again.
   (define-language L11 (extends L10.5)
+    (nongenerative-id #{L11 jczowy6yjfz400ntojb6av7y0-11})
     (terminals
       (- (primitive (prim)))
       (+ (value-primitive (value-prim))
@@ -725,7 +918,9 @@
          (pariah)
          (trap-check ioc e)
          (overflow-check e)
-         (profile src)))
+         (profile src)
+         (attachment-set aop (maybe e))
+         (continuation-set cop e1 e2)))
     (Tail (tl tlbody)
       (+ rhs
          (if p0 tl1 tl2)
@@ -756,16 +951,12 @@
             (mvset (mdcl t0 t1 ...) (t* ...) ((x** ...) interface* l*) ...)
          (mvcall info mdcl (maybe t0) t1 ... (t* ...)) => (mvcall mdcl t0 t1 ... (t* ...))
          (foreign-call info t t* ...)
+         (attachment-set aop (maybe t))
+         (continuation-set cop t1 t2)
          (tail tl))))
 
-  (define-language L11.5 (extends L11)
-    (entry Program)
-    (terminals
-      (- (boolean (ioc))))
-    (Effect (e body)
-      (- (trap-check ioc))))
-
-  (define-language L12 (extends L11.5)
+  (define-language L12 (extends L11)
+    (nongenerative-id #{L12 jczowy6yjfz400ntojb6av7y0-12})
     (terminals
       (- (fixnum (interface offset))
          (label (l)))
@@ -788,6 +979,14 @@
          (mventry-point (x* ...) l)
          (mverror-point))))
 
+  (define-language L12.5 (extends L12)
+    (nongenerative-id #{L12.5 jczowy6yjfz400ntojb6av7y0-12.5})
+    (entry Program)
+    (terminals
+      (- (boolean (ioc))))
+    (Effect (e ebody)
+      (- (trap-check ioc))))
+
   (define exact-integer?
     (lambda (x)
       (and (integer? x) (exact? x))))
@@ -797,6 +996,7 @@
  ; longer have arguments; case-lambda is responsible for dispatching to correct
  ; clause, even when the game is being played
   (define-language L13
+    (nongenerative-id #{L13 jczowy6yjfz400ntojb6av7y0-13})
     (terminals
       (fixnum (max-fv offset))
       (fv (fv))
@@ -809,10 +1009,12 @@
       (immediate (imm fs))
       (exact-integer (lpm))
       (info (info))
-      (maybe-label (mrvl))
+      (return-label (mrvl))
       (label (l rpl))
       (source-object (src))
-      (symbol (sym)))
+      (symbol (sym))
+      (boolean (as-fallthrough))
+      (mref-type (type)))
     (Program (prog)
       (labels ([l* le*] ...) l)                   => (letrec ([l* le*] ...) (l)))
     (CaseLambdaExpr (le)
@@ -820,7 +1022,7 @@
       (hand-coded sym))
     (Lvalue (lvalue)
       x
-      (mref x1 x2 imm))
+      (mref x1 x2 imm type))
     (Triv (t)
       lvalue
       (literal info)                              => info
@@ -843,7 +1045,7 @@
       (overflood-check)
       (fcallable-overflow-check)
       (new-frame info rpl* ... rpl)
-      (return-point info rpl mrvl (cnfv* ...))
+      (return-point info rpl mrvl as-fallthrough (cnfv* ...))
       (rp-header mrvl fs lpm)
       (remove-frame info)
       (restore-local-saves info)
@@ -869,6 +1071,7 @@
       (goto l)))
 
   (define-language L13.5 (extends L13)
+    (nongenerative-id #{L13.5 jczowy6yjfz400ntojb6av7y0-13.5})
     (terminals
       (- (symbol (sym))))
     (entry Program)
@@ -876,6 +1079,7 @@
       (- (hand-coded sym))))
 
   (define-language L14 (extends L13.5)
+    (nongenerative-id #{L14 jczowy6yjfz400ntojb6av7y0-14})
     (entry Program)
     (Rhs (rhs)
       (- (alloc info t))))
@@ -894,7 +1098,7 @@
       (mutable loop-headers)
       (mutable index)
       (mutable weight))
-    (nongenerative)
+    (nongenerative #{var n93q6qho9id46fha8itaytldd-12})
     (protocol
       (lambda (new)
         (lambda ()
@@ -909,7 +1113,7 @@
     (loop-header    #b100000))
 
   (define-record-type live-info
-    (nongenerative)
+    (nongenerative #{var n93q6qho9id46fha8itaytldd-13})
     (sealed #t)
     (fields 
       (mutable live)
@@ -928,6 +1132,7 @@
             (fprintf p "#<live-info ~s>" (live-info-live x))))))
 
   (define-language L15a
+    (nongenerative-id #{L15a jczowy6yjfz400ntojb6av7y0-15a})
     (terminals
       (var (x cnfv var))
       (reg (reg))
@@ -940,9 +1145,11 @@
       (live-info (live-info))
       (info (info))
       (label (l rpl))
-      (maybe-label (mrvl))
+      (return-label (mrvl))
+      (boolean (error-on-values as-fallthrough))
       (fixnum (max-fv offset))
-      (block (block entry-block)))
+      (block (block entry-block))
+      (mref-type (type)))
     (Program (pgm)
       (labels ([l* le*] ...) l)                  => (letrec ([l* le*] ...) (l)))
     (CaseLambdaExpr (le)
@@ -950,7 +1157,7 @@
     (Dummy (dumdum) (dummy))
     (Lvalue (lvalue)
       x
-      (mref x1 x2 imm))
+      (mref x1 x2 imm type))
     (Triv (t)
       lvalue
       (literal info)                            => info
@@ -965,8 +1172,9 @@
       (overflow-check live-info)
       (overflood-check live-info)
       (fcallable-overflow-check live-info)
-      (return-point info rpl mrvl (cnfv* ...))
+      (return-point info rpl mrvl as-fallthrough (cnfv* ...))
       (rp-header mrvl fs lpm)
+      (rp-compact-header error-on-values fs lpm)
       (remove-frame live-info info)
       (restore-local-saves live-info info)
       (shift-arg live-info reg imm info)
@@ -980,6 +1188,7 @@
       (asm-c-return info reg* ...)))
 
   (define-language L15b (extends L15a)
+    (nongenerative-id #{L15b jczowy6yjfz400ntojb6av7y0-15b})
     (terminals
       (- (var (x cnfv var))
          (reg (reg))
@@ -989,7 +1198,7 @@
     (Effect (e)
       (- (remove-frame live-info info)
          (restore-local-saves live-info info)
-         (return-point info rpl mrvl (cnfv* ...))
+         (return-point info rpl mrvl as-fallthrough (cnfv* ...))
          (shift-arg live-info reg imm info)
          (check-live live-info reg* ...))
       (+ (fp-offset live-info imm)))
@@ -1005,18 +1214,27 @@
     (lambda (x)
       (or (reg? x) (uvar? x))))
 
+  (define fpur?
+    (lambda (x)
+      (or (and (reg? x)
+               (eq? (reg-type x) 'fp))
+          (and (uvar? x)
+               (eq? (uvar-type x) 'fp)))))
+
   (define-language L15c (extends L15b)
+    (nongenerative-id #{L15c jczowy6yjfz400ntojb6av7y0-15c})
     (terminals
       (- (var (x var)))
       (+ (ur (x))))
     ; NB: base and index are really either regs or (mref %sfp %zero imm)
     (Lvalue (lvalue)
-      (- (mref x1 x2 imm))
-      (+ (mref lvalue1 lvalue2 imm)))
+      (- (mref x1 x2 imm type))
+      (+ (mref lvalue1 lvalue2 imm type)))
     (Effect (e)
       (- (fp-offset live-info imm))))
 
   (define-language L15d (extends L15c)
+    (nongenerative-id #{L15d jczowy6yjfz400ntojb6av7y0-15d})
     (terminals
       (- (pred-primitive (pred-prim))
          (value-primitive (value-prim))
@@ -1024,8 +1242,8 @@
       (+ (procedure (proc)) => $procedure-name))
     (entry Program)
     (Lvalue (lvalue)
-      (- (mref lvalue1 lvalue2 imm))
-      (+ (mref x1 x2 imm)))
+      (- (mref lvalue1 lvalue2 imm type))
+      (+ (mref x1 x2 imm type)))
     (Rhs (rhs)
       (- (inline info value-prim t* ...))
       (+ (asm info proc t* ...) => (asm proc t* ...)))
@@ -1045,6 +1263,7 @@
       (+ (jump t))))
 
   (define-language L15e (extends L15d)
+    (nongenerative-id #{L15e jczowy6yjfz400ntojb6av7y0-15e})
     (terminals
       (- (ur (x)))
       (+ (reg (x))))
@@ -1058,6 +1277,7 @@
       (+ (set! lvalue rhs))))
 
   (define-language L16 (extends L15e)
+    (nongenerative-id #{L16 jczowy6yjfz400ntojb6av7y0-16})
     (entry Program)
     (Effect (e)
       (- (overflow-check p e* ...))))

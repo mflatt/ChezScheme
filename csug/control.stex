@@ -208,6 +208,22 @@ One-shot continuations are continuations that may be invoked at most
 once, whether explicitly or implicitly.
 They are obtained with \scheme{call/1cc}.
 
+Continuation \textit{marks} support efficient annotation of continuations
+and inspection of those annotations. Each continuation has a table of
+marks, where each mark is a key--value pair.  This table is updated using
+the \scheme{with-continuation-mark} form to associate a key with a value,
+replacing any existing association for that key.  Although each
+continuation has a single immediate table of marks, a continuation may
+extend another continuation that has its own marks.  The
+\scheme{current-continuation-marks} function captures the sequence of mark
+tables for a continuation and all continuations that it extends. Functions such as
+\scheme{continuation-marks-first},
+\scheme{continuation-marks->list}, and
+\scheme{continuation-marks->iterator} can be used to inspect mark
+sequences. When a continuation is captured with \scheme{call/cc}, only the
+marks of the rest of the continuation are captured, and
+\scheme{continuation-next-marks} returns the captured marks.
+
 %----------------------------------------------------------------------------
 \entryheader
 \formdef{call/1cc}{\categoryprocedure}{(call/1cc \var{procedure})}
@@ -292,6 +308,283 @@ that the body has been exited.
 Extreme caution must be taken with this form of \scheme{dynamic-wind},
 since an error or long-running computation can leave interrupts
 and automatic garbage collection disabled.
+
+%----------------------------------------------------------------------------
+\entryheader\label{with-continuation-mark}
+\formdef{with-continuation-mark}{\categorysyntax}{(with-continuation-mark \var{key} \var{val} \var{body})}
+\returns the value of the \var{body} expression
+\listlibraries
+\endentryheader
+
+\noindent \scheme{with-continuation-mark} updates the table of marks
+on the current continuation to map the result of the \var{key}
+expression to the result of the \var{val} expression. If the current
+continuation's table of marks already has a mapping for \var{key}
+(based on \scheme{eq?} comparison), then the mark's value is replaced
+with \var{val}, otherwise a mapping from \var{key} to \var{val} is
+added to the table.
+
+\schemedisplay
+(with-continuation-mark
+ 'key "val"
+ "hello") ; => "hello"
+
+(with-continuation-mark
+ 'key "val"
+ (continuation-marks-first (current-continuation-marks)
+                           'key)) ; => "val"
+
+(with-continuation-mark
+ 'key "val"
+ (continuation-marks-first (current-continuation-marks)
+                           'other-key)) ; => #f
+
+(with-continuation-mark
+ 'key "val"
+ (with-continuation-mark
+  'key "val2"
+  (continuation-marks-first (current-continuation-marks)
+                            'key))) ; => "val2"
+
+(with-continuation-mark
+ 'key "val"
+ (with-continuation-mark
+  'key "val2"
+  (continuation-marks->list (current-continuation-marks)
+                            'key))) ; => ("val2")
+
+(with-continuation-mark
+ 'key "val"
+ (values
+  (with-continuation-mark
+   'key "val2"
+   (continuation-marks->list (current-continuation-marks)
+                             'key)))) ; => ("val2" "val")
+\endschemedisplay
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{continuation-marks?}{\categoryprocedure}{(continuation-marks? \var{obj})}
+\returns boolean
+\listlibraries
+\endentryheader
+
+\noindent A predicate that recognizes a continuation mark sequence, which
+can be produced by the functions \scheme{current-continuation-marks} and
+\scheme{continuation-next-marks}.
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{current-continuation-marks}{\categoryprocedure}{(current-continuation-marks)}
+\formdef{continuation-next-marks}{\categoryprocedure}{(continuation-next-marks \var{cont})}
+\returns a continuation mark sequence
+\listlibraries
+\endentryheader
+
+\noindent Returns a captured sequence of mark tables, either the
+current continuation's marks in the case of
+\scheme{current-continuation-marks} or the marks of the rest of
+\var{cont} in the case of \scheme{continuation-next-marks}. In the
+latter case, \var{cont} must be a continuation.
+
+This function takes constant time. The size of the resulting mark sequence
+is proportional to the number of distinct key--value mappings in the
+overall mark-table sequence; that size is bounded by the length of the
+continuation times the number of distinct values used as keys, but
+since many continuations have no keys or fewer than all possible keys
+in their tables, the size tends to be much less than the bound.
+
+\schemedisplay
+(continuation-marks? (current-continuation-marks)) ; => #t
+(continuation-marks? (continuation-next-marks
+                      (call/cc (lambda (k) k)))) ; => #t
+\endschemedisplay
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{continuation-marks-first}{\categoryprocedure}{(continuation-marks-first \var{marks} \var{key})}
+\formdef{continuation-marks-first}{\categoryprocedure}{(continuation-marks-first \var{marks} \var{key} \var{none-val})}
+\returns the value for \var{key} in \var{marks} or \var{none-val}
+\listlibraries
+\endentryheader
+
+\noindent Extracts the first value found for \var{key} in
+\var{marks}, checking the mark table of a continuation before
+checking the table of the continuation that it extends (if any). Keys are
+compared using \scheme{eq?}. If no mark for \var{key} is found,
+\var{none-val} is returned; if \var{none-val} is not provided, it
+defaults to \scheme{#f}.
+
+This function takes amortized time proportional to the number of
+distinct values used as keys in \var{marks}. Typically the number of
+keys used in an application is bounded, which makes the computation
+amortized constant-time for those applications.
+
+\schemedisplay
+(with-continuation-mark
+ 'key "val"
+ (values
+  (with-continuation-mark
+   'key "val2"
+   (continuation-marks-first (current-continuation-marks)
+                             'key)))) ; => "val2"
+
+(with-continuation-mark
+ 'key "val"
+ (continuation-marks-first (current-continuation-marks)
+                           'other
+                           "nope")) ; => "nope"
+\endschemedisplay
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{continuation-marks->list}{\categoryprocedure}{(continuation-marks->list \var{marks} \var{key})}
+\returns a list
+\listlibraries
+\endentryheader
+
+\noindent Returns the list of all values associated with \var{key} in
+\var{marks}, with the value from a continuation's mark
+table appearing before the values from the mark tables of any other
+continuation that it extends.  Keys are compared using
+\scheme{eq?}.
+
+This function takes time proportional to the size of the captured mark
+sequence.
+
+\schemedisplay
+(with-continuation-mark
+ 'key "val"
+ (values
+  (with-continuation-mark
+   'key "val2"
+   (continuation-marks->list (current-continuation-marks)
+                             'key)))) ; => ("val2" "val")
+
+(with-continuation-mark
+ 'key "val"
+ (continuation-marks->list (current-continuation-marks)
+                           'other)) ; => ()
+\endschemedisplay
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{continuation-marks->iterator}{\categoryprocedure}{(continuation-marks->iterator \var{marks} \var{key-vector})}
+\formdef{continuation-marks->iterator}{\categoryprocedure}{(continuation-marks->iterator \var{marks} \var{key-vector} \var{none-val})}
+\returns a procedure
+\listlibraries
+\endentryheader
+
+\noindent Generalizes the mark sequence traversal of
+\scheme{continuation-marks->list} to a functional iterator. The
+\var{marks} argument must be a continuation mark sequence, and the
+\var{key-vector} argument must be a vector of values to be used as
+keys. The result is an iterator procedure of zero arguments.
+
+Calling the result iterator procedure (with no arguments) returns two values:
+
+\begin{itemize}
+
+\item The first result is either a vector of values, one for each key in
+  \var{key-vector} (in the order given in \var{key-vector}) and drawn from
+  a single continuation's mark table, or \scheme{#f} if no more values for
+  any keys are available. The given \var{none-val}, which defaults to
+  \scheme{#f}, is used for each key that has no value in the table. Only
+  mark tables with mappings for at least one of the keys in
+  \var{key-vector} are represented in the iteration, so a result vector
+  will never consist solely of \var{none-val} values (unless one or more of the keys
+  is explicitly mapped to \var{none-val}).
+
+\item The second result is a new iterator procedure to obtain
+the next vector of values, and so on. When the first result is
+\scheme{#f}, the second result is an iterator procedure that will still
+return \scheme{#f} as its first result (and a procedure functionally
+equivalent to itself as the second result).
+
+\end{itemize}
+
+Obtaining an iterator from \scheme{continuation-marks->iterator} takes
+constant time. Each call to an iterator takes time proportional to the
+size of continuation mark tables that are traversed to find one of the
+keys in \var{key-vector}.
+
+\schemedisplay
+(with-continuation-mark
+ 'key "val"
+ (with-continuation-mark
+  'other "also"
+  (values
+   (with-continuation-mark
+    'key "val2"
+    (let loop ([iter (continuation-marks->iterator
+                      (current-continuation-marks)
+                      '#(key other))])
+      (let-values ([(vec iter) (iter)])
+         (if vec
+             (cons vec (loop iter))
+             '()))))))) ; => (#("val2" #f) #("val" "also"))
+\endschemedisplay
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{call-with-immediate-continuation-mark}{\categoryprocedure}{(call-with-immediate-continuation-mark \var{key} \var{proc})}
+\formdef{call-with-immediate-continuation-mark}{\categoryprocedure}{(call-with-immediate-continuation-mark \var{key} \var{none-val} \var{proc})}
+\returns the value produced by calling \var{proc}
+\listlibraries
+\endentryheader
+
+\noindent Similar to
+%
+\schemedisplay
+ (continuation-marks-first (current-continuation-marks) \var{key} \var{none-val})
+\endschemedisplay
+%
+but only the immediate continuation's mark table is checked, and the result is
+delivered to \var{proc} instead of returned. The \var{proc}, which must be
+a procedure that accepts one argument, is called
+in tail position, so its continuation is the same as the one whose
+table is checked.
+
+\schemedisplay
+(with-continuation-mark
+ 'key "val"
+ (call-with-immediate-continuation-mark 'key list)) ; => ("val")
+
+(with-continuation-mark
+ 'key "val"
+ (vector (call-with-immediate-continuation-mark 'key list))) ; => #((#f))
+(with-continuation-mark
+ 'key "val"
+ (vector (call-with-immediate-continuation-mark 'key 'no list))) ; => #((no))
+\endschemedisplay
+
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{call-in-continuation}{\categoryprocedure}{(call-in-continuation \var{continuation} \var{procedure})}
+\formdef{call-in-continuation}{\categoryprocedure}{(call-in-continuation \var{continuation} \var{marks} \var{procedure})}
+\returns does not return
+\listlibraries
+\endentryheader
+
+\noindent \var{continuation} must be a continuation,
+\var{procedure} must be a procedure that accepts zero arguments, and
+\var{marks} (if provided) must be a continuation mark sequence.
+
+Applies \var{procedure} to zero arguments with \var{continuation} as
+the continuation of the call, escaping from the current continuation.
+This operation is similar to applying \var{continuation} to values,
+except that the values delivered to the continuation are the ones
+produced by \var{procedure} as it runs within the applied
+continuation.
+
+If \var{marks} is not provided, then \var{procedure} starts with no
+immediate mark table. Otherwise, \var{marks} must be
+consistent with the result of \scheme{continuation-next-marks} on
+\var{continuation}: either the same content or one additional mark
+table, and the additional mark table becomes the immediate mark table
+when calling \var{procedure}.
+
 
 \section{Engines\label{SECTENGINES}}
 

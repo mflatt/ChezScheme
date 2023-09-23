@@ -159,7 +159,7 @@
 (mat fl=
    (let ((n (read (open-input-string "+nan.0"))))
      (not (fl= n n)))
-   (not (fl= (nan)))
+   (fl= (nan))
    (not (fl= (nan) +inf.0))
    (not (fl= (nan) -inf.0))
    (not (fl= (nan) (nan)))
@@ -171,7 +171,7 @@
  )
 
 (mat fl<
-   (not (fl< (nan)))
+   (fl< (nan))
    (not (fl< (nan) (nan)))
    (not (fl< (nan) 0.0))
    (not (fl< 0.0 (nan)))
@@ -179,7 +179,7 @@
  )
 
 (mat fl>
-   (not (fl> (nan)))
+   (fl> (nan))
    (not (fl> (nan) (nan)))
    (not (fl> (nan) 0.0))
    (not (fl> 0.0 (nan)))
@@ -189,14 +189,14 @@
  )
 
 (mat fl<=
-   (not (fl<= (nan)))
+   (fl<= (nan))
    (not (fl<= (nan) (nan)))
    (not (fl<= (nan) 0.0))
    (not (fl<= 0.0 (nan)))
  )
 
 (mat fl>=
-   (not (fl>= (nan)))
+   (fl>= (nan))
    (not (fl>= (nan) (nan)))
    (not (fl>= (nan) 0.0))
    (not (fl>= 0.0 (nan)))
@@ -379,8 +379,8 @@
    (== (expt -inf.0 +1.0) -inf.0)
    (== (expt +inf.0 +inf.0) +inf.0)
    (== (expt +inf.0 -inf.0) +0.0)
-   (== (expt -inf.0 +inf.0) +inf.0)
-   (== (expt -inf.0 -inf.0) +0.0)
+   (== (expt -inf.0 +inf.0) +nan.0+nan.0i)
+   (== (expt -inf.0 -inf.0) +nan.0+nan.0i)
    (== (expt +inf.0 +.5) +inf.0)
    (== (expt (nan) +.5) (nan))
    (== (expt +.5 (nan)) (nan))
@@ -413,7 +413,7 @@
 
 (mat sqrt
    ; from Kahan
-   (== (sqrt -0.0) +0.0+0.0i)
+   (== (sqrt -0.0) -0.0) ; the grounds that (negative? -0.0) => #f
    (== (sqrt -4.0) +0.0+2.0i)
    (== (sqrt -inf.0) +0.0+inf.0i)
    (== (sqrt 0.0+inf.0i) +inf.0+inf.0i)
@@ -505,7 +505,7 @@
    (== (log 1.0) 0.0)
    (== (log +inf.0) +inf.0)
 
-   (== (log -0.0) (make-rectangular -inf.0 +pi))
+   (== (log -0.0) -inf.0) ; on the grounds that (negative? -0.0) => #f
    (== (log -1.0) (make-rectangular 0.0 +pi))
    (== (log -inf.0) (make-rectangular +inf.0 +pi))
 
@@ -528,7 +528,7 @@
    (== (log 1.0) 0.0)
    (== (log +inf.0) +inf.0)
 
-   (== (log -0.0) (make-rectangular -inf.0 +pi))
+   (== (log -0.0) -inf.0)  ; on the grounds that (negative? -0.0) => #f
    (== (log -1.0) (make-rectangular 0.0 +pi))
    (== (log -inf.0) (make-rectangular +inf.0 +pi))
 

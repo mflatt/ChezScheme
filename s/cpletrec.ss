@@ -55,6 +55,10 @@ Handling letrec and letrec*
   (include "base-lang.ss")
 
   (define rtd-flds (csv7:record-field-accessor #!base-rtd 'flds))
+  (define rtd-mpm (csv7:record-field-accessor #!base-rtd 'mpm))
+
+  ;; use to preserve sharing with `exts` renaming
+  (define-threaded exts-table)
 
   (define-pass lift-profile-forms : Lsrc (ir) -> Lsrc ()
     (definitions
@@ -134,8 +138,15 @@ Handling letrec and letrec*
               (values (cons e e*) (and e-pure? e*-pure?)))))
       (with-output-language (Lsrc Expr)
         (define build-seq 
-          (lambda (e* body)
-            (fold-right (lambda (e body) `(seq ,e ,body)) body e*)))
+          (lambda (pure? e* body)
+            ;; Unless `pure?`, wrap `$value` around forms added to a `begin`, so that
+            ;; there's a check to make sure they result is a single value. The wrapper
+            ;; can be removed by other compiler passes if the argument obviously produces
+            ;; a single value.
+            (fold-right (lambda (e body)
+                          (let ([e (if pure? e `(call ,(make-preinfo-call) ,(lookup-primref 3 '$value) ,e))])
+                            `(seq ,e ,body)))
+                        body e*)))
         (define build-let
           (lambda (call-preinfo lambda-preinfo lhs* rhs* body)
             (if (null? lhs*)
@@ -224,7 +235,7 @@ Handling letrec and letrec*
                                               (cons lhs lhs*)
                                               lhs*)))
                             '() cb*)])
-              (build-let (make-preinfo) (make-preinfo-lambda) rclhs* (map (lambda (x) `(quote ,(void))) rclhs*)
+              (build-let (make-preinfo-call) (make-preinfo-lambda) rclhs* (map (lambda (x) `(quote ,(void))) rclhs*)
                 (build-letrec (map binding-lhs lb*) (map binding-rhs lb*)
                   (fold-right (lambda (b body)
                                 (let ([lhs (binding-lhs b)] [rhs (binding-rhs b)])
@@ -254,7 +265,7 @@ Handling letrec and letrec*
                     [(and (not (prelex-assigned lhs)) (lambda? rhs))
                      (build-letrec (list lhs) (list rhs) body)]
                     [(not (memq b (node-link* b)))
-                     (build-let (make-preinfo) (make-preinfo-lambda) (list lhs) (list rhs) body)]
+                     (build-let (make-preinfo-call) (make-preinfo-lambda) (list lhs) (list rhs) body)]
                     [else (grisly-letrec '() b* body)]))
                 (let-values ([(lb* cb*) (partition
                                           (lambda (b)
@@ -305,7 +316,7 @@ Handling letrec and letrec*
                                          (values (if e-pure? pre* (cons e pre*))
                                            lhs* rhs* (and e-pure? pure?)))))))])
                (values
-                 (build-seq pre* (build-let preinfo0 preinfo1 lhs* rhs* body))
+                 (build-seq pure? pre* (build-let preinfo0 preinfo1 lhs* rhs* body))
                  (and body-pure? pure?))))))]
       [(call ,preinfo ,pr ,e* ...)
        (let ()
@@ -362,11 +373,16 @@ Handling letrec and letrec*
          (values
            `(record ,rtd ,rtd-expr ,e* ...)
            (and (and rtd-pure? pure?)
-                (andmap
-                  (lambda (fld)
-                    (and (not (fld-mutable? fld))
-                         (eq? (filter-foreign-type (fld-type fld)) 'scheme-object)))
-                  (rtd-flds rtd)))))]
+                (let ([flds (rtd-flds rtd)])
+                  (cond
+                   [(fixnum? flds)
+                    (eqv? 0 (rtd-mpm rtd))]
+                   [else
+                    (andmap
+                      (lambda (fld)
+                        (and (not (fld-mutable? fld))
+                             (eq? (filter-foreign-type (fld-type fld)) 'scheme-object)))
+                      flds)])))))]
       [(record-type ,rtd ,e) (Expr e)]
       [(record-cd ,rcd ,rtd-expr ,e) (Expr e)]
       [(immutable-list (,[e* pure?*] ...) ,[e pure?])
@@ -374,8 +390,15 @@ Handling letrec and letrec*
       [,pr (values pr #t)]
       [(moi) (values ir #t)]
       [(pariah) (values ir #t)]
-      [(cte-optimization-loc ,box ,[e pure?])
-       (values `(cte-optimization-loc ,box ,e) pure?)]
+      [(cte-optimization-loc ,box ,[e pure?] ,exts)
+       (let ([new-exts (or (hashtable-ref exts-table exts #f)
+                           (let ([new-exts (map (lambda (p)
+                                                  (let ([x (car p)])
+                                                    (cons (or (prelex-operand x) x) (cdr p))))
+                                                exts)])
+                             (hashtable-set! exts-table exts new-exts)
+                             new-exts))])
+         (values `(cte-optimization-loc ,box ,e ,new-exts) pure?))]
       [(profile ,src) (values ir #f)]
       [else (sorry! who "unhandled record ~s" ir)])
     (CaseLambdaClause : CaseLambdaClause (ir) -> CaseLambdaClause ()
@@ -388,5 +411,6 @@ Handling letrec and letrec*
 
 (lambda (x)
   (let ([x (if (eq? ($compile-profile) 'source) (lift-profile-forms x) x)])
-    (cpletrec x)))
+    (fluid-let ([exts-table (make-weak-eq-hashtable)])
+      (cpletrec x))))
 ))

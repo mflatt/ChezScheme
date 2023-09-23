@@ -32,8 +32,10 @@ static void pstr(ptr x);
 static void psym(ptr x);
 static void pvec(ptr x);
 static void pfxvector(ptr x);
+static void pflvector(ptr x);
 static void pbytevector(ptr x);
 static void pflonum(ptr x);
+static void pflodat(double x);
 static void pfixnum(ptr x);
 static void pbignum(ptr x);
 static void wrint(ptr x);
@@ -53,6 +55,7 @@ void S_prin1(ptr x) {
     else if (Sexactnump(x)) pexactnum(x);
     else if (Svectorp(x)) pvec(x);
     else if (Sfxvectorp(x)) pfxvector(x);
+    else if (Sflvectorp(x)) pflvector(x);
     else if (Sbytevectorp(x)) pbytevector(x);
     else if (Sboxp(x)) pbox(x);
     else if (Sprocedurep(x)) pclo(x);
@@ -113,9 +116,9 @@ static void pfile(UNUSED ptr x) {
 }
 
 static void pinexactnum(ptr x) {
-    S_prin1(TYPE(&INEXACTNUM_REAL_PART(x),type_flonum));
+    pflodat(INEXACTNUM_REAL_PART(x));
     if (INEXACTNUM_IMAG_PART(x) >= 0.0) putchar('+');
-    S_prin1(TYPE(&INEXACTNUM_IMAG_PART(x),type_flonum));
+    pflodat(INEXACTNUM_IMAG_PART(x));
     putchar('i');
 }
 
@@ -158,12 +161,16 @@ static void pstr(ptr x) {
 }
 
 static void display_string(ptr x) {
-  iptr i, n = Sstring_length(x);
-
-  for (i = 0; i < n; i += 1) {
-    int k = Sstring_ref(x, i);
-    if (k >= 256) k = '?';
-    putchar(k);
+  if (!Sstringp(x)) {
+    printf("#<garbage-string>");
+  } else {
+    iptr i, n = Sstring_length(x);
+    
+    for (i = 0; i < n; i += 1) {
+      int k = Sstring_ref(x, i);
+      if (k >= 256) k = '?';
+      putchar(k);
+    }
   }
 }
 
@@ -226,6 +233,25 @@ static void pfxvector(ptr x) {
     putchar(')');
 }
 
+static void pflvector(ptr x) {
+    iptr n;
+
+    putchar('#');
+    n = Sflvector_length(x);
+    wrint(FIX(n));
+    printf("vfl(");
+    if (n != 0) {
+        iptr i = 0;
+
+        while (1) {
+            pflodat(Sflvector_ref(x, i));
+            if (++i == n) break;
+            putchar(' ');
+        }
+    }
+    putchar(')');
+}
+
 static void pbytevector(ptr x) {
     iptr n;
 
@@ -246,10 +272,14 @@ static void pbytevector(ptr x) {
 }
 
 static void pflonum(ptr x) {
+  pflodat(FLODAT(x));
+}
+
+static void pflodat(double x) {
   char buf[256], *s;
 
  /* use snprintf to get it in a string */
-  (void) snprintf(buf, 256, "%.16g",FLODAT(x));
+  (void) snprintf(buf, 256, "%.16g", x);
 
  /* print the silly thing */
   printf("%s", buf);

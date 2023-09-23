@@ -18,6 +18,12 @@ primvars.mo:Expected error testing (environment (quote (chezscheme)) (quote (che
 primvars.mo:Expected error testing (environment (quote (chezscheme)) (quote (chezscheme)) (quote #f)): Exception in environment: invalid library reference #f
 primvars.mo:Expected error testing (base-exception-handler (quote 0)): Exception in default-exception-handler: 0 is not a procedure
 primvars.mo:Expected error testing (base-exception-handler (quote #f)): Exception in default-exception-handler: #f is not a procedure
+primvars.mo:Expected error testing (call-in-continuation 1.0+2.0i (quote 0)): Exception in call-in-continuation: 1.0+2.0i is not a continuation
+primvars.mo:Expected error testing (call-in-continuation 1.0+2.0i (quote #f)): Exception in call-in-continuation: 1.0+2.0i is not a continuation
+primvars.mo:Expected error testing (call-in-continuation 1.0+2.0i (quote 8) values): Exception in call-in-continuation: 1.0+2.0i is not a continuation
+primvars.mo:Expected error testing (call-in-continuation 1.0+2.0i (quote #f) values): Exception in call-in-continuation: 1.0+2.0i is not a continuation
+primvars.mo:Expected error testing (call-in-continuation 1.0+2.0i (current-continuation-marks) (quote 0)): Exception in call-in-continuation: 1.0+2.0i is not a continuation
+primvars.mo:Expected error testing (call-in-continuation 1.0+2.0i (current-continuation-marks) (quote #f)): Exception in call-in-continuation: 1.0+2.0i is not a continuation
 primvars.mo:Expected error testing (eval 1.0+2.0i (quote ((a . b)))): Exception in compile: ((a . b)) is not an environment
 primvars.mo:Expected error testing (eval 1.0+2.0i (quote #f)): Exception in compile: #f is not an environment
 primvars.mo:Expected error testing (expand 1.0+2.0i (quote ((a . b)))): Exception in sc-expand: ((a . b)) is not an environment
@@ -29,6 +35,8 @@ primvars.mo:Expected error testing (expand 1.0+2.0i (quote #f) 1.0+2.0i 1.0+2.0i
 primvars.mo:Expected error testing (expand 1.0+2.0i (quote ((a . b))) 1.0+2.0i 1.0+2.0i "a"): Exception in sc-expand: ((a . b)) is not an environment
 primvars.mo:Expected error testing (expand 1.0+2.0i (quote #f) 1.0+2.0i 1.0+2.0i "a"): Exception in sc-expand: #f is not an environment
 primvars.mo:Expected error testing (expand 1.0+2.0i *env 1.0+2.0i 1.0+2.0i (quote a)): Exception in sc-expand: a is not a string or #f
+primvars.mo:Expected error testing (load-compiled-from-port 1.0+2.0i (quote "a")): Exception in load-compiled-from-port: 1.0+2.0i is not a binary input port
+primvars.mo:Expected error testing (load-compiled-from-port 1.0+2.0i (quote #f)): Exception in load-compiled-from-port: 1.0+2.0i is not a binary input port
 primvars.mo:Expected error testing (make-input-port (quote 0) "a"): Exception in make-input-port: fixnum handler no longer supported; use open-fd-input-port
 primvars.mo:Expected error testing (make-input/output-port (quote 0) "a" "a"): Exception in make-input/output-port: fixnum handler no longer supported; use open-fd-input-port
 primvars.mo:Expected error testing (make-output-port (quote 0) "a"): Exception in make-output-port: fixnum handler no longer supported; use open-fd-input-port
@@ -49,15 +57,41 @@ primvars.mo:Expected error testing (make-sstats *time *time (- (most-negative-fi
 primvars.mo:Expected error testing (make-sstats *time *time (- (most-negative-fixnum) 1) (- (most-negative-fixnum) 1) *time *time (quote 2.0)): Exception in make-sstats: gc-bytes value 2.0 is not an exact integer
 primvars.mo:Expected error testing (make-sstats *time *time (- (most-negative-fixnum) 1) (- (most-negative-fixnum) 1) *time *time (quote 1/2)): Exception in make-sstats: gc-bytes value 1/2 is not an exact integer
 primvars.mo:Expected error testing (make-sstats *time *time (- (most-negative-fixnum) 1) (- (most-negative-fixnum) 1) *time *time (quote #f)): Exception in make-sstats: gc-bytes value #f is not an exact integer
+primvars.mo:Expected error testing (pseudo-random-generator->vector (quote #f)): Exception in pseudo-random-generator->vector: not a pseudo-random generator #f
+primvars.mo:Expected error testing (pseudo-random-generator-seed! *pseudo-random-generator (quote #!eof)): Exception in pseudo-random-generator-seed!: not a nonnegative exact integer #!eof
+primvars.mo:Expected error testing (pseudo-random-generator-seed! *pseudo-random-generator (quote #f)): Exception in pseudo-random-generator-seed!: not a nonnegative exact integer #f
+primvars.mo:Expected error testing (pseudo-random-generator-next! (quote #f)): Exception in pseudo-random-generator-next!: not a pseudo-random generator #f
+primvars.mo:Expected error testing (pseudo-random-generator-next! (quote #!eof) *pseudo-random-generator): Exception in pseudo-random-generator-next!: not a pseudo-random generator #!eof
+primvars.mo:Expected error testing (pseudo-random-generator-next! (quote #f) *pseudo-random-generator): Exception in pseudo-random-generator-next!: not a pseudo-random generator #f
+primvars.mo:Expected error testing (reference-address->object (quote #!eof)): Exception in reference-address->object: invalid address #!eof
+primvars.mo:Expected error testing (reference-address->object (quote #f)): Exception in reference-address->object: invalid address #f
+primvars.mo:Expected error testing (reference*-address->object (quote #!eof)): Exception in reference*-address->object: invalid address #!eof
+primvars.mo:Expected error testing (reference*-address->object (quote #f)): Exception in reference*-address->object: invalid address #f
+primvars.mo:Expected error testing (set-wrapper-procedure-procedure! 1.0+2.0i (quote 0)): Exception in set-wrapper-procedure-procedure!: 1.0+2.0i is not a wrapper procedure
+primvars.mo:Expected error testing (set-wrapper-procedure-procedure! 1.0+2.0i (quote #f)): Exception in set-wrapper-procedure-procedure!: 1.0+2.0i is not a wrapper procedure
+primvars.mo:Expected error testing (string-grapheme-count "a" (quote #!eof)): Exception in string-grapheme-count: #!eof is not a valid start index for "a"
+primvars.mo:Expected error testing (string-grapheme-count "a" (quote #f)): Exception in string-grapheme-count: #f is not a valid start index for "a"
+primvars.mo:Expected error testing (string-grapheme-span "a" (quote #!eof)): Exception in string-grapheme-span: #!eof is not a valid start index for "a"
+primvars.mo:Expected error testing (string-grapheme-span "a" (quote #f)): Exception in string-grapheme-span: #f is not a valid start index for "a"
+primvars.mo:Expected error testing (vector->pseudo-random-generator (quote #())): Exception in vector->pseudo-random-generator: not a valid pseudo-random generator state vector #()
+primvars.mo:Expected error testing (vector->pseudo-random-generator (quote "a")): Exception in vector->pseudo-random-generator: not a valid pseudo-random generator state vector "a"
+primvars.mo:Expected error testing (vector->pseudo-random-generator (quote #f)): Exception in vector->pseudo-random-generator: not a valid pseudo-random generator state vector #f
+primvars.mo:Expected error testing (vector->pseudo-random-generator! (quote #f) (quote #(a))): Exception in vector->pseudo-random-generator!: not a pseudo-random generator #f
+primvars.mo:Expected error testing (vector->pseudo-random-generator! *pseudo-random-generator (quote #())): Exception in vector->pseudo-random-generator!: not a valid pseudo-random generator state vector #()
+primvars.mo:Expected error testing (vector->pseudo-random-generator! *pseudo-random-generator (quote "a")): Exception in vector->pseudo-random-generator!: not a valid pseudo-random generator state vector "a"
+primvars.mo:Expected error testing (vector->pseudo-random-generator! *pseudo-random-generator (quote #f)): Exception in vector->pseudo-random-generator!: not a valid pseudo-random generator state vector #f
 primvars.mo:Expected error testing (verify-loadability (quote #!eof)): Exception in verify-loadability: invalid situation #!eof; should be one of load, visit, or revisit
 primvars.mo:Expected error testing (verify-loadability (quote #f)): Exception in verify-loadability: invalid situation #f; should be one of load, visit, or revisit
 primvars.mo:Expected error in mat make-parameter: "make-parameter: 2 is not a procedure".
 primvars.mo:Expected error in mat make-parameter: "+: a is not a number".
-primvars.mo:Expected error in mat make-parameter: "incorrect number of arguments to #<procedure>".
-primvars.mo:Expected error in mat parameterize: "incorrect number of arguments to #<procedure x>".
+primvars.mo:Expected error in mat make-parameter: "incorrect number of arguments 1 to #<procedure>".
+primvars.mo:Expected error in mat parameterize: "incorrect number of arguments 0 to #<procedure x>".
 primvars.mo:Expected error in mat collect-generation-radix: "collect-generation-radix: a is not a positive fixnum".
 primvars.mo:Expected error in mat collect-generation-radix: "collect-generation-radix: -1 is not a positive fixnum".
 primvars.mo:Expected error in mat collect-generation-radix: "collect-generation-radix: 0 is not a positive fixnum".
+primvars.mo:Expected error in mat collect-maximum-generation-threshold-factor: "collect-maximum-generation-threshold-factor: a is not a nonnegative real".
+primvars.mo:Expected error in mat collect-maximum-generation-threshold-factor: "collect-maximum-generation-threshold-factor: -1 is not a nonnegative real".
+primvars.mo:Expected error in mat collect-maximum-generation-threshold-factor: "collect-maximum-generation-threshold-factor: 1+2i is not a nonnegative real".
 primvars.mo:Expected error in mat collect-request-handler: "collect-request-handler: #f is not a procedure".
 primvars.mo:Expected error in mat collect-trip-bytes: "collect-trip-bytes: -100 is not a positive fixnum".
 primvars.mo:Expected error in mat collect-trip-bytes: "collect-trip-bytes: <int> is not a positive fixnum".
@@ -81,71 +115,71 @@ primvars.mo:Expected error in mat print-radix: "print-radix: 37 is not between 2
 primvars.mo:Expected error in mat print-radix: "print-radix: 1 is not between 2 and 36".
 primvars.mo:Expected error in mat timer-interrupt-handler: "timer-interrupt-handler: midnight is not a procedure".
 primvars.mo:Expected error in mat trace-output-port: "trace-output-port: #<input port string> is not a textual output port".
-3.mo:Expected error in mat matrest1: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest2: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest2: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest3: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest3: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest3: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest4: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest4: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest4: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest4: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest5: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest5: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest5: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest5: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest5: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest6: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest6: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest6: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest6: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest6: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest6: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest7: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest7: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest7: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest7: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest7: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest7: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest7: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest8: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest8: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest8: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest8: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest8: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest8: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest8: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest8: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest9: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest9: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest9: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest9: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest9: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest9: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest9: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest9: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest9: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest10: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest10: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest10: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest10: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest10: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest10: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest10: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest10: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest10: "incorrect number of arguments to #<procedure matrestf>".
-3.mo:Expected error in mat matrest10: "incorrect number of arguments to #<procedure matrestf>".
+3.mo:Expected error in mat matrest1: "incorrect number of arguments 0 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest2: "incorrect number of arguments 1 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest2: "incorrect number of arguments 0 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest3: "incorrect number of arguments 2 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest3: "incorrect number of arguments 1 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest3: "incorrect number of arguments 0 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest4: "incorrect number of arguments 3 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest4: "incorrect number of arguments 2 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest4: "incorrect number of arguments 1 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest4: "incorrect number of arguments 0 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest5: "incorrect number of arguments 4 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest5: "incorrect number of arguments 3 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest5: "incorrect number of arguments 2 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest5: "incorrect number of arguments 1 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest5: "incorrect number of arguments 0 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest6: "incorrect number of arguments 5 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest6: "incorrect number of arguments 4 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest6: "incorrect number of arguments 3 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest6: "incorrect number of arguments 2 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest6: "incorrect number of arguments 1 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest6: "incorrect number of arguments 0 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest7: "incorrect number of arguments 6 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest7: "incorrect number of arguments 5 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest7: "incorrect number of arguments 4 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest7: "incorrect number of arguments 3 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest7: "incorrect number of arguments 2 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest7: "incorrect number of arguments 1 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest7: "incorrect number of arguments 0 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest8: "incorrect number of arguments 7 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest8: "incorrect number of arguments 6 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest8: "incorrect number of arguments 5 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest8: "incorrect number of arguments 4 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest8: "incorrect number of arguments 3 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest8: "incorrect number of arguments 2 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest8: "incorrect number of arguments 1 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest8: "incorrect number of arguments 0 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest9: "incorrect number of arguments 8 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest9: "incorrect number of arguments 7 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest9: "incorrect number of arguments 6 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest9: "incorrect number of arguments 5 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest9: "incorrect number of arguments 4 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest9: "incorrect number of arguments 3 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest9: "incorrect number of arguments 2 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest9: "incorrect number of arguments 1 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest9: "incorrect number of arguments 0 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest10: "incorrect number of arguments 9 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest10: "incorrect number of arguments 8 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest10: "incorrect number of arguments 7 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest10: "incorrect number of arguments 6 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest10: "incorrect number of arguments 5 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest10: "incorrect number of arguments 4 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest10: "incorrect number of arguments 3 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest10: "incorrect number of arguments 2 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest10: "incorrect number of arguments 1 to #<procedure matrestf>".
+3.mo:Expected error in mat matrest10: "incorrect number of arguments 0 to #<procedure matrestf>".
 3.mo:Expected error in mat application: "attempt to apply non-procedure ((a b c))".
 3.mo:Expected error in mat case-lambda: "incorrect argument count in call ((case-lambda))".
 3.mo:Expected error in mat case-lambda: "incorrect argument count in call (f 3 4 5)".
-3.mo:Expected error in mat case-lambda: "incorrect number of arguments to #<procedure foo>".
-3.mo:Expected error in mat case-lambda: "incorrect number of arguments to #<procedure foo>".
-3.mo:Expected error in mat case-lambda: "incorrect number of arguments to #<procedure foo>".
-3.mo:Expected error in mat case-lambda: "incorrect number of arguments to #<procedure foo>".
-3.mo:Expected error in mat case-lambda: "incorrect number of arguments to #<procedure foo>".
-3.mo:Expected error in mat case-lambda: "incorrect number of arguments to #<procedure foo>".
-3.mo:Expected error in mat case-lambda: "incorrect number of arguments to #<procedure foo>".
+3.mo:Expected error in mat case-lambda: "incorrect number of arguments 1 to #<procedure foo>".
+3.mo:Expected error in mat case-lambda: "incorrect number of arguments 2 to #<procedure foo>".
+3.mo:Expected error in mat case-lambda: "incorrect number of arguments 4 to #<procedure foo>".
+3.mo:Expected error in mat case-lambda: "incorrect number of arguments 1 to #<procedure foo>".
+3.mo:Expected error in mat case-lambda: "incorrect number of arguments 2 to #<procedure foo>".
+3.mo:Expected error in mat case-lambda: "incorrect number of arguments 4 to #<procedure foo>".
+3.mo:Expected error in mat case-lambda: "incorrect number of arguments 2 to #<procedure foo>".
 3.mo:Expected error in mat let: "incorrect argument count in call ((lambda (x . r) (eq? x (...))))".
 3.mo:Expected error in mat letrec: "variable f is not bound".
 3.mo:Expected error in mat letrec: "attempt to reference undefined variable a".
@@ -240,18 +274,18 @@ primvars.mo:Expected error in mat trace-output-port: "trace-output-port: #<input
 3.mo:Expected error in mat define-values: "duplicate variable in define-values left-hand side (x . x)".
 3.mo:Expected error in mat define-values: "define-values: incorrect number of values from rhs (values)".
 3.mo:Expected error in mat define-values: "duplicate variable in define-values left-hand side ($dv-foo2-x . $dv-foo2-x)".
-3.mo:Expected error in mat mrvs: "returned zero values to single value return context".
-3.mo:Expected error in mat mrvs: "returned three values to single value return context".
-3.mo:Expected error in mat mrvs: "returned three values to single value return context".
-3.mo:Expected error in mat mrvs: "returned zero values to single value return context".
+3.mo:Expected error in mat mrvs: "returned 0 values to single value return context".
+3.mo:Expected error in mat mrvs: "returned 3 values to single value return context".
+3.mo:Expected error in mat mrvs: "returned 3 values to single value return context".
+3.mo:Expected error in mat mrvs: "returned 0 values to single value return context".
 3.mo:Expected error in mat mrvs: "incorrect number of values received in multiple value context".
-3.mo:Expected error in mat mrvs: "returned zero values to single value return context".
+3.mo:Expected error in mat mrvs: "returned 0 values to single value return context".
 3.mo:Expected error in mat mrvs: "incorrect number of values received in multiple value context".
 3.mo:Expected error in mat mrvs: "incorrect number of values received in multiple value context".
 3.mo:Expected error in mat mrvs: "variable $mrvs-foo is not bound".
 3.mo:Expected error in mat mrvs: "attempt to apply non-procedure 17".
-3.mo:Expected error in mat mrvs: "returned two values to single value return context".
-3.mo:Expected error in mat mrvs: "returned two values to single value return context".
+3.mo:Expected error in mat mrvs: "returned 2 values to single value return context".
+3.mo:Expected error in mat mrvs: "returned 2 values to single value return context".
 3.mo:Expected error in mat mrvs: "cdr: a is not a pair".
 3.mo:Expected error in mat let-values: "invalid syntax (let-values)".
 3.mo:Expected error in mat let-values: "invalid syntax (let-values ((x)))".
@@ -580,6 +614,56 @@ primvars.mo:Expected error in mat trace-output-port: "trace-output-port: #<input
 4.mo:Expected error in mat dynamic-wind: "variable gook is not bound".
 4.mo:Expected error in mat dynamic-wind: "variable gook is not bound".
 4.mo:Expected error in mat call/1cc: "attempt to invoke shot one-shot continuation".
+4.mo:Expected error in mat continuation-attachments: "invalid primitive name $current-continuation-attachments".
+4.mo:Expected error in mat continuation-attachments: "incorrect argument count in call ($call-setting-continuation-attachment (quote any))".
+4.mo:Expected error in mat continuation-attachments: "$call-setting-continuation-attachment: 10 is not a procedure".
+4.mo:Expected error in mat continuation-attachments: "incorrect argument count in call ($call-setting-continuation-attachment (quote any) void (quote bad-more))".
+4.mo:Expected error in mat continuation-attachments: "incorrect number of arguments 0 to #<procedure>".
+4.mo:Expected error in mat continuation-attachments: "incorrect argument count in call ($call-getting-continuation-attachment (quote none))".
+4.mo:Expected error in mat continuation-attachments: "$call-getting-continuation-attachment: 10 is not a procedure".
+4.mo:Expected error in mat continuation-attachments: "incorrect argument count in call ($call-getting-continuation-attachment (quote none) (lambda (a) a) (quote bad-more))".
+4.mo:Expected error in mat continuation-attachments: "incorrect number of arguments 1 to #<procedure void>".
+4.mo:Expected error in mat continuation-attachments: "incorrect argument count in call ($call-consuming-continuation-attachment (quote none))".
+4.mo:Expected error in mat continuation-attachments: "$call-consuming-continuation-attachment: 10 is not a procedure".
+4.mo:Expected error in mat continuation-attachments: "incorrect argument count in call ($call-consuming-continuation-attachment (quote none) (lambda (a) a) (quote bad-more))".
+4.mo:Expected error in mat continuation-attachments: "incorrect number of arguments 1 to #<procedure void>".
+4.mo:Expected error in mat continuation-attachments: "invalid primitive name $continuation-next-attachments".
+4.mo:Expected error in mat continuation-attachments: "invalid primitive name $continuation-next-attachments".
+4.mo:Expected error in mat continuation-attachments: "invalid primitive name $continuation-next-attachments".
+4.mo:Expected error in mat continuation-attachments: "invalid primitive name $continuation-next-attachments".
+4.mo:Expected error in mat continuation-attachments: "attempt to apply non-procedure something-else".
+4.mo:Expected error in mat continuation-attachments: "attempt to apply non-procedure something-else".
+4.mo:Expected error in mat continuation-attachments: "attempt to apply non-procedure something-else".
+4.mo:Expected error in mat continuation-attachments: "attempt to apply non-procedure also-something-else".
+4.mo:Expected error in mat continuation-attachments: "attempt to apply non-procedure also-something-else".
+4.mo:Expected error in mat continuation-attachments: "attempt to apply non-procedure also-something-else".
+4.mo:Expected error in mat continuation-marks: "incorrect argument count in call (continuation-marks-first)".
+4.mo:Expected error in mat continuation-marks: "continuation-marks-first: #f is not a continuation mark sequence".
+4.mo:Expected error in mat continuation-marks: "continuation-marks-first: oops is not a continuation mark sequence".
+4.mo:Expected error in mat continuation-marks: "continuation-marks-first: oops is not a continuation mark sequence".
+4.mo:Expected error in mat continuation-marks: "incorrect argument count in call (continuation-marks-first (current-continuation-marks) (quote x) (quote y) (quote z))".
+4.mo:Expected error in mat continuation-marks: "incorrect argument count in call (continuation-marks->list)".
+4.mo:Expected error in mat continuation-marks: "incorrect argument count in call (continuation-marks->list #f)".
+4.mo:Expected error in mat continuation-marks: "incorrect argument count in call (continuation-marks->list (quote oops))".
+4.mo:Expected error in mat continuation-marks: "incorrect argument count in call (continuation-marks->list (current-continuation-marks) (quote x) (quote y))".
+4.mo:Expected error in mat continuation-marks: "incorrect argument count in call (continuation-marks->iterator)".
+4.mo:Expected error in mat continuation-marks: "incorrect argument count in call (continuation-marks->iterator #f)".
+4.mo:Expected error in mat continuation-marks: "incorrect argument count in call (continuation-marks->iterator (quote oops))".
+4.mo:Expected error in mat continuation-marks: "continuation-marks->iterator: y is not a vector".
+4.mo:Expected error in mat continuation-marks: "continuation-next-marks: oops is not a continuation".
+4.mo:Expected error in mat continuation-marks: "call-with-immediate-continuation-mark: #f is not a procedure".
+4.mo:Expected error in mat continuation-marks: "call-with-immediate-continuation-mark: #f is not a procedure".
+4.mo:Expected error in mat call-in-continuation: "incorrect argument count in call ($call-in-continuation 1)".
+4.mo:Expected error in mat call-in-continuation: "call-in-other-continuation: 1 is not a continuation".
+4.mo:Expected error in mat call-in-continuation: "call-in-other-continuation: #<procedure> is not a continuation".
+4.mo:Expected error in mat call-in-continuation: "call-in-other-continuation: #f is not an extension of of the attachments of #<continuation>".
+4.mo:Expected error in mat call-in-continuation: "call-in-other-continuation: (1 2 3) is not an extension of of the attachments of #<continuation>".
+4.mo:Expected error in mat call-in-continuation: "incorrect argument count in call (call-in-continuation 1)".
+4.mo:Expected error in mat call-in-continuation: "call-in-other-continuation: 1 is not a continuation".
+4.mo:Expected error in mat call-in-continuation: "call-in-other-continuation: #<procedure> is not a continuation".
+4.mo:Expected error in mat call-in-continuation: "call-in-continuation: #f is not a continuation mark sequence".
+4.mo:Expected error in mat call-in-continuation: "call-in-continuation: (1 2 3) is not a continuation mark sequence".
+4.mo:Expected error in mat call-in-continuation: "call-in-continuation: #<continuation-marks> is not an extension of the marks of #<continuation>".
 4.mo:Expected error in mat refcount-guardians: "unrecognized ftype name NO!".
 4.mo:Expected error in mat refcount-guardians: "first field must be a word-sized integer with native endianness (ftype-guardian A)".
 4.mo:Expected error in mat refcount-guardians: "first field must be a word-sized integer with native endianness (ftype-guardian A)".
@@ -645,46 +729,46 @@ primvars.mo:Expected error in mat trace-output-port: "trace-output-port: #<input
 5_2.mo:Expected error in mat c....r-errors: "cddddr: incorrect list structure (a . b)".
 5_2.mo:Expected error in mat list*: "incorrect argument count in call (list*)".
 5_2.mo:Expected error in mat cons*: "incorrect argument count in call (cons*)".
-5_2.mo:Expected error in mat list-ref: "list-ref: a is not a proper list".
-5_2.mo:Expected error in mat list-ref: "list-ref: (a b . c) is not a proper list".
+5_2.mo:Expected error in mat list-ref: "list-ref: index 0 reaches a non-pair in a".
+5_2.mo:Expected error in mat list-ref: "list-ref: index 4 reaches a non-pair in (a b . c)".
 5_2.mo:Expected error in mat list-ref: "list-ref: index 4 is out of range for list (a b)".
 5_2.mo:Expected error in mat list-ref: "list-ref: index 4 is out of range for list (a b c)".
 5_2.mo:Expected error in mat list-ref: "list-ref: index 4 is out of range for list (a b c d)".
-5_2.mo:Expected error in mat list-ref: "list-ref: (a b c . e) is not a proper list".
-5_2.mo:Expected error in mat list-ref: "list-ref: (a b c d . e) is not a proper list".
+5_2.mo:Expected error in mat list-ref: "list-ref: index 4 reaches a non-pair in (a b c . e)".
+5_2.mo:Expected error in mat list-ref: "list-ref: index 4 reaches a non-pair in (a b c d . e)".
 5_2.mo:Expected error in mat list-ref: "list-ref: index 5 is out of range for list (a b c d)".
 5_2.mo:Expected error in mat list-ref: "list-ref: index 5 is out of range for list (a b c d e)".
-5_2.mo:Expected error in mat list-ref: "list-ref: (a b c d e . f) is not a proper list".
-5_2.mo:Expected error in mat list-ref: "list-ref: (a b . c) is not a proper list".
+5_2.mo:Expected error in mat list-ref: "list-ref: index 5 reaches a non-pair in (a b c d e . f)".
+5_2.mo:Expected error in mat list-ref: "list-ref: index 10000 reaches a non-pair in (a b . c)".
 5_2.mo:Expected error in mat list-ref: "list-ref: index 10000 is out of range for list (a b c)".
-5_2.mo:Expected error in mat list-ref: "list-ref: (a b . c) is not a proper list".
+5_2.mo:Expected error in mat list-ref: "list-ref: index 444444444444444444444444444444444444444444 reaches a non-pair in (a b . c)".
 5_2.mo:Expected error in mat list-ref: "list-ref: index 444444444444444444444444444444444444444444 is out of range for list (a b c)".
 5_2.mo:Expected error in mat list-ref: "list-ref: index -1 is not an exact nonnegative integer".
 5_2.mo:Expected error in mat list-ref: "list-ref: index -4444444444444444444444 is not an exact nonnegative integer".
 5_2.mo:Expected error in mat list-ref: "list-ref: index a is not an exact nonnegative integer".
-5_2.mo:Expected error in mat list-tail: "list-tail: (a b . c) is not a proper list".
-5_2.mo:Expected error in mat list-tail: "list-tail: (a b c . d) is not a proper list".
-5_2.mo:Expected error in mat list-tail: "list-tail: (a b . c) is not a proper list".
-5_2.mo:Expected error in mat list-tail: "list-tail: (a b c . d) is not a proper list".
-5_2.mo:Expected error in mat list-tail: "list-tail: (a b c d . e) is not a proper list".
+5_2.mo:Expected error in mat list-tail: "list-tail: index 4 reaches a non-pair in (a b . c)".
+5_2.mo:Expected error in mat list-tail: "list-tail: index 4 reaches a non-pair in (a b c . d)".
+5_2.mo:Expected error in mat list-tail: "list-tail: index 5 reaches a non-pair in (a b . c)".
+5_2.mo:Expected error in mat list-tail: "list-tail: index 5 reaches a non-pair in (a b c . d)".
+5_2.mo:Expected error in mat list-tail: "list-tail: index 5 reaches a non-pair in (a b c d . e)".
 5_2.mo:Expected error in mat list-tail: "list-tail: index 4 is out of range for list (a)".
 5_2.mo:Expected error in mat list-tail: "list-tail: index 4 is out of range for list (a b)".
 5_2.mo:Expected error in mat list-tail: "list-tail: index 4 is out of range for list (a b c)".
 5_2.mo:Expected error in mat list-tail: "list-tail: index 5 is out of range for list (a b)".
 5_2.mo:Expected error in mat list-tail: "list-tail: index 5 is out of range for list (a b c)".
 5_2.mo:Expected error in mat list-tail: "list-tail: index 5 is out of range for list (a b c d)".
-5_2.mo:Expected error in mat list-tail: "list-tail: (a b . c) is not a proper list".
+5_2.mo:Expected error in mat list-tail: "list-tail: index 10000 reaches a non-pair in (a b . c)".
 5_2.mo:Expected error in mat list-tail: "list-tail: index 10000 is out of range for list (a b c)".
-5_2.mo:Expected error in mat list-tail: "list-tail: (a b . c) is not a proper list".
+5_2.mo:Expected error in mat list-tail: "list-tail: index 444444444444444444444444444444444444444444 reaches a non-pair in (a b . c)".
 5_2.mo:Expected error in mat list-tail: "list-tail: index 444444444444444444444444444444444444444444 is out of range for list (a b c)".
 5_2.mo:Expected error in mat list-tail: "list-tail: index -1 is not an exact nonnegative integer".
 5_2.mo:Expected error in mat list-tail: "list-tail: index -4444444444444444444444 is not an exact nonnegative integer".
 5_2.mo:Expected error in mat list-tail: "list-tail: index a is not an exact nonnegative integer".
-5_2.mo:Expected error in mat list-head: "list-head: (a . b) is not a proper list".
-5_2.mo:Expected error in mat list-head: "list-head: (a b . c) is not a proper list".
-5_2.mo:Expected error in mat list-head: "list-head: (a b . c) is not a proper list".
-5_2.mo:Expected error in mat list-head: "list-head: (a b c . d) is not a proper list".
-5_2.mo:Expected error in mat list-head: "list-head: (a b . c) is not a proper list".
+5_2.mo:Expected error in mat list-head: "list-head: index 3 reaches a non-pair in (a . b)".
+5_2.mo:Expected error in mat list-head: "list-head: index 3 reaches a non-pair in (a b . c)".
+5_2.mo:Expected error in mat list-head: "list-head: index 4 reaches a non-pair in (a b . c)".
+5_2.mo:Expected error in mat list-head: "list-head: index 4 reaches a non-pair in (a b c . d)".
+5_2.mo:Expected error in mat list-head: "list-head: index 10000 reaches a non-pair in (a b . c)".
 5_2.mo:Expected error in mat list-head: "list-head: index 4 is out of range for list (a b c)".
 5_2.mo:Expected error in mat list-head: "list-head: index 5 is out of range for list (a b c)".
 5_2.mo:Expected error in mat list-head: "list-head: index 5 is out of range for list (a b c d)".
@@ -1091,6 +1175,9 @@ primvars.mo:Expected error in mat trace-output-port: "trace-output-port: #<input
 5_3.mo:Expected error in mat /: "/: a is not a number".
 5_3.mo:Expected error in mat /: "/: a is not a number".
 5_3.mo:Expected error in mat /: "/: a is not a number".
+5_3.mo:Expected error in mat /: "/: undefined for 0".
+5_3.mo:Expected error in mat /: "/: undefined for 0".
+5_3.mo:Expected error in mat /: "/: undefined for 0".
 5_3.mo:Expected error in mat nan?: "nan?: a is not a real number".
 5_3.mo:Expected error in mat nan?: "nan?: 3+4i is not a real number".
 5_3.mo:Expected error in mat nan?: "nan?: 3.0-0.0i is not a real number".
@@ -1305,6 +1392,14 @@ primvars.mo:Expected error in mat trace-output-port: "trace-output-port: #<input
 5_3.mo:Expected error in mat expt: "expt: a is not a number".
 5_3.mo:Expected error in mat expt: "expt: undefined for values 0 and -1".
 5_3.mo:Expected error in mat expt: "expt: undefined for values 0 and 0+1i".
+5_3.mo:Expected error in mat expt: "expt: undefined for values 0 and -1".
+5_3.mo:Expected error in mat expt: "expt: undefined for values 0 and -1.0".
+5_3.mo:Expected error in mat expt: "expt: undefined for values 0 and -2.0+3.0i".
+5_3.mo:Expected error in mat expt: "expt: undefined for values 0 and 0.0+3.0i".
+5_3.mo:Expected error in mat expt: "expt: undefined for values 0 and -0.0+3.0i".
+5_3.mo:Expected error in mat expt: "expt: undefined for values 0 and +nan.0+3.0i".
+5_3.mo:Expected error in mat expt: "expt: undefined for values 0 and 0+3i".
+5_3.mo:Expected error in mat expt: "expt: undefined for values 0 and -1/2".
 5_3.mo:Expected error in mat expt-mod: "incorrect argument count in call (expt-mod)".
 5_3.mo:Expected error in mat expt-mod: "incorrect argument count in call (expt-mod 5)".
 5_3.mo:Expected error in mat expt-mod: "incorrect argument count in call (expt-mod 4 5)".
@@ -1327,6 +1422,26 @@ primvars.mo:Expected error in mat trace-output-port: "trace-output-port: #<input
 5_3.mo:Expected error in mat random-seed: "random-seed: invalid argument 0".
 5_3.mo:Expected error in mat random-seed: "random-seed: invalid argument -1".
 5_3.mo:Expected error in mat random-seed: "random-seed: invalid argument <int>".
+5_3.mo:Expected error in mat pseudo-random-generator: "pseudo-random-generator-next!: not a pseudo-random generator 10".
+5_3.mo:Expected error in mat pseudo-random-generator: "pseudo-random-generator-next!: not a pseudo-random generator #(1 2 3)".
+5_3.mo:Expected error in mat pseudo-random-generator: "pseudo-random-generator-next!: not a positive exact integer "apple"".
+5_3.mo:Expected error in mat pseudo-random-generator: "pseudo-random-generator-next!: not a positive exact integer 0".
+5_3.mo:Expected error in mat pseudo-random-generator: "pseudo-random-generator-next!: not a positive exact integer -10".
+5_3.mo:Expected error in mat pseudo-random-generator: "pseudo-random-generator-next!: not a positive exact integer -1267650600228229401496703205376".
+5_3.mo:Expected error in mat pseudo-random-generator: "pseudo-random-generator-next!: not a positive exact integer 10.0".
+5_3.mo:Expected error in mat pseudo-random-generator: "pseudo-random-generator-seed!: not a pseudo-random generator 10".
+5_3.mo:Expected error in mat pseudo-random-generator: "pseudo-random-generator-seed!: not a pseudo-random generator #(1 2 3)".
+5_3.mo:Expected error in mat pseudo-random-generator: "pseudo-random-generator-seed!: not a nonnegative exact integer 10.0".
+5_3.mo:Expected error in mat pseudo-random-generator: "pseudo-random-generator-seed!: not a nonnegative exact integer -1".
+5_3.mo:Expected error in mat pseudo-random-generator: "pseudo-random-generator->vector: not a pseudo-random generator 0".
+5_3.mo:Expected error in mat pseudo-random-generator: "vector->pseudo-random-generator: not a valid pseudo-random generator state vector 0".
+5_3.mo:Expected error in mat pseudo-random-generator: "vector->pseudo-random-generator: not a valid pseudo-random generator state vector #(1 2 3 4 5)".
+5_3.mo:Expected error in mat pseudo-random-generator: "vector->pseudo-random-generator: not a valid pseudo-random generator state vector #(1.0 2 3 4 5 6)".
+5_3.mo:Expected error in mat pseudo-random-generator: "exact?: #f is not a number".
+5_3.mo:Expected error in mat pseudo-random-generator: "vector->pseudo-random-generator: not a valid pseudo-random generator state vector #(0 0 0 0 0 0)".
+5_3.mo:Expected error in mat pseudo-random-generator: "vector->pseudo-random-generator!: not a pseudo-random generator 0".
+5_3.mo:Expected error in mat pseudo-random-generator: "vector->pseudo-random-generator!: not a valid pseudo-random generator state vector 0".
+5_3.mo:Expected error in mat pseudo-random-generator: "vector->pseudo-random-generator!: not a valid pseudo-random generator state vector #(0 0 0 0 0 0)".
 5_3.mo:Expected error in mat inexact: "incorrect argument count in call (inexact)".
 5_3.mo:Expected error in mat inexact: "incorrect argument count in call (inexact 1 2)".
 5_3.mo:Expected error in mat inexact: "inexact: a is not a number".
@@ -1519,9 +1634,9 @@ primvars.mo:Expected error in mat trace-output-port: "trace-output-port: #<input
 5_3.mo:Expected error in mat bitwise-first-bit-set: "incorrect argument count in call (bitwise-first-bit-set 75 32)".
 5_3.mo:Expected error in mat bitwise-first-bit-set: "bitwise-first-bit-set: 3.0 is not an exact integer".
 5_3.mo:Expected error in mat bitwise-first-bit-set: "bitwise-first-bit-set: a is not an exact integer".
-5_3.mo:Expected error in mat $quotient-remainder: "incorrect number of arguments to #<procedure $quotient-remainder>".
-5_3.mo:Expected error in mat $quotient-remainder: "incorrect number of arguments to #<procedure $quotient-remainder>".
-5_3.mo:Expected error in mat $quotient-remainder: "incorrect number of arguments to #<procedure $quotient-remainder>".
+5_3.mo:Expected error in mat $quotient-remainder: "incorrect number of arguments 0 to #<procedure $quotient-remainder>".
+5_3.mo:Expected error in mat $quotient-remainder: "incorrect number of arguments 1 to #<procedure $quotient-remainder>".
+5_3.mo:Expected error in mat $quotient-remainder: "incorrect number of arguments 3 to #<procedure $quotient-remainder>".
 5_3.mo:Expected error in mat $quotient-remainder: "$quotient-remainder: undefined for 0".
 5_3.mo:Expected error in mat lognot: "lognot: #<void> is not an exact integer".
 5_3.mo:Expected error in mat lognot: "lognot: "hello" is not an exact integer".
@@ -1803,6 +1918,19 @@ primvars.mo:Expected error in mat trace-output-port: "trace-output-port: #<input
 5_3.mo:Expected error in mat special-cases: "+: bogus is not a number".
 5_3.mo:Expected error in mat special-cases: "-: bogus is not a number".
 5_3.mo:Expected error in mat special-cases: "-: bogus is not a number".
+5_3.mo:Expected error in mat popcount: "fxpopcount: #f is not a non-negative fixnum".
+5_3.mo:Expected error in mat popcount: "fxpopcount: 1.0 is not a non-negative fixnum".
+5_3.mo:Expected error in mat popcount: "fxpopcount: 1267650600228229401496703205376 is not a non-negative fixnum".
+5_3.mo:Expected error in mat popcount: "fxpopcount: -1 is not a non-negative fixnum".
+5_3.mo:Expected error in mat popcount: "fxpopcount32: #f is not a 32-bit fixnum".
+5_3.mo:Expected error in mat popcount: "fxpopcount32: 1.0 is not a 32-bit fixnum".
+5_3.mo:Expected error in mat popcount: "fxpopcount32: 1267650600228229401496703205376 is not a 32-bit fixnum".
+5_3.mo:Expected error in mat popcount: "fxpopcount32: -1 is not a 32-bit fixnum".
+5_3.mo:Expected error in mat popcount: "fxpopcount16: #f is not a 16-bit fixnum".
+5_3.mo:Expected error in mat popcount: "fxpopcount16: 1.0 is not a 16-bit fixnum".
+5_3.mo:Expected error in mat popcount: "fxpopcount16: 1267650600228229401496703205376 is not a 16-bit fixnum".
+5_3.mo:Expected error in mat popcount: "fxpopcount16: 1048576 is not a 16-bit fixnum".
+5_3.mo:Expected error in mat popcount: "fxpopcount16: -1 is not a 16-bit fixnum".
 5_4.mo:Expected error in mat char=?/char-ci=?: "incorrect argument count in call (char=?)".
 5_4.mo:Expected error in mat char=?/char-ci=?: "char=?: a is not a character".
 5_4.mo:Expected error in mat char=?/char-ci=?: "char=?: a is not a character".
@@ -1944,6 +2072,12 @@ primvars.mo:Expected error in mat trace-output-port: "trace-output-port: #<input
 5_4.mo:Expected error in mat char-whitespace?: "incorrect argument count in call (char-whitespace?)".
 5_4.mo:Expected error in mat char-whitespace?: "incorrect argument count in call (char-whitespace? #\a #\b)".
 5_4.mo:Expected error in mat char-whitespace?: "char-whitespace?: a is not a character".
+5_4.mo:Expected error in mat char-grapheme-break-property: "incorrect argument count in call (char-grapheme-break-property)".
+5_4.mo:Expected error in mat char-grapheme-break-property: "incorrect argument count in call (char-grapheme-break-property #\a #\b)".
+5_4.mo:Expected error in mat char-grapheme-break-property: "char-grapheme-break-property: a is not a character".
+5_4.mo:Expected error in mat char-extended-pictographic?: "incorrect argument count in call (char-extended-pictographic?)".
+5_4.mo:Expected error in mat char-extended-pictographic?: "incorrect argument count in call (char-extended-pictographic? #\a #\b)".
+5_4.mo:Expected error in mat char-extended-pictographic?: "char-extended-pictographic?: a is not a character".
 5_4.mo:Expected error in mat char-upcase: "incorrect argument count in call (char-upcase)".
 5_4.mo:Expected error in mat char-upcase: "incorrect argument count in call (char-upcase #\a #\b)".
 5_4.mo:Expected error in mat char-upcase: "char-upcase: a is not a character".
@@ -2024,6 +2158,25 @@ primvars.mo:Expected error in mat trace-output-port: "trace-output-port: #<input
 5_4.mo:Expected error in mat normalization-tests: "incorrect argument count in call (string-normalize-nfkc)".
 5_4.mo:Expected error in mat normalization-tests: "incorrect argument count in call (string-normalize-nfkc "hello" "goodbye")".
 5_4.mo:Expected error in mat normalization-tests: "string-normalize-nfkc: ouch is not a string".
+5_4.mo:Expected error in mat grapheme: "string-grapheme-count: a is not a string".
+5_4.mo:Expected error in mat grapheme: "string-grapheme-count: -1 is not a valid start index for "a"".
+5_4.mo:Expected error in mat grapheme: "string-grapheme-count: a is not a valid start index for "a"".
+5_4.mo:Expected error in mat grapheme: "string-grapheme-count: 2 is not a valid start index for "a"".
+5_4.mo:Expected error in mat grapheme: "string-grapheme-count: 1 and 0 are not valid start/end indices for "a"".
+5_4.mo:Expected error in mat grapheme: "string-grapheme-count: 0 and a are not valid start/end indices for "a"".
+5_4.mo:Expected error in mat grapheme: "string-grapheme-count: 1 and 2 are not valid start/end indices for "a"".
+5_4.mo:Expected error in mat grapheme: "incorrect argument count in call (string-grapheme-span "a")".
+5_4.mo:Expected error in mat grapheme: "string-grapheme-span: a is not a string".
+5_4.mo:Expected error in mat grapheme: "string-grapheme-span: -1 is not a valid start index for "a"".
+5_4.mo:Expected error in mat grapheme: "string-grapheme-span: a is not a valid start index for "a"".
+5_4.mo:Expected error in mat grapheme: "string-grapheme-span: 2 is not a valid start index for "a"".
+5_4.mo:Expected error in mat grapheme: "string-grapheme-span: 1 and 0 are not valid start/end indices for "a"".
+5_4.mo:Expected error in mat grapheme: "string-grapheme-span: 0 and a are not valid start/end indices for "a"".
+5_4.mo:Expected error in mat grapheme: "string-grapheme-span: 1 and 2 are not valid start/end indices for "a"".
+5_4.mo:Expected error in mat grapheme: "char-grapheme-step: "a" is not a character".
+5_4.mo:Expected error in mat grapheme: "char-grapheme-step: a is not a character".
+5_4.mo:Expected error in mat grapheme: "char-grapheme-step: #\a is not a grapheme cluster state".
+5_4.mo:Expected error in mat grapheme: "char-grapheme-step: 1267650600228229401496703205376 is not a grapheme cluster state".
 5_5.mo:Expected error in mat string=?/string-ci=?: "incorrect argument count in call (string=?)".
 5_5.mo:Expected error in mat string=?/string-ci=?: "string=?: a is not a string".
 5_5.mo:Expected error in mat string=?/string-ci=?: "string=?: a is not a string".
@@ -2217,6 +2370,9 @@ primvars.mo:Expected error in mat trace-output-port: "trace-output-port: #<input
 5_5.mo:Expected error in mat string-append: "string-append: b is not a string".
 5_5.mo:Expected error in mat string-append: "string-append: b is not a string".
 5_5.mo:Expected error in mat string-append: "string-copy: a is not a string".
+5_5.mo:Expected error in mat string-append-immutable: "string-append-immutable: a is not a string".
+5_5.mo:Expected error in mat string-append-immutable: "string-append-immutable: b is not a string".
+5_5.mo:Expected error in mat string-append-immutable: "string-append-immutable: b is not a string".
 5_5.mo:Expected error in mat substring: "incorrect argument count in call (substring)".
 5_5.mo:Expected error in mat substring: "incorrect argument count in call (substring "hi")".
 5_5.mo:Expected error in mat substring: "incorrect argument count in call (substring "hi" 0)".
@@ -3881,19 +4037,30 @@ misc.mo:Expected error in mat argcnt-check: "incorrect argument count in call (f
 misc.mo:Expected error in mat argcnt-check: "incorrect argument count in call (f)".
 misc.mo:Expected error in mat argcnt-check: "incorrect argument count in call (f #t)".
 misc.mo:Expected error in mat argcnt-check: "attempt to apply non-procedure 3".
-misc.mo:Expected error in mat inspect: "incorrect number of arguments to #<procedure ref>".
+misc.mo:Expected error in mat inspect: "incorrect number of arguments 0 to #<procedure ref>".
 misc.mo:Expected error in mat inspect: "inspector-object: invalid message creep to object type pair".
-misc.mo:Expected error in mat inspect: "incorrect number of arguments to #<procedure size>".
+misc.mo:Expected error in mat inspect: "incorrect number of arguments 0 to #<procedure size>".
 misc.mo:Expected error in mat inspect: "inspector-object: invalid generation oops".
 misc.mo:Expected error in mat compute-size: "compute-size: invalid generation -1".
 misc.mo:Expected error in mat compute-size: "compute-size: invalid generation dynamic".
+misc.mo:Expected error in mat compute-size-increments: "compute-size-increments: not-a-list is not a list".
+misc.mo:Expected error in mat compute-size-increments: "compute-size-increments: 0 is not a list".
+misc.mo:Expected error in mat compute-size-increments: "compute-size-increments: invalid generation -1".
+misc.mo:Expected error in mat compute-size-increments: "compute-size-increments: invalid generation "static"".
+misc.mo:Expected error in mat compute-size-increments: "compute-size-increments: invalid generation ()".
+misc.mo:Expected error in mat collect+compute-size-increments: "collect: invalid counting-roots list not-a-list".
+misc.mo:Expected error in mat collect+compute-size-increments: "collect: invalid counting-roots list 0".
+misc.mo:Expected error in mat collect+compute-size-increments: "collect: invalid generation not-a-generation".
+misc.mo:Expected error in mat collect+compute-size-increments: "collect: invalid minimum target generation not-a-generation for generation 0 and maximum target generation 0".
+misc.mo:Expected error in mat collect+compute-size-increments: "collect: invalid maximum target generation not-a-generation for generation 0".
+misc.mo:Expected error in mat collect+compute-size-increments: "collect: invalid maximum target generation 0 for generation 1".
 misc.mo:Expected error in mat compute-composition: "compute-composition: invalid generation -1".
 misc.mo:Expected error in mat compute-composition: "compute-composition: invalid generation "static"".
 misc.mo:Expected error in mat make-object-finder: "make-object-finder: 17 is not a procedure".
 misc.mo:Expected error in mat make-object-finder: "make-object-finder: invalid generation 5".
 misc.mo:Expected error in mat make-object-finder: "make-object-finder: invalid generation oldgen".
 misc.mo:Expected error in mat make-object-finder: "make-object-finder: invalid generation -1".
-misc.mo:Expected error in mat make-object-finder: "incorrect number of arguments to #<procedure find-next>".
+misc.mo:Expected error in mat make-object-finder: "incorrect number of arguments 1 to #<procedure find-next>".
 misc.mo:Expected error in mat subset: "subset-mode: ieee is not a valid subset mode".
 misc.mo:Expected error in mat subset: "subset-mode: r4rs is not a valid subset mode".
 misc.mo:Expected error in mat subset: "subset-mode: r5rs is not a valid subset mode".
@@ -4025,7 +4192,52 @@ misc.mo:Expected error in mat virtual-registers: "set-virtual-register!: invalid
 misc.mo:Expected error in mat pariah: "invalid syntax (pariah)".
 misc.mo:Expected error in mat pariah: "invalid syntax (pariah . 17)".
 misc.mo:Expected error in mat procedure-arity-mask: "procedure-arity-mask: 17 is not a procedure".
+misc.mo:Expected error in mat wrapper-procedure: "incorrect argument count in call (make-wrapper-procedure)".
+misc.mo:Expected error in mat wrapper-procedure: "incorrect argument count in call (make-wrapper-procedure (lambda args args))".
+misc.mo:Expected error in mat wrapper-procedure: "incorrect argument count in call (make-wrapper-procedure (lambda args args) 1)".
+misc.mo:Expected error in mat wrapper-procedure: "make-wrapper-procedure: 1 is not a procedure".
+misc.mo:Expected error in mat wrapper-procedure: "make-wrapper-procedure: not-a-procedure is not a procedure".
+misc.mo:Expected error in mat wrapper-procedure: "make-wrapper-procedure: not-an-exact-integer is not an arity mask".
+misc.mo:Expected error in mat wrapper-procedure: "make-wrapper-procedure: 1.0 is not an arity mask".
+misc.mo:Expected error in mat wrapper-procedure: "incorrect argument count in call (make-arity-wrapper-procedure)".
+misc.mo:Expected error in mat wrapper-procedure: "incorrect argument count in call (make-arity-wrapper-procedure (lambda args args))".
+misc.mo:Expected error in mat wrapper-procedure: "incorrect argument count in call (make-arity-wrapper-procedure (lambda args args) 1)".
+misc.mo:Expected error in mat wrapper-procedure: "make-arity-wrapper-procedure: 1 is not a procedure".
+misc.mo:Expected error in mat wrapper-procedure: "make-arity-wrapper-procedure: not-a-procedure is not a procedure".
+misc.mo:Expected error in mat wrapper-procedure: "make-arity-wrapper-procedure: not-an-exact-integer is not an arity mask".
+misc.mo:Expected error in mat wrapper-procedure: "make-arity-wrapper-procedure: 1.0 is not an arity mask".
+misc.mo:Expected error in mat wrapper-procedure: "incorrect number of arguments 3 to #<procedure>".
+misc.mo:Expected error in mat wrapper-procedure: "incorrect number of arguments 3 to #<procedure>".
+misc.mo:Expected error in mat wrapper-procedure: "wrapper-procedure-data: 1 is not a wrapper procedure".
+misc.mo:Expected error in mat wrapper-procedure: "wrapper-procedure-data: #<procedure> is not a wrapper procedure".
+misc.mo:Expected error in mat wrapper-procedure: "wrapper-procedure-data: #<procedure> is not a wrapper procedure".
+misc.mo:Expected error in mat wrapper-procedure: "incorrect argument count in call (set-wrapper-procedure-procedure!)".
+misc.mo:Expected error in mat wrapper-procedure: "incorrect argument count in call (set-wrapper-procedure-procedure! (make-arity-wrapper-procedure (lambda args args) 1 #f))".
+misc.mo:Expected error in mat wrapper-procedure: "set-wrapper-procedure-procedure!: 1 is not a wrapper procedure".
+misc.mo:Expected error in mat wrapper-procedure: "set-wrapper-procedure-procedure!: #<procedure> is not a wrapper procedure".
+misc.mo:Expected error in mat wrapper-procedure: "set-wrapper-procedure-procedure!: #<procedure> is not a wrapper procedure".
+misc.mo:Expected error in mat wrapper-procedure: "incorrect argument count in call (set-wrapper-procedure-data!)".
+misc.mo:Expected error in mat wrapper-procedure: "incorrect argument count in call (set-wrapper-procedure-data! (make-arity-wrapper-procedure (lambda args args) 1 #f))".
+misc.mo:Expected error in mat wrapper-procedure: "set-wrapper-procedure-data!: 1 is not a wrapper procedure".
+misc.mo:Expected error in mat wrapper-procedure: "set-wrapper-procedure-data!: #<procedure> is not a wrapper procedure".
+misc.mo:Expected error in mat wrapper-procedure: "set-wrapper-procedure-data!: #<procedure> is not a wrapper procedure".
 misc.mo:Expected error in mat self-evaluating-vectors: "invalid syntax #(1 a b)".
+misc.mo:Expected error in mat phantom-bytevector: "make-phantom-bytevector: -1 is not a valid phantom bytevector length".
+misc.mo:Expected error in mat phantom-bytevector: "make-phantom-bytevector: 1267650600228229401496703205376 is not a valid phantom bytevector length".
+misc.mo:Expected error in mat phantom-bytevector: "make-phantom-bytevector: x is not a valid phantom bytevector length".
+misc.mo:Expected error in mat immobile: "incorrect argument count in call (box-immobile)".
+misc.mo:Expected error in mat immobile: "incorrect argument count in call (box-immobile 1 2)".
+misc.mo:Expected error in mat immobile: "incorrect argument count in call (make-immobile-vector)".
+misc.mo:Expected error in mat immobile: "make-immobile-vector: a is not a valid vector length".
+misc.mo:Expected error in mat immobile: "make-immobile-vector: -10 is not a valid vector length".
+misc.mo:Expected error in mat immobile: "make-immobile-vector: 1267650600228229401496703205376 is not a valid vector length".
+misc.mo:Expected error in mat immobile: "incorrect argument count in call (make-immobile-vector 10 1 2)".
+misc.mo:Expected error in mat immobile: "incorrect argument count in call (make-immobile-bytevector)".
+misc.mo:Expected error in mat immobile: "make-immobile-bytevector: a is not a valid bytevector length".
+misc.mo:Expected error in mat immobile: "variable make-immobile-byte-vector is not bound".
+misc.mo:Expected error in mat immobile: "make-immobile-bytevector: 1267650600228229401496703205376 is not a valid bytevector length".
+misc.mo:Expected error in mat immobile: "make-immobile-bytevector: 1024 is not a valid fill value".
+misc.mo:Expected error in mat immobile: "incorrect argument count in call (make-immobile-bytevector 10 1 2)".
 cp0.mo:Expected error in mat cp0-regression: "attempt to reference undefined variable x".
 cp0.mo:Expected error in mat cp0-regression: "incorrect argument count in call (g)".
 cp0.mo:Expected error in mat cp0-regression: "incorrect argument count in call (cont0 (quote x))".
@@ -4085,11 +4297,11 @@ cp0.mo:Expected error in mat expand/optimize-output: "expand/optimize-output: #<
 5_6.mo:Expected error in mat fxvector-set!: "fxvector-set!: -1 is not a valid index for #vfx(3 4 5)".
 5_6.mo:Expected error in mat fxvector-set!: "fxvector-set!: a is not a valid index for #vfx(3 4 5)".
 5_6.mo:Expected error in mat fxvector-set!: "fxvector-set!: d is not a fixnum".
-5_6.mo:Expected error in mat fxvector-set!: "fxvector-set!: (3 4 5) is not a mutable fxvector".
+5_6.mo:Expected error in mat fxvector-set!: "fxvector-set!: (3 4 5) is not an fxvector".
 5_6.mo:Expected error in mat fxvector-set!: "fxvector-set!: <-int> is not a fixnum".
 5_6.mo:Expected error in mat fxvector-set!: "fxvector-set!: <int> is not a fixnum".
-5_6.mo:Expected error in mat fxvector-set!: "fxvector-set!: (3 4 5) is not a mutable fxvector".
-5_6.mo:Expected error in mat fxvector-set!: "fxvector-set!: #(3 4) is not a mutable fxvector".
+5_6.mo:Expected error in mat fxvector-set!: "fxvector-set!: (3 4 5) is not an fxvector".
+5_6.mo:Expected error in mat fxvector-set!: "fxvector-set!: #(3 4) is not an fxvector".
 5_6.mo:Expected error in mat fxvector-set!: "fxvector-set!: 3 is not a valid index for #vfx(3 4 5)".
 5_6.mo:Expected error in mat fxvector-set!: "fxvector-set!: -3 is not a valid index for #vfx(3 4 5)".
 5_6.mo:Expected error in mat fxvector-set!: "fxvector-set!: <int> is not a valid index for #vfx(3 4 5)".
@@ -4100,11 +4312,46 @@ cp0.mo:Expected error in mat expand/optimize-output: "expand/optimize-output: #<
 5_6.mo:Expected error in mat fxvector-set!: "fxvector-set!: a is not a fixnum".
 5_6.mo:Expected error in mat fxvector-copy: "fxvector-copy: (a b c) is not an fxvector".
 5_6.mo:Expected error in mat fxvector-fill!: "fxvector-fill!: a is not a fixnum".
-5_6.mo:Expected error in mat fxvector-fill!: "fxvector-fill!: #(1) is not a mutable fxvector".
+5_6.mo:Expected error in mat fxvector-fill!: "fxvector-fill!: #(1) is not a fxvector".
 5_6.mo:Expected error in mat list->fxvector: "list->fxvector: #(a b c) is not a proper list".
 5_6.mo:Expected error in mat list->fxvector: "list->fxvector: (1 2 . 3) is not a proper list".
 5_6.mo:Expected error in mat list->fxvector: "list->fxvector: (1 2 3 2 3 2 ...) is circular".
 5_6.mo:Expected error in mat fxvector->list: "fxvector->list: (a b c) is not an fxvector".
+5_6.mo:Expected error in mat flvector: "flvector: 1 is not a flonum".
+5_6.mo:Expected error in mat flvector: "flvector: a is not a flonum".
+5_6.mo:Expected error in mat flvector: "flvector: a is not a flonum".
+5_6.mo:Expected error in mat make-flvector: "make-flvector: a is not a flonum".
+5_6.mo:Expected error in mat make-flvector: "make-flvector: 1 is not a flonum".
+5_6.mo:Expected error in mat make-flvector: "make-flvector: a is not a flonum".
+5_6.mo:Expected error in mat flvector-length: "flvector-length: (a b c) is not an flvector".
+5_6.mo:Expected error in mat flvector-ref: "flvector-ref: 3 is not a valid index for #vfl(3.0 4.0 5.0)".
+5_6.mo:Expected error in mat flvector-ref: "flvector-ref: -1 is not a valid index for #vfl(3.0 4.0 5.0)".
+5_6.mo:Expected error in mat flvector-ref: "flvector-ref: a is not a valid index for #vfl(3.0 4.0 5.0)".
+5_6.mo:Expected error in mat flvector-ref: "flvector-ref: #(3.0 4.0 5.0) is not an flvector".
+5_6.mo:Expected error in mat flvector-ref: "flvector-ref: (3.0 4.0 5.0) is not an flvector".
+5_6.mo:Expected error in mat flvector-set!: "flvector-set!: 3 is not a valid index for #vfl(3.0 4.0 5.0)".
+5_6.mo:Expected error in mat flvector-set!: "flvector-set!: -1 is not a valid index for #vfl(3.0 4.0 5.0)".
+5_6.mo:Expected error in mat flvector-set!: "flvector-set!: a is not a valid index for #vfl(3.0 4.0 5.0)".
+5_6.mo:Expected error in mat flvector-set!: "flvector-set!: d is not a flonum".
+5_6.mo:Expected error in mat flvector-set!: "flvector-set!: (3.0 4.0 5.0) is not an flvector".
+5_6.mo:Expected error in mat flvector-set!: "flvector-set!: 1 is not a flonum".
+5_6.mo:Expected error in mat flvector-set!: "flvector-set!: a is not a flonum".
+5_6.mo:Expected error in mat flvector-set!: "flvector-set!: (3.0 4.0 5.0) is not an flvector".
+5_6.mo:Expected error in mat flvector-set!: "flvector-set!: #(3.0 4.0) is not an flvector".
+5_6.mo:Expected error in mat flvector-set!: "flvector-set!: 3 is not a valid index for #vfl(3.0 4.0 5.0)".
+5_6.mo:Expected error in mat flvector-set!: "flvector-set!: -3 is not a valid index for #vfl(3.0 4.0 5.0)".
+5_6.mo:Expected error in mat flvector-set!: "flvector-set!: <int> is not a valid index for #vfl(3.0 4.0 5.0)".
+5_6.mo:Expected error in mat flvector-set!: "flvector-set!: <-int> is not a valid index for #vfl(3.0 4.0 5.0)".
+5_6.mo:Expected error in mat flvector-set!: "flvector-set!: a is not a valid index for #vfl(3.0 4.0 5.0)".
+5_6.mo:Expected error in mat flvector-set!: "flvector-set!: 1 is not a flonum".
+5_6.mo:Expected error in mat flvector-set!: "flvector-set!: a is not a flonum".
+5_6.mo:Expected error in mat flvector-copy: "flvector-copy: (a b c) is not an flvector".
+5_6.mo:Expected error in mat flvector-fill!: "flvector-fill!: a is not a flonum".
+5_6.mo:Expected error in mat flvector-fill!: "flvector-fill!: #(1.0) is not a flvector".
+5_6.mo:Expected error in mat list->flvector: "list->flvector: #(a b c) is not a proper list".
+5_6.mo:Expected error in mat list->flvector: "list->flvector: (1.0 2.0 . 3.0) is not a proper list".
+5_6.mo:Expected error in mat list->flvector: "list->flvector: (1.0 2.0 3.0 2.0 3.0 2.0 ...) is circular".
+5_6.mo:Expected error in mat flvector->list: "flvector->list: (a b c) is not an flvector".
 5_6.mo:Expected error in mat vector-map: "incorrect argument count in call (vector-map)".
 5_6.mo:Expected error in mat vector-map: "incorrect argument count in call (vector-map (quote #()))".
 5_6.mo:Expected error in mat vector-map: "incorrect argument count in call (vector-map +)".
@@ -4159,8 +4406,6 @@ cp0.mo:Expected error in mat expand/optimize-output: "expand/optimize-output: #<
 5_6.mo:Expected error in mat vector->immutable-vector: "vector-set-fixnum!: #(1 2 3) is not a mutable vector".
 5_6.mo:Expected error in mat vector->immutable-vector: "vector-fill!: #(1 2 3) is not a mutable vector".
 5_6.mo:Expected error in mat vector->immutable-vector: "vector-sort!: #(1 2 3) is not a mutable vector".
-5_6.mo:Expected error in mat fxvector->immutable-fxvector: "fxvector-set!: #vfx(1 2 3) is not a mutable fxvector".
-5_6.mo:Expected error in mat fxvector->immutable-fxvector: "fxvector-fill!: #vfx(1 2 3) is not a mutable fxvector".
 5_6.mo:Expected error in mat vector-cas!: "incorrect argument count in call (vector-cas! vec1)".
 5_6.mo:Expected error in mat vector-cas!: "incorrect argument count in call (vector-cas! vec1 1)".
 5_6.mo:Expected error in mat vector-cas!: "incorrect argument count in call (vector-cas! vec1 1 2)".
@@ -4169,7 +4414,58 @@ cp0.mo:Expected error in mat expand/optimize-output: "expand/optimize-output: #<
 5_6.mo:Expected error in mat vector-cas!: "vector-cas!: #(4 5 3) is not a valid index for #(4 5 3)".
 5_6.mo:Expected error in mat vector-cas!: "vector-cas!: 1267650600228229401496703205376 is not a valid index for #(4 5 3)".
 5_6.mo:Expected error in mat vector-cas!: "vector-cas!: -1 is not a valid index for #(4 5 3)".
+5_6.mo:Expected error in mat vector-cas!: "vector-cas!: -2 is not a valid index for #(4 5 3)".
 5_6.mo:Expected error in mat vector-cas!: "vector-cas!: 5 is not a valid index for #(4 5 3)".
+5_6.mo:Expected error in mat vector-cas!: "vector-cas!: 67108864 is not a valid index for #(4 5 3)".
+5_6.mo:Expected error in mat vector-cas!: "vector-cas!: 1099511627776 is not a valid index for #(4 5 3)".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector: invalid mask x".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector: invalid mask -1".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector: mask 0 does not match given number of items 1".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector: mask 3 does not match given number of items 1".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector: mask 3 does not match given number of items 1".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector: invalid mask 288230376151711744".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector-length: 3 is not a stencil vector".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector-mask: 3 is not a stencil vector".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector-ref: 3 is not a stencil vector".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector-ref: 0 is not a valid index for #0vs()".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector-ref: 2 is not a valid index for #3vs(apple banana)".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector-ref: -1 is not a valid index for #3vs(apple banana)".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector-ref: 1267650600228229401496703205376 is not a valid index for #3vs(apple banana)".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector-ref: 1.0 is not a valid index for #3vs(apple banana)".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector-set!: 0 is not a valid index for #0vs()".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector-set!: 2 is not a valid index for #3vs(apple banana)".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector-set!: -1 is not a valid index for #3vs(apple banana)".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector-set!: 1267650600228229401496703205376 is not a valid index for #3vs(apple banana)".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector-set!: 1.0 is not a valid index for #3vs(apple banana)".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector-update: 1 is not a stencil vector".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector-update: mask of stencil vector #699050vs(a b c d e f ...) already has bits in 2".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector-update: mask of stencil vector #699050vs(a b c d e f ...) does not have all bits in 1".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector-update: addition mask 1 does not match given number of items 0".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector-update: addition mask 1 does not match given number of items 2".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector-truncate!: 1 is not a stencil vector".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector-truncate!: new mask 1 for #0vs() is larger than old mask".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector: mask 7 does not match given number of items 0".
+5_6.mo:Expected error in mat stencil-vector: "stencil-vector: mask 6 does not match given number of items 0".
+5_6.mo:Expected error in mat system-stencil-vector: "$system-stencil-vector: invalid mask x".
+5_6.mo:Expected error in mat system-stencil-vector: "$system-stencil-vector: invalid mask -1".
+5_6.mo:Expected error in mat system-stencil-vector: "$system-stencil-vector: mask 0 does not match given number of items 1".
+5_6.mo:Expected error in mat system-stencil-vector: "$system-stencil-vector: mask 3 does not match given number of items 1".
+5_6.mo:Expected error in mat system-stencil-vector: "$system-stencil-vector: mask 3 does not match given number of items 1".
+5_6.mo:Expected error in mat system-stencil-vector: "$system-stencil-vector: invalid mask 288230376151711744".
+5_6.mo:Expected error in mat system-stencil-vector: "$stencil-vector-length: 3 is not a stencil vector".
+5_6.mo:Expected error in mat system-stencil-vector: "$stencil-vector-mask: 3 is not a stencil vector".
+5_6.mo:Expected error in mat system-stencil-vector: "$stencil-vector-ref: 3 is not a stencil vector".
+5_6.mo:Expected error in mat system-stencil-vector: "$stencil-vector-ref: 0 is not a valid index for #0vs()".
+5_6.mo:Expected error in mat system-stencil-vector: "$stencil-vector-ref: 0 is not a valid index for #0vs()".
+5_6.mo:Expected error in mat system-stencil-vector: "$stencil-vector-ref: 2 is not a valid index for #3vs(apple banana)".
+5_6.mo:Expected error in mat system-stencil-vector: "$stencil-vector-ref: 2 is not a valid index for #3vs(apple banana)".
+5_6.mo:Expected error in mat system-stencil-vector: "$stencil-vector-set!: 0 is not a valid index for #0vs()".
+5_6.mo:Expected error in mat system-stencil-vector: "$stencil-vector-set!: 0 is not a valid index for #0vs()".
+5_6.mo:Expected error in mat system-stencil-vector: "$system-stencil-vector-update: 1 is not a stencil vector".
+5_6.mo:Expected error in mat system-stencil-vector: "$system-stencil-vector-truncate!: 1 is not a stencil vector".
+5_6.mo:Expected error in mat system-stencil-vector: "$system-stencil-vector-truncate!: new mask 1 for #0vs() is larger than old mask".
+5_6.mo:Expected error in mat system-stencil-vector: "$system-stencil-vector: mask 7 does not match given number of items 0".
+5_6.mo:Expected error in mat system-stencil-vector: "$system-stencil-vector: mask 6 does not match given number of items 0".
 5_7.mo:Expected error in mat string->symbol: "string->symbol: 3 is not a string".
 5_7.mo:Expected error in mat string->symbol: "string->symbol: a is not a string".
 5_7.mo:Expected error in mat gensym: "gensym: #(a b c) is not a string".
@@ -4278,6 +4574,12 @@ cp0.mo:Expected error in mat expand/optimize-output: "expand/optimize-output: #<
 6.mo:Expected error in mat pretty-print: "pretty-format: invalid format (bad 0 ... ... 0 format)".
 6.mo:Expected error in mat fasl: "separate-eval: Warning in fasl-write: fasl file content is compressed internally; compressing the file (#<binary output port testfile.ss>) is redundant and can slow fasl writing and reading significantly
 6.mo:Expected error in mat fasl: "separate-eval: Warning in fasl-read: fasl file content is compressed internally; compressing the file (#<binary input port testfile.ss>) is redundant and can slow fasl writing and reading significantly
+6.mo:Expected error in mat fasl: "fasl-write: #() is not #f or a procedure".
+6.mo:Expected error in mat fasl: "fasl-write: 10 is not #f or a procedure".
+6.mo:Expected error in mat fasl: "fasl-read: not a vector #f".
+6.mo:Expected error in mat fasl: "fasl-read: not a vector 10".
+6.mo:Expected error in mat fasl: "incompatible external vector length 0, expected 1".
+6.mo:Expected error in mat fasl: "incompatible external vector length 1, expected 2".
 6.mo:Expected warning in mat cp1in-verify-format-warnings: "compile: too few arguments for control string "~a~~~s" in call to format".
 6.mo:Expected warning in mat cp1in-verify-format-warnings: "compile: too many arguments for control string "~a~a~a~s" in call to format".
 6.mo:Expected warning in mat cp1in-verify-format-warnings: "compile: too few arguments for control string "~a~~~s" in call to format at line 1, char 28 of testfile.ss".
@@ -4291,7 +4593,7 @@ cp0.mo:Expected error in mat expand/optimize-output: "expand/optimize-output: #<
 6.mo:Expected warning in mat cp1in-verify-format-warnings: "compile: too few arguments for control string "abc~s" in call to fprintf at line 1, char 29 of testfile.ss".
 6.mo:Expected warning in mat cp1in-verify-format-warnings: "compile: too many arguments for control string "~%~abc~adef~ag~s~~~%" in call to fprintf at line 1, char 29 of testfile.ss".
 6.mo:Expected error in mat print-parameters: "write: cycle detected; proceeding with (print-graph #t)".
-6.mo:Expected error in mat port-handler: "incorrect number of arguments to #<procedure non-generic-port-handler>".
+6.mo:Expected error in mat port-handler: "incorrect number of arguments 0 to #<procedure non-generic-port-handler>".
 6.mo:Expected error in mat port-handler: "non-generic-port-handler: cannot handle message foo with argument count 0".
 6.mo:Expected error in mat port-handler: "non-generic-port-handler: cannot handle message foo with argument count 1".
 6.mo:Expected error in mat port-handler: "non-generic-port-handler: cannot handle message read-char with argument count 0".
@@ -4370,8 +4672,15 @@ cp0.mo:Expected error in mat expand/optimize-output: "expand/optimize-output: #<
 6.mo:Expected error in mat read-test: "read: invalid syntax #073vf( at line 3, char 7 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: expected left paren after #vfx prefix at line 3, char 7 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: expected left paren after #073vfx prefix at line 3, char 7 of testfile.ss".
+6.mo:Expected error in mat read-test: "read: expected left paren after #vfl prefix at line 3, char 7 of testfile.ss".
+6.mo:Expected error in mat read-test: "read: invalid syntax #073vfl[ at line 3, char 7 of testfile.ss".
+6.mo:Expected error in mat read-test: "read: expected left paren after #vs prefix at line 3, char 7 of testfile.ss".
+6.mo:Expected error in mat read-test: "read: invalid syntax #073vs[ at line 3, char 7 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: invalid vector length 999999999999999999999999999999 at line 3, char 17 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: invalid fxvector length 999999999999999999999999999999 at line 3, char 19 of testfile.ss".
+6.mo:Expected error in mat read-test: "read: invalid flvector length 999999999999999999999999999999 at line 3, char 19 of testfile.ss".
+6.mo:Expected error in mat read-test: "read: invalid syntax #~v,'0dv~a( with irritants (<int> 999999999999999999999999999999 "st") at line 3, char 18 of testfile.ss".
+6.mo:Expected error in mat read-test: "read: invalid syntax #000000000000000<int>vst( at line 3, char 18 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: invalid bytevector length 999999999999999999999999999999 at line 3, char 21 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: mark #77= missing at line 6, char 20 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: more than one item found after dot (.) at line 4, char 33 of testfile.ss".
@@ -4384,7 +4693,12 @@ cp0.mo:Expected error in mat expand/optimize-output: "expand/optimize-output: #<
 6.mo:Expected error in mat read-test: "read: too many vector elements supplied at line 3, char 16 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: non-fixnum found in fxvector at line 3, char 23 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: non-fixnum found in fxvector at line 3, char 24 of testfile.ss".
+6.mo:Expected error in mat read-test: "read: too many flvector elements supplied at line 3, char 16 of testfile.ss".
+6.mo:Expected error in mat read-test: "read: non-fixnum found in flvector at line 3, char 25 of testfile.ss".
+6.mo:Expected error in mat read-test: "read: non-fixnum found in flvector at line 3, char 26 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: too many fxvector elements supplied at line 3, char 16 of testfile.ss".
+6.mo:Expected error in mat read-test: "read: too many stencil vector elements supplied at line 3, char 16 of testfile.ss".
+6.mo:Expected error in mat read-test: "read: not enough stencil vector elements supplied at line 3, char 24 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: invalid value 2.0 found in bytevector at line 3, char 23 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: invalid value -1 found in bytevector at line 3, char 24 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: invalid value #f found in bytevector at line 3, char 10 of testfile.ss".
@@ -4449,6 +4763,10 @@ cp0.mo:Expected error in mat expand/optimize-output: "expand/optimize-output: #<
 6.mo:Expected error in mat read-test: "read: unexpected end-of-file reading #v prefix at line 2, char 23 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: unexpected end-of-file reading #v prefix at line 2, char 23 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: unexpected end-of-file reading #v prefix at line 2, char 23 of testfile.ss".
+6.mo:Expected error in mat read-test: "read: unexpected end-of-file reading #v prefix at line 2, char 23 of testfile.ss".
+6.mo:Expected error in mat read-test: "read: invalid syntax #01vfl at line 2, char 23 of testfile.ss".
+6.mo:Expected error in mat read-test: "read: unexpected end-of-file reading #v prefix at line 2, char 23 of testfile.ss".
+6.mo:Expected error in mat read-test: "read: invalid syntax #01vs at line 2, char 23 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: unexpected end-of-file reading list at line 3, char 3 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: unexpected end-of-file reading list at line 3, char 1 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: unexpected end-of-file reading list at line 3, char 7 of testfile.ss".
@@ -4486,6 +4804,10 @@ cp0.mo:Expected error in mat expand/optimize-output: "expand/optimize-output: #<
 6.mo:Expected error in mat read-test: "read: unexpected end-of-file reading vector at line 3, char 14 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: unexpected end-of-file reading fxvector at line 3, char 14 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: unexpected end-of-file reading fxvector at line 3, char 14 of testfile.ss".
+6.mo:Expected error in mat read-test: "read: unexpected end-of-file reading flvector at line 3, char 14 of testfile.ss".
+6.mo:Expected error in mat read-test: "read: unexpected end-of-file reading flvector at line 3, char 14 of testfile.ss".
+6.mo:Expected error in mat read-test: "read: unexpected end-of-file reading stencil vector at line 3, char 14 of testfile.ss".
+6.mo:Expected error in mat read-test: "read: unexpected end-of-file reading stencil vector at line 3, char 14 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: unexpected end-of-file reading bytevector at line 3, char 14 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: unexpected end-of-file reading bytevector at line 3, char 14 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: unrecognized record name zsunekunvliwndwalv at line 2, char 3 of testfile.ss".
@@ -4515,7 +4837,10 @@ cp0.mo:Expected error in mat expand/optimize-output: "expand/optimize-output: #<
 6.mo:Expected error in mat read-test: "read: #!bwp syntax is not allowed in #!r6rs mode at line 3, char 8 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: #vfx(...) fxvector syntax is not allowed in #!r6rs mode at line 3, char 9 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: #<n>vfx(...) fxvector syntax is not allowed in #!r6rs mode at line 3, char 9 of testfile.ss".
+6.mo:Expected error in mat read-test: "read: #vfl(...) flvector syntax is not allowed in #!r6rs mode at line 3, char 9 of testfile.ss".
+6.mo:Expected error in mat read-test: "read: #<n>vfl(...) flvector syntax is not allowed in #!r6rs mode at line 3, char 9 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: #<n>vu8(...) bytevector syntax is not allowed in #!r6rs mode at line 3, char 9 of testfile.ss".
+6.mo:Expected error in mat read-test: "read: #<n>vs(...) stencil vector syntax is not allowed in #!r6rs mode at line 3, char 9 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: octal string-character syntax is not allowed in #!r6rs mode at line 3, char 8 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: non-hex back-slash symbol escape syntax is not allowed in #!r6rs mode at line 3, char 8 of testfile.ss".
 6.mo:Expected error in mat read-test: "read: |...| symbol escape syntax is not allowed in #!r6rs mode at line 3, char 8 of testfile.ss".
@@ -5176,8 +5501,15 @@ cp0.mo:Expected error in mat expand/optimize-output: "expand/optimize-output: #<
 6.mo:Expected error in mat load-test: "read: invalid syntax #073vf( at line 3, char 7 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: expected left paren after #vfx prefix at line 3, char 7 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: expected left paren after #073vfx prefix at line 3, char 7 of testfile.ss".
+6.mo:Expected error in mat load-test: "read: expected left paren after #vfl prefix at line 3, char 7 of testfile.ss".
+6.mo:Expected error in mat load-test: "read: invalid syntax #073vfl[ at line 3, char 7 of testfile.ss".
+6.mo:Expected error in mat load-test: "read: expected left paren after #vs prefix at line 3, char 7 of testfile.ss".
+6.mo:Expected error in mat load-test: "read: invalid syntax #073vs[ at line 3, char 7 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: invalid vector length 999999999999999999999999999999 at line 3, char 17 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: invalid fxvector length 999999999999999999999999999999 at line 3, char 19 of testfile.ss".
+6.mo:Expected error in mat load-test: "read: invalid flvector length 999999999999999999999999999999 at line 3, char 19 of testfile.ss".
+6.mo:Expected error in mat load-test: "read: invalid syntax #~v,'0dv~a( with irritants (<int> 999999999999999999999999999999 "st") at line 3, char 18 of testfile.ss".
+6.mo:Expected error in mat load-test: "read: invalid syntax #000000000000000<int>vst( at line 3, char 18 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: invalid bytevector length 999999999999999999999999999999 at line 3, char 21 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: mark #77= missing at line 6, char 20 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: more than one item found after dot (.) at line 4, char 33 of testfile.ss".
@@ -5190,7 +5522,12 @@ cp0.mo:Expected error in mat expand/optimize-output: "expand/optimize-output: #<
 6.mo:Expected error in mat load-test: "read: too many vector elements supplied at line 3, char 16 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: non-fixnum found in fxvector at line 3, char 23 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: non-fixnum found in fxvector at line 3, char 24 of testfile.ss".
+6.mo:Expected error in mat load-test: "read: too many flvector elements supplied at line 3, char 16 of testfile.ss".
+6.mo:Expected error in mat load-test: "read: non-fixnum found in flvector at line 3, char 25 of testfile.ss".
+6.mo:Expected error in mat load-test: "read: non-fixnum found in flvector at line 3, char 26 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: too many fxvector elements supplied at line 3, char 16 of testfile.ss".
+6.mo:Expected error in mat load-test: "read: too many stencil vector elements supplied at line 3, char 16 of testfile.ss".
+6.mo:Expected error in mat load-test: "read: not enough stencil vector elements supplied at line 3, char 24 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: invalid value 2.0 found in bytevector at line 3, char 23 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: invalid value -1 found in bytevector at line 3, char 24 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: invalid value #f found in bytevector at line 3, char 10 of testfile.ss".
@@ -5255,6 +5592,10 @@ cp0.mo:Expected error in mat expand/optimize-output: "expand/optimize-output: #<
 6.mo:Expected error in mat load-test: "read: unexpected end-of-file reading #v prefix at line 2, char 23 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: unexpected end-of-file reading #v prefix at line 2, char 23 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: unexpected end-of-file reading #v prefix at line 2, char 23 of testfile.ss".
+6.mo:Expected error in mat load-test: "read: unexpected end-of-file reading #v prefix at line 2, char 23 of testfile.ss".
+6.mo:Expected error in mat load-test: "read: invalid syntax #01vfl at line 2, char 23 of testfile.ss".
+6.mo:Expected error in mat load-test: "read: unexpected end-of-file reading #v prefix at line 2, char 23 of testfile.ss".
+6.mo:Expected error in mat load-test: "read: invalid syntax #01vs at line 2, char 23 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: unexpected end-of-file reading list at line 3, char 3 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: unexpected end-of-file reading list at line 3, char 1 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: unexpected end-of-file reading list at line 3, char 7 of testfile.ss".
@@ -5292,6 +5633,10 @@ cp0.mo:Expected error in mat expand/optimize-output: "expand/optimize-output: #<
 6.mo:Expected error in mat load-test: "read: unexpected end-of-file reading vector at line 3, char 14 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: unexpected end-of-file reading fxvector at line 3, char 14 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: unexpected end-of-file reading fxvector at line 3, char 14 of testfile.ss".
+6.mo:Expected error in mat load-test: "read: unexpected end-of-file reading flvector at line 3, char 14 of testfile.ss".
+6.mo:Expected error in mat load-test: "read: unexpected end-of-file reading flvector at line 3, char 14 of testfile.ss".
+6.mo:Expected error in mat load-test: "read: unexpected end-of-file reading stencil vector at line 3, char 14 of testfile.ss".
+6.mo:Expected error in mat load-test: "read: unexpected end-of-file reading stencil vector at line 3, char 14 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: unexpected end-of-file reading bytevector at line 3, char 14 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: unexpected end-of-file reading bytevector at line 3, char 14 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: unrecognized record name zsunekunvliwndwalv at line 2, char 3 of testfile.ss".
@@ -5321,7 +5666,10 @@ cp0.mo:Expected error in mat expand/optimize-output: "expand/optimize-output: #<
 6.mo:Expected error in mat load-test: "read: #!bwp syntax is not allowed in #!r6rs mode at line 3, char 8 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: #vfx(...) fxvector syntax is not allowed in #!r6rs mode at line 3, char 9 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: #<n>vfx(...) fxvector syntax is not allowed in #!r6rs mode at line 3, char 9 of testfile.ss".
+6.mo:Expected error in mat load-test: "read: #vfl(...) flvector syntax is not allowed in #!r6rs mode at line 3, char 9 of testfile.ss".
+6.mo:Expected error in mat load-test: "read: #<n>vfl(...) flvector syntax is not allowed in #!r6rs mode at line 3, char 9 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: #<n>vu8(...) bytevector syntax is not allowed in #!r6rs mode at line 3, char 9 of testfile.ss".
+6.mo:Expected error in mat load-test: "read: #<n>vs(...) stencil vector syntax is not allowed in #!r6rs mode at line 3, char 9 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: octal string-character syntax is not allowed in #!r6rs mode at line 3, char 8 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: non-hex back-slash symbol escape syntax is not allowed in #!r6rs mode at line 3, char 8 of testfile.ss".
 6.mo:Expected error in mat load-test: "read: |...| symbol escape syntax is not allowed in #!r6rs mode at line 3, char 8 of testfile.ss".
@@ -5982,8 +6330,15 @@ cp0.mo:Expected error in mat expand/optimize-output: "expand/optimize-output: #<
 6.mo:Expected error in mat compile-test: "read: invalid syntax #073vf( at line 3, char 7 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: expected left paren after #vfx prefix at line 3, char 7 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: expected left paren after #073vfx prefix at line 3, char 7 of testfile.ss".
+6.mo:Expected error in mat compile-test: "read: expected left paren after #vfl prefix at line 3, char 7 of testfile.ss".
+6.mo:Expected error in mat compile-test: "read: invalid syntax #073vfl[ at line 3, char 7 of testfile.ss".
+6.mo:Expected error in mat compile-test: "read: expected left paren after #vs prefix at line 3, char 7 of testfile.ss".
+6.mo:Expected error in mat compile-test: "read: invalid syntax #073vs[ at line 3, char 7 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: invalid vector length 999999999999999999999999999999 at line 3, char 17 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: invalid fxvector length 999999999999999999999999999999 at line 3, char 19 of testfile.ss".
+6.mo:Expected error in mat compile-test: "read: invalid flvector length 999999999999999999999999999999 at line 3, char 19 of testfile.ss".
+6.mo:Expected error in mat compile-test: "read: invalid syntax #~v,'0dv~a( with irritants (<int> 999999999999999999999999999999 "st") at line 3, char 18 of testfile.ss".
+6.mo:Expected error in mat compile-test: "read: invalid syntax #000000000000000<int>vst( at line 3, char 18 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: invalid bytevector length 999999999999999999999999999999 at line 3, char 21 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: mark #77= missing at line 6, char 20 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: more than one item found after dot (.) at line 4, char 33 of testfile.ss".
@@ -5996,7 +6351,12 @@ cp0.mo:Expected error in mat expand/optimize-output: "expand/optimize-output: #<
 6.mo:Expected error in mat compile-test: "read: too many vector elements supplied at line 3, char 16 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: non-fixnum found in fxvector at line 3, char 23 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: non-fixnum found in fxvector at line 3, char 24 of testfile.ss".
+6.mo:Expected error in mat compile-test: "read: too many flvector elements supplied at line 3, char 16 of testfile.ss".
+6.mo:Expected error in mat compile-test: "read: non-fixnum found in flvector at line 3, char 25 of testfile.ss".
+6.mo:Expected error in mat compile-test: "read: non-fixnum found in flvector at line 3, char 26 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: too many fxvector elements supplied at line 3, char 16 of testfile.ss".
+6.mo:Expected error in mat compile-test: "read: too many stencil vector elements supplied at line 3, char 16 of testfile.ss".
+6.mo:Expected error in mat compile-test: "read: not enough stencil vector elements supplied at line 3, char 24 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: invalid value 2.0 found in bytevector at line 3, char 23 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: invalid value -1 found in bytevector at line 3, char 24 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: invalid value #f found in bytevector at line 3, char 10 of testfile.ss".
@@ -6061,6 +6421,10 @@ cp0.mo:Expected error in mat expand/optimize-output: "expand/optimize-output: #<
 6.mo:Expected error in mat compile-test: "read: unexpected end-of-file reading #v prefix at line 2, char 23 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: unexpected end-of-file reading #v prefix at line 2, char 23 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: unexpected end-of-file reading #v prefix at line 2, char 23 of testfile.ss".
+6.mo:Expected error in mat compile-test: "read: unexpected end-of-file reading #v prefix at line 2, char 23 of testfile.ss".
+6.mo:Expected error in mat compile-test: "read: invalid syntax #01vfl at line 2, char 23 of testfile.ss".
+6.mo:Expected error in mat compile-test: "read: unexpected end-of-file reading #v prefix at line 2, char 23 of testfile.ss".
+6.mo:Expected error in mat compile-test: "read: invalid syntax #01vs at line 2, char 23 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: unexpected end-of-file reading list at line 3, char 3 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: unexpected end-of-file reading list at line 3, char 1 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: unexpected end-of-file reading list at line 3, char 7 of testfile.ss".
@@ -6098,6 +6462,10 @@ cp0.mo:Expected error in mat expand/optimize-output: "expand/optimize-output: #<
 6.mo:Expected error in mat compile-test: "read: unexpected end-of-file reading vector at line 3, char 14 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: unexpected end-of-file reading fxvector at line 3, char 14 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: unexpected end-of-file reading fxvector at line 3, char 14 of testfile.ss".
+6.mo:Expected error in mat compile-test: "read: unexpected end-of-file reading flvector at line 3, char 14 of testfile.ss".
+6.mo:Expected error in mat compile-test: "read: unexpected end-of-file reading flvector at line 3, char 14 of testfile.ss".
+6.mo:Expected error in mat compile-test: "read: unexpected end-of-file reading stencil vector at line 3, char 14 of testfile.ss".
+6.mo:Expected error in mat compile-test: "read: unexpected end-of-file reading stencil vector at line 3, char 14 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: unexpected end-of-file reading bytevector at line 3, char 14 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: unexpected end-of-file reading bytevector at line 3, char 14 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: unrecognized record name zsunekunvliwndwalv at line 2, char 3 of testfile.ss".
@@ -6127,7 +6495,10 @@ cp0.mo:Expected error in mat expand/optimize-output: "expand/optimize-output: #<
 6.mo:Expected error in mat compile-test: "read: #!bwp syntax is not allowed in #!r6rs mode at line 3, char 8 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: #vfx(...) fxvector syntax is not allowed in #!r6rs mode at line 3, char 9 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: #<n>vfx(...) fxvector syntax is not allowed in #!r6rs mode at line 3, char 9 of testfile.ss".
+6.mo:Expected error in mat compile-test: "read: #vfl(...) flvector syntax is not allowed in #!r6rs mode at line 3, char 9 of testfile.ss".
+6.mo:Expected error in mat compile-test: "read: #<n>vfl(...) flvector syntax is not allowed in #!r6rs mode at line 3, char 9 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: #<n>vu8(...) bytevector syntax is not allowed in #!r6rs mode at line 3, char 9 of testfile.ss".
+6.mo:Expected error in mat compile-test: "read: #<n>vs(...) stencil vector syntax is not allowed in #!r6rs mode at line 3, char 9 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: octal string-character syntax is not allowed in #!r6rs mode at line 3, char 8 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: non-hex back-slash symbol escape syntax is not allowed in #!r6rs mode at line 3, char 8 of testfile.ss".
 6.mo:Expected error in mat compile-test: "read: |...| symbol escape syntax is not allowed in #!r6rs mode at line 3, char 8 of testfile.ss".
@@ -7206,6 +7577,9 @@ io.mo:Expected error in mat utf-16-codec: "utf-16-codec: invalid endianness #f".
 io.mo:Expected error in mat to-fold-or-not-to-fold: "get-datum: invalid character name #\newLine at char 0 of #<input port string>".
 io.mo:Expected error in mat to-fold-or-not-to-fold: "get-datum: invalid character name #\newLine at char 15 of #<input port string>".
 io.mo:Expected error in mat to-fold-or-not-to-fold: "get-datum: invalid character name #\newLine at char 15 of #<input port string>".
+io.mo:Expected error in mat print-parameters: "print-precision: "off" is not a positive exact integer or #f".
+io.mo:Expected error in mat print-parameters: "print-select-flonum-exponential-format: #f is not a procedure".
+io.mo:Expected error in mat print-parameters: "print-select-flonum-exponential-format: 0 is not a procedure".
 format.mo:Expected error in mat format-errors: "format: too few arguments for control string "hi ~s"".
 format.mo:Expected error in mat format-errors: "format: too many arguments for control string "hi ~s"".
 format.mo:Expected error in mat format-errors: "format: incomplete format directive "~"".
@@ -7489,7 +7863,7 @@ format.mo:Expected error in mat format-dollar: "format: expected real number for
 7.mo:Expected error in mat exit: "exit: unexpected return from exit handler".
 7.mo:Expected error in mat abort: "abort: unexpected return from abort handler".
 7.mo:Expected error in mat collect: "collect-maximum-generation: invalid generation -1".
-7.mo:Expected error in mat collect: "collect-maximum-generation: 10000 exceeds maximum supported value 254".
+7.mo:Expected error in mat collect: "collect-maximum-generation: 10000 exceeds maximum supported value 6".
 7.mo:Expected error in mat collect: "collect-maximum-generation: invalid generation static".
 7.mo:Expected error in mat collect: "release-minimum-generation: invalid generation -1".
 7.mo:Expected error in mat collect: "release-minimum-generation: new release minimum generation must not be be greater than collect-maximum-generation".
@@ -7737,7 +8111,7 @@ record.mo:Expected error in mat record22: "record-field-mutable?: unrecognized f
 record.mo:Expected error in mat record22: "make-record-type: invalid field specifier (mutable creepy q)".
 record.mo:Expected error in mat record22: "invalid field specifier (immutable creepy q)".
 record.mo:Expected error in mat record22: "invalid field specifier (immutable creepy q)".
-record.mo:Expected error in mat record23: "make-record-type: cannot extend sealed record type #<record type foo>".
+record.mo:Expected error in mat record23: "make-record-type: cannot extend sealed record type #<record type foo> as bar".
 record.mo:Expected error in mat record25: "invalid value 1.0 for foreign type int".
 record.mo:Expected error in mat record25: "invalid value 2.0 for foreign type unsigned".
 record.mo:Expected error in mat record25: "invalid value three for foreign type unsigned-int".
@@ -7749,7 +8123,7 @@ record.mo:Expected error in mat record25: "invalid value ate for foreign type ip
 record.mo:Expected error in mat record25: "invalid value #\9 for foreign type uptr".
 record.mo:Expected error in mat record25: "invalid value 10 for foreign type float".
 record.mo:Expected error in mat record25: "invalid value 11.0+0.0i for foreign type double".
-record.mo:Expected error in mat record25: "incorrect number of arguments to #<procedure make-r25-bar>".
+record.mo:Expected error in mat record25: "incorrect number of arguments 18 to #<procedure make-r25-bar>".
 record.mo:Expected error in mat record25: "invalid value 12.0 for foreign type long-long".
 record.mo:Expected error in mat record25: "invalid value 13.0 for foreign type unsigned-long-long".
 record.mo:Expected error in mat record25: "invalid value 3.0 for foreign type int".
@@ -7780,52 +8154,55 @@ record.mo:Expected error in mat record-type-mismatch: "make-record-type: incompa
 record.mo:Expected error in mat record-type-mismatch: "define-record-type: incompatible record type flotsam - different mutability".
 record.mo:Expected error in mat record-type-mismatch: "define-record-type: incompatible record type flotsam - different flags".
 record.mo:Expected error in mat record-type-mismatch: "define-record-type: incompatible record type flotsam - different flags".
+record.mo:Expected error in mat r6rs-records-procedural: "make-record-type-descriptor: cannot make anonymous-field record type bar from named-field parent record type #<record type foo>".
+record.mo:Expected error in mat r6rs-records-procedural: "make-record-type-descriptor: cannot make named-field record type bar from anonymous-field parent record type #<record type foo>".
 record.mo:Expected error in mat r6rs-records-procedural: "make-record-constructor-descriptor: record constructor descriptor #<record constructor descriptor> specified for base record type #<record type foo2>".
 record.mo:Expected error in mat r6rs-records-procedural: "make-record-constructor-descriptor: invalid protocol (ugly . ducking)".
 record.mo:Expected error in mat r6rs-records-procedural: "make-record-constructor-descriptor: invalid protocol flimflam".
 record.mo:Expected error in mat r6rs-records-procedural: "attempt to apply non-procedure not-a-procedure".
 record.mo:Expected error in mat r6rs-records-procedural: "attempt to apply non-procedure spam".
-record.mo:Expected error in mat r6rs-records-procedural: "incorrect number of arguments to #<procedure constructor>".
-record.mo:Expected error in mat r6rs-records-procedural: "incorrect number of arguments to #<procedure constructor>".
-record.mo:Expected error in mat r6rs-records-procedural: "incorrect number of arguments to #<procedure>".
-record.mo:Expected error in mat r6rs-records-procedural: "incorrect number of arguments to #<procedure>".
-record.mo:Expected error in mat r6rs-records-procedural: "incorrect number of arguments to #<procedure>".
-record.mo:Expected error in mat r6rs-records-procedural: "incorrect number of arguments to #<procedure>".
-record.mo:Expected error in mat r6rs-records-procedural: "incorrect number of arguments to #<procedure constructor>".
-record.mo:Expected error in mat r6rs-records-procedural: "incorrect number of arguments to #<procedure constructor>".
+record.mo:Expected error in mat r6rs-records-procedural: "incorrect number of arguments 4 to #<procedure constructor>".
+record.mo:Expected error in mat r6rs-records-procedural: "incorrect number of arguments 2 to #<procedure constructor>".
+record.mo:Expected error in mat r6rs-records-procedural: "incorrect number of arguments 3 to #<procedure>".
+record.mo:Expected error in mat r6rs-records-procedural: "incorrect number of arguments 1 to #<procedure>".
+record.mo:Expected error in mat r6rs-records-procedural: "incorrect number of arguments 1 to #<procedure>".
+record.mo:Expected error in mat r6rs-records-procedural: "incorrect number of arguments 3 to #<procedure>".
+record.mo:Expected error in mat r6rs-records-procedural: "incorrect number of arguments 3 to #<procedure constructor>".
+record.mo:Expected error in mat r6rs-records-procedural: "incorrect number of arguments 4 to #<procedure constructor>".
 record.mo:Expected error in mat r6rs-records-procedural: "make-record-constructor-descriptor: record constructor descriptor #<record constructor descriptor> is not for parent of record type #<record type grand-child>".
-record.mo:Expected error in mat r6rs-records-procedural: "make-record-type-descriptor: cannot extend sealed record type #<record type bar>".
+record.mo:Expected error in mat r6rs-records-procedural: "make-record-type-descriptor: cannot extend sealed record type #<record type bar> as foo".
 record.mo:Expected error in mat r6rs-records-syntactic: "invalid syntax point".
-record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments to #<procedure constructor>".
-record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments to #<procedure constructor>".
-record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments to #<procedure constructor>".
-record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments to #<procedure predicate>".
-record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments to #<procedure predicate>".
+record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments 0 to #<procedure constructor>".
+record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments 1 to #<procedure constructor>".
+record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments 3 to #<procedure constructor>".
+record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments 0 to #<procedure predicate>".
+record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments 2 to #<procedure predicate>".
 record.mo:Expected error in mat r6rs-records-syntactic: "variable point-x-set! is not bound".
 record.mo:Expected error in mat r6rs-records-syntactic: "variable point-y-set! is not bound".
-record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments to #<procedure accessor>".
-record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments to #<procedure accessor>".
+record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments 0 to #<procedure accessor>".
+record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments 2 to #<procedure accessor>".
 record.mo:Expected error in mat r6rs-records-syntactic: "record-mutator: field 0 of #<record type point> is immutable".
 record.mo:Expected error in mat r6rs-records-syntactic: "record-mutator: field 1 of #<record type point> is immutable".
+record.mo:Expected error in mat r6rs-records-syntactic: "r6rs:make-record-type-descriptor: invalid field vector (1 . 1)".
 record.mo:Expected error in mat r6rs-records-syntactic: "invalid syntax point".
-record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments to #<procedure constructor>".
-record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments to #<procedure constructor>".
-record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments to #<procedure constructor>".
-record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments to #<procedure predicate>".
-record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments to #<procedure predicate>".
+record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments 0 to #<procedure constructor>".
+record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments 1 to #<procedure constructor>".
+record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments 3 to #<procedure constructor>".
+record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments 0 to #<procedure predicate>".
+record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments 2 to #<procedure predicate>".
 record.mo:Expected error in mat r6rs-records-syntactic: "variable point-x-set! is not bound".
 record.mo:Expected error in mat r6rs-records-syntactic: "variable point-y-set! is not bound".
-record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments to #<procedure accessor>".
-record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments to #<procedure accessor>".
-record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments to #<procedure mutator>".
-record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments to #<procedure mutator>".
-record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments to #<procedure mutator>".
-record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments to #<procedure mutator>".
-record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments to #<procedure mutator>".
-record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments to #<procedure mutator>".
-record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments to #<procedure mutator>".
-record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments to #<procedure mutator>".
-record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments to #<procedure mutator>".
+record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments 0 to #<procedure accessor>".
+record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments 2 to #<procedure accessor>".
+record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments 0 to #<procedure mutator>".
+record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments 1 to #<procedure mutator>".
+record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments 3 to #<procedure mutator>".
+record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments 0 to #<procedure mutator>".
+record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments 1 to #<procedure mutator>".
+record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments 3 to #<procedure mutator>".
+record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments 0 to #<procedure mutator>".
+record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments 1 to #<procedure mutator>".
+record.mo:Expected error in mat r6rs-records-syntactic: "incorrect number of arguments 3 to #<procedure mutator>".
 record.mo:Expected error in mat r6rs-records-syntactic: "record-rtd: #<ex3> is not a record".
 record.mo:Expected error in mat r6rs-records-syntactic: "record-rtd: #<ex3> is not a record".
 record.mo:Expected error in mat r6rs-records-syntactic: "parent record type is sealed ex3".
@@ -7879,8 +8256,8 @@ hash.mo:Expected error in mat old-hash-table: "put-hash-table!: ((a . b)) is not
 hash.mo:Expected error in mat old-hash-table: "remove-hash-table!: ((a . b)) is not an eq hashtable".
 hash.mo:Expected error in mat old-hash-table: "hash-table-map: ((a . b)) is not an eq hashtable".
 hash.mo:Expected error in mat old-hash-table: "hash-table-for-each: ((a . b)) is not an eq hashtable".
-hash.mo:Expected error in mat old-hash-table: "incorrect number of arguments to #<procedure>".
-hash.mo:Expected error in mat old-hash-table: "incorrect number of arguments to #<procedure>".
+hash.mo:Expected error in mat old-hash-table: "incorrect number of arguments 2 to #<procedure>".
+hash.mo:Expected error in mat old-hash-table: "incorrect number of arguments 2 to #<procedure>".
 hash.mo:Expected error in mat hashtable-arguments: "incorrect argument count in call (make-eq-hashtable 3 #t)".
 hash.mo:Expected error in mat hashtable-arguments: "make-eq-hashtable: invalid size argument -1".
 hash.mo:Expected error in mat hashtable-arguments: "make-eq-hashtable: invalid size argument #t".
@@ -7934,6 +8311,12 @@ hash.mo:Expected error in mat hashtable-arguments: "incorrect argument count in 
 hash.mo:Expected error in mat hashtable-arguments: "incorrect argument count in call (hashtable-cell $ht (quote a))".
 hash.mo:Expected error in mat hashtable-arguments: "incorrect argument count in call (hashtable-cell $ht (quote a) (quote b) (quote c))".
 hash.mo:Expected error in mat hashtable-arguments: "hashtable-cell: (hash . table) is not a hashtable".
+hash.mo:Expected error in mat hashtable-arguments: "hashtable-cell: #<eq hashtable> is not mutable".
+hash.mo:Expected error in mat hashtable-arguments: "incorrect argument count in call (hashtable-ref-cell)".
+hash.mo:Expected error in mat hashtable-arguments: "incorrect argument count in call (hashtable-ref-cell $ht)".
+hash.mo:Expected error in mat hashtable-arguments: "incorrect argument count in call (hashtable-ref-cell $ht (quote a) (quote b))".
+hash.mo:Expected error in mat hashtable-arguments: "hashtable-ref-cell: (hash . table) is not a hashtable".
+hash.mo:Expected error in mat hashtable-arguments: "hashtable-ref-cell: #<eq hashtable> is not mutable".
 hash.mo:Expected error in mat hashtable-arguments: "incorrect argument count in call (hashtable-delete!)".
 hash.mo:Expected error in mat hashtable-arguments: "incorrect argument count in call (hashtable-delete! $ht)".
 hash.mo:Expected error in mat hashtable-arguments: "incorrect argument count in call (hashtable-delete! $ht (quote a) (quote b))".
@@ -7972,9 +8355,12 @@ hash.mo:Expected error in mat hashtable-arguments: "incorrect argument count in 
 hash.mo:Expected error in mat hashtable-arguments: "hashtable-entries: (hash . table) is not a hashtable".
 hash.mo:Expected error in mat hashtable-arguments: "incorrect argument count in call (hashtable-cells)".
 hash.mo:Expected error in mat hashtable-arguments: "incorrect argument count in call (hashtable-cells $ht 72 43)".
+hash.mo:Expected error in mat hashtable-arguments: "hashtable-cells: 5 is not a hashtable".
 hash.mo:Expected error in mat hashtable-arguments: "hashtable-cells: (hash . table) is not a hashtable".
 hash.mo:Expected error in mat hashtable-arguments: "hashtable-cells: -79 is not a valid length".
 hash.mo:Expected error in mat hashtable-arguments: "hashtable-cells: not-an-unsigned-integer is not a valid length".
+hash.mo:Expected error in mat hashtable-arguments: "hashtable-cells: #<eq hashtable> is not mutable".
+hash.mo:Expected error in mat hashtable-arguments: "hashtable-cells: #<eq hashtable> is not mutable".
 hash.mo:Expected error in mat hashtable-arguments: "incorrect argument count in call (hashtable-hash-function)".
 hash.mo:Expected error in mat hashtable-arguments: "incorrect argument count in call (hashtable-hash-function $ht $ht)".
 hash.mo:Expected error in mat hashtable-arguments: "hashtable-hash-function: (hash . table) is not an eq hashtable".
@@ -8002,6 +8388,9 @@ hash.mo:Expected error in mat hash-return-value: "hashtable-update!: invalid has
 hash.mo:Expected error in mat hash-return-value: "hashtable-cell: invalid hash-function #<procedure> return value "oops" for any".
 hash.mo:Expected error in mat hash-return-value: "hashtable-cell: invalid hash-function #<procedure> return value 3.5 for any".
 hash.mo:Expected error in mat hash-return-value: "hashtable-cell: invalid hash-function #<procedure> return value 1+2i for any".
+hash.mo:Expected error in mat hash-return-value: "hashtable-ref-cell: invalid hash-function #<procedure> return value "oops" for any".
+hash.mo:Expected error in mat hash-return-value: "hashtable-ref-cell: invalid hash-function #<procedure> return value 3.5 for any".
+hash.mo:Expected error in mat hash-return-value: "hashtable-ref-cell: invalid hash-function #<procedure> return value 1+2i for any".
 hash.mo:Expected error in mat hash-return-value: "hashtable-delete!: invalid hash-function #<procedure> return value "oops" for any".
 hash.mo:Expected error in mat hash-return-value: "hashtable-delete!: invalid hash-function #<procedure> return value 3.5 for any".
 hash.mo:Expected error in mat hash-return-value: "hashtable-delete!: invalid hash-function #<procedure> return value 1+2i for any".
@@ -8045,6 +8434,18 @@ hash.mo:Expected error in mat eq-hashtable-arguments: "incorrect argument count 
 hash.mo:Expected error in mat eq-hashtable-arguments: "incorrect argument count in call (eq-hashtable-cell $wht (quote a))".
 hash.mo:Expected error in mat eq-hashtable-arguments: "incorrect argument count in call (eq-hashtable-cell $wht (quote a) (quote b) (quote c))".
 hash.mo:Expected error in mat eq-hashtable-arguments: "eq-hashtable-cell: (hash . table) is not an eq hashtable".
+hash.mo:Expected error in mat eq-hashtable-arguments: "eq-hashtable-cell: #<eq hashtable> is not mutable".
+hash.mo:Expected error in mat eq-hashtable-arguments: "incorrect argument count in call (eq-hashtable-ref-cell)".
+hash.mo:Expected error in mat eq-hashtable-arguments: "incorrect argument count in call (eq-hashtable-ref-cell $wht)".
+hash.mo:Expected error in mat eq-hashtable-arguments: "incorrect argument count in call (eq-hashtable-ref-cell $wht (quote a) (quote b))".
+hash.mo:Expected error in mat eq-hashtable-arguments: "eq-hashtable-ref-cell: (hash . table) is not an eq hashtable".
+hash.mo:Expected error in mat eq-hashtable-arguments: "eq-hashtable-ref-cell: #<eq hashtable> is not mutable".
+hash.mo:Expected error in mat eq-hashtable-arguments: "incorrect argument count in call (eq-hashtable-try-atomic-cell)".
+hash.mo:Expected error in mat eq-hashtable-arguments: "incorrect argument count in call (eq-hashtable-try-atomic-cell $wht)".
+hash.mo:Expected error in mat eq-hashtable-arguments: "incorrect argument count in call (eq-hashtable-try-atomic-cell $wht (quote a))".
+hash.mo:Expected error in mat eq-hashtable-arguments: "incorrect argument count in call (eq-hashtable-try-atomic-cell $wht (quote a) (quote b) (quote c))".
+hash.mo:Expected error in mat eq-hashtable-arguments: "eq-hashtable-try-atomic-cell: (hash . table) is not an eq hashtable".
+hash.mo:Expected error in mat eq-hashtable-arguments: "eq-hashtable-try-atomic-cell: #<eq hashtable> is not mutable".
 hash.mo:Expected error in mat eq-hashtable-arguments: "incorrect argument count in call (eq-hashtable-weak?)".
 hash.mo:Expected error in mat eq-hashtable-arguments: "incorrect argument count in call (eq-hashtable-weak? $ht 3)".
 hash.mo:Expected error in mat eq-hashtable-arguments: "eq-hashtable-weak?: (hash . table) is not an eq hashtable".
@@ -8100,7 +8501,17 @@ hash.mo:Expected error in mat symbol-hashtable-arguments: "incorrect argument co
 hash.mo:Expected error in mat symbol-hashtable-arguments: "symbol-hashtable-cell: (hash . table) is not a symbol hashtable".
 hash.mo:Expected error in mat symbol-hashtable-arguments: "symbol-hashtable-cell: #<eq hashtable> is not a symbol hashtable".
 hash.mo:Expected error in mat symbol-hashtable-arguments: "symbol-hashtable-cell: (a) is not a symbol".
+hash.mo:Expected error in mat symbol-hashtable-arguments: "symbol-hashtable-cell: (a) is not a symbol".
 hash.mo:Expected error in mat symbol-hashtable-arguments: "symbol-hash: (a) is not a symbol".
+hash.mo:Expected error in mat symbol-hashtable-arguments: "symbol-hashtable-cell: #<hashtable> is not mutable".
+hash.mo:Expected error in mat symbol-hashtable-arguments: "incorrect argument count in call (symbol-hashtable-ref-cell)".
+hash.mo:Expected error in mat symbol-hashtable-arguments: "incorrect argument count in call (symbol-hashtable-ref-cell $symht)".
+hash.mo:Expected error in mat symbol-hashtable-arguments: "incorrect argument count in call (symbol-hashtable-ref-cell $symht (quote a) (quote b))".
+hash.mo:Expected error in mat symbol-hashtable-arguments: "symbol-hashtable-ref-cell: (hash . table) is not a symbol hashtable".
+hash.mo:Expected error in mat symbol-hashtable-arguments: "symbol-hashtable-ref-cell: #<eq hashtable> is not a symbol hashtable".
+hash.mo:Expected error in mat symbol-hashtable-arguments: "symbol-hashtable-ref-cell: (a) is not a symbol".
+hash.mo:Expected error in mat symbol-hashtable-arguments: "symbol-hash: (a) is not a symbol".
+hash.mo:Expected error in mat symbol-hashtable-arguments: "symbol-hashtable-ref-cell: #<hashtable> is not mutable".
 hash.mo:Expected error in mat eqv-hashtable-arguments: "incorrect argument count in call (make-weak-eqv-hashtable 3 #t)".
 hash.mo:Expected error in mat eqv-hashtable-arguments: "make-weak-eqv-hashtable: invalid size argument -1".
 hash.mo:Expected error in mat eqv-hashtable-arguments: "make-weak-eqv-hashtable: invalid size argument #t".
@@ -8113,6 +8524,22 @@ hash.mo:Expected error in mat generic-hashtable: "hashtable-clear!: #<hashtable>
 hash.mo:Expected error in mat generic-hashtable: "hashtable-delete!: #<hashtable> is not mutable".
 hash.mo:Expected error in mat generic-hashtable: "hashtable-update!: #<hashtable> is not mutable".
 hash.mo:Expected error in mat generic-hashtable: "hashtable-update!: #<hashtable> is not mutable".
+hash.mo:Expected error in mat generic-hashtable-arguments: "incorrect argument count in call (make-weak-hashtable)".
+hash.mo:Expected error in mat generic-hashtable-arguments: "incorrect argument count in call (make-weak-hashtable equal-hash)".
+hash.mo:Expected error in mat generic-hashtable-arguments: "incorrect argument count in call (make-weak-hashtable equal-hash equal? 45 53)".
+hash.mo:Expected error in mat generic-hashtable-arguments: "make-weak-hashtable: a is not a procedure".
+hash.mo:Expected error in mat generic-hashtable-arguments: "make-weak-hashtable: a is not a procedure".
+hash.mo:Expected error in mat generic-hashtable-arguments: "make-weak-hashtable: invalid size argument a".
+hash.mo:Expected error in mat generic-hashtable-arguments: "make-weak-hashtable: invalid size argument -45".
+hash.mo:Expected error in mat generic-hashtable-arguments: "make-weak-hashtable: invalid size argument 45.0".
+hash.mo:Expected error in mat generic-hashtable-arguments: "incorrect argument count in call (make-ephemeron-hashtable)".
+hash.mo:Expected error in mat generic-hashtable-arguments: "incorrect argument count in call (make-ephemeron-hashtable equal-hash)".
+hash.mo:Expected error in mat generic-hashtable-arguments: "incorrect argument count in call (make-ephemeron-hashtable equal-hash equal? 45 53)".
+hash.mo:Expected error in mat generic-hashtable-arguments: "make-ephemeron-hashtable: a is not a procedure".
+hash.mo:Expected error in mat generic-hashtable-arguments: "make-ephemeron-hashtable: a is not a procedure".
+hash.mo:Expected error in mat generic-hashtable-arguments: "make-ephemeron-hashtable: invalid size argument a".
+hash.mo:Expected error in mat generic-hashtable-arguments: "make-ephemeron-hashtable: invalid size argument -45".
+hash.mo:Expected error in mat generic-hashtable-arguments: "make-ephemeron-hashtable: invalid size argument 45.0".
 hash.mo:Expected error in mat hash-functions: "incorrect argument count in call (equal-hash)".
 hash.mo:Expected error in mat hash-functions: "incorrect argument count in call (equal-hash 0 0)".
 hash.mo:Expected error in mat hash-functions: "incorrect argument count in call (symbol-hash)".
@@ -8147,7 +8574,7 @@ enum.mo:Expected error in mat enumeration: "invalid syntax (define-enumeration f
 enum.mo:Expected error in mat enumeration: "invalid syntax (define-enumeration foo (a 3) bar)".
 enum.mo:Expected error in mat enumeration: "invalid syntax (foo 3)".
 enum.mo:Expected error in mat enumeration: "invalid syntax (bar 3)".
-enum.mo:Expected error in mat enumeration: "make-record-type: cannot extend sealed record type #<record type enum-type>".
+enum.mo:Expected error in mat enumeration: "make-record-type: cannot extend sealed record type #<record type enum-type> as foo".
 8.mo:Expected error in mat define-syntax: "invalid syntax (foo)".
 8.mo:Expected error in mat define-syntax: "invalid syntax (foo . a)".
 8.mo:Expected error in mat define-syntax: "invalid syntax (foo a)".
@@ -8676,11 +9103,11 @@ enum.mo:Expected error in mat enumeration: "make-record-type: cannot extend seal
 8.mo:Expected error in mat quasisyntax: "misplaced aux keyword (unsyntax-splicing)".
 8.mo:Expected error in mat quasisyntax: "misplaced aux keyword unsyntax".
 8.mo:Expected error in mat quasisyntax: "misplaced aux keyword unsyntax-splicing".
-8.mo:Expected error in mat make-compile-time-value: "incorrect number of arguments to #<procedure rho>".
+8.mo:Expected error in mat make-compile-time-value: "incorrect number of arguments 0 to #<procedure rho>".
 8.mo:Expected error in mat make-compile-time-value: "first argument to lookup procedure is not an identifier (a)".
 8.mo:Expected error in mat make-compile-time-value: "first argument to lookup procedure is not an identifier (a)".
 8.mo:Expected error in mat make-compile-time-value: "second argument to lookup procedure is not an identifier "frip"".
-8.mo:Expected error in mat make-compile-time-value: "incorrect number of arguments to #<procedure rho>".
+8.mo:Expected error in mat make-compile-time-value: "incorrect number of arguments 3 to #<procedure rho>".
 8.mo:Expected error in mat make-compile-time-value: "compile-time-value-value: 17 is not a compile-time value".
 8.mo:Expected error in mat make-compile-time-value: "invalid syntax frob".
 8.mo:Expected error in mat make-compile-time-value: "invalid syntax frob".
@@ -8874,7 +9301,6 @@ enum.mo:Expected error in mat enumeration: "make-record-type: cannot extend seal
 8.mo:Expected error in mat top-level-syntax-functions: "define-top-level-syntax: cannot modify immutable environment #<environment>".
 8.mo:Expected error in mat top-level-syntax-functions: "top-level-syntax: p is not defined".
 8.mo:Expected error in mat top-level-syntax-functions: "top-level-syntax: cond is not defined".
-8.mo:Expected error in mat annotations: "make-source-file-descriptor: #f is not a string".
 8.mo:Expected error in mat annotations: "make-source-file-descriptor: 17 is not a binary input port".
 8.mo:Expected error in mat annotations: "make-source-file-descriptor: #<input port string> is not a binary input port".
 8.mo:Expected error in mat annotations: "make-source-file-descriptor: #<binary input port foo> does not support port-position and set-port-position!".
@@ -8928,7 +9354,6 @@ enum.mo:Expected error in mat enumeration: "make-record-type: cannot extend seal
 8.mo:Expected error in mat annotations: "get-datum/annotations: #<sfd foo> is not a valid file position".
 8.mo:Expected error in mat annotations: "get-datum/annotations: -5 is not a valid file position".
 8.mo:Expected error in mat annotations: "get-datum/annotations: 5.0 is not a valid file position".
-8.mo:Expected error in mat annotations: "source-file-descriptor: spam is not a string".
 8.mo:Expected error in mat annotations: "source-file-descriptor: -1 is not an exact nonnegative integer".
 8.mo:Expected error in mat annotations: "source-file-descriptor: 1.0 is not an exact nonnegative integer".
 8.mo:Expected error in mat annotations: "locate-source: "spam" is not a source-file descriptor".
@@ -8983,8 +9408,8 @@ fx.mo:Expected error in mat fx>=?: "fx>=?: (a . b) is not a fixnum".
 fx.mo:Expected error in mat fx>=?: "fx>=?: <int> is not a fixnum".
 fx.mo:Expected error in mat fx>=?: "fx>=?: <-int> is not a fixnum".
 fx.mo:Expected error in mat fx>=?: "incorrect argument count in call (fx>=? 1)".
-fx.mo:Expected error in mat $fxu<: "incorrect number of arguments to #<procedure $fxu<>".
-fx.mo:Expected error in mat $fxu<: "incorrect number of arguments to #<procedure $fxu<>".
+fx.mo:Expected error in mat $fxu<: "incorrect number of arguments 1 to #<procedure $fxu<>".
+fx.mo:Expected error in mat $fxu<: "incorrect number of arguments 3 to #<procedure $fxu<>".
 fx.mo:Expected error in mat $fxu<: "$fxu<: <-int> is not a fixnum".
 fx.mo:Expected error in mat fx+: "fx+: (a . b) is not a fixnum".
 fx.mo:Expected error in mat fx+: "fx+: fixnum overflow with arguments <int> and 1".
@@ -9001,6 +9426,11 @@ fx.mo:Expected error in mat r6rs:fx+: "fx+: <int> is not a fixnum".
 fx.mo:Expected error in mat r6rs:fx+: "fx+: <-int> is not a fixnum".
 fx.mo:Expected error in mat r6rs:fx+: "fx+: #f is not a fixnum".
 fx.mo:Expected error in mat r6rs:fx+: "fx+: #f is not a fixnum".
+fx.mo:Expected error in mat fx+/wraparound: "fx+/wraparound: (a . b) is not a fixnum".
+fx.mo:Expected error in mat fx+/wraparound: "fx+: <int> is not a fixnum".
+fx.mo:Expected error in mat fx+/wraparound: "fx+: <int> is not a fixnum".
+fx.mo:Expected error in mat fx+/wraparound: "fx+: <-int> is not a fixnum".
+fx.mo:Expected error in mat fx+/wraparound: "fx+: <-int> is not a fixnum".
 fx.mo:Expected error in mat fx-: "fx-: (a . b) is not a fixnum".
 fx.mo:Expected error in mat fx-: "fx-: fixnum overflow with arguments <-int> and 1".
 fx.mo:Expected error in mat fx-: "fx-: <int> is not a fixnum".
@@ -9013,6 +9443,11 @@ fx.mo:Expected error in mat r6rs:fx-: "fx-: <int> is not a fixnum".
 fx.mo:Expected error in mat r6rs:fx-: "fx-: <-int> is not a fixnum".
 fx.mo:Expected error in mat r6rs:fx-: "fx-: #f is not a fixnum".
 fx.mo:Expected error in mat r6rs:fx-: "fx-: #f is not a fixnum".
+fx.mo:Expected error in mat fx-/wraparound: "fx-/wraparound: (a . b) is not a fixnum".
+fx.mo:Expected error in mat fx-/wraparound: "fx-: <int> is not a fixnum".
+fx.mo:Expected error in mat fx-/wraparound: "fx-: <int> is not a fixnum".
+fx.mo:Expected error in mat fx-/wraparound: "fx-: <-int> is not a fixnum".
+fx.mo:Expected error in mat fx-/wraparound: "fx-: <-int> is not a fixnum".
 fx.mo:Expected error in mat fx*: "fx*: (a . b) is not a fixnum".
 fx.mo:Expected error in mat fx*: "fx*: fixnum overflow with arguments <int> and 2".
 fx.mo:Expected error in mat fx*: "fx*: <int> is not a fixnum".
@@ -9025,6 +9460,11 @@ fx.mo:Expected error in mat r6rs:fx*: "fx*: <int> is not a fixnum".
 fx.mo:Expected error in mat r6rs:fx*: "fx*: <-int> is not a fixnum".
 fx.mo:Expected error in mat r6rs:fx*: "fx*: #f is not a fixnum".
 fx.mo:Expected error in mat r6rs:fx*: "fx*: #f is not a fixnum".
+fx.mo:Expected error in mat fx*/wraparound: "fx*/wraparound: (a . b) is not a fixnum".
+fx.mo:Expected error in mat fx*/wraparound: "fx*: <int> is not a fixnum".
+fx.mo:Expected error in mat fx*/wraparound: "fx*: <int> is not a fixnum".
+fx.mo:Expected error in mat fx*/wraparound: "fx*: <-int> is not a fixnum".
+fx.mo:Expected error in mat fx*/wraparound: "fx*: <-int> is not a fixnum".
 fx.mo:Expected error in mat fxquotient: "fxquotient: (a . b) is not a fixnum".
 fx.mo:Expected error in mat fxquotient: "fxquotient: attempt to divide by zero".
 fx.mo:Expected error in mat fxquotient: "fxquotient: <int> is not a fixnum".
@@ -9145,6 +9585,14 @@ fx.mo:Expected error in mat fxarithmetic-shift-left: "fxarithmetic-shift-left: f
 fx.mo:Expected error in mat fxarithmetic-shift-left: "fxarithmetic-shift-left: fixnum overflow with arguments <int> and 10".
 fx.mo:Expected error in mat fxarithmetic-shift-left: "fxarithmetic-shift-left: fixnum overflow with arguments -4097 and <int>".
 fx.mo:Expected error in mat fxarithmetic-shift-left: "fxarithmetic-shift-left: fixnum overflow with arguments <-int> and 1".
+fx.mo:Expected error in mat fsll/wraparound: "fxsll/wraparound: (a . b) is not a fixnum".
+fx.mo:Expected error in mat fsll/wraparound: "fxsll/wraparound: invalid shift count -3".
+fx.mo:Expected error in mat fsll/wraparound: "fxsll/wraparound: invalid shift count 1000".
+fx.mo:Expected error in mat fsll/wraparound: "fxsll/wraparound: invalid shift count -1000".
+fx.mo:Expected error in mat fsll/wraparound: "fxsll: <int> is not a fixnum".
+fx.mo:Expected error in mat fsll/wraparound: "fxsll: <int> is not a fixnum".
+fx.mo:Expected error in mat fsll/wraparound: "fxsll: <-int> is not a fixnum".
+fx.mo:Expected error in mat fsll/wraparound: "fxsll: <-int> is not a fixnum".
 fx.mo:Expected error in mat fxsrl: "fxsrl: invalid shift count -1".
 fx.mo:Expected error in mat fxsrl: "fxsrl: invalid shift count <int>".
 fx.mo:Expected error in mat fxsrl: "fxsrl: a is not a fixnum".
@@ -9627,6 +10075,12 @@ fl.mo:Expected error in mat flround: "flround: 2.0+1.0i is not a flonum".
 fl.mo:Expected error in mat flround: "flround: 2+1i is not a flonum".
 fl.mo:Expected error in mat flround: "flround: 19 is not a flonum".
 fl.mo:Expected error in mat flround: "flround: 2/3 is not a flonum".
+fl.mo:Expected error in mat flsingle: "incorrect argument count in call (flsingle)".
+fl.mo:Expected error in mat flsingle: "incorrect argument count in call (flsingle 2.0 3.0)".
+fl.mo:Expected error in mat flsingle: "flsingle: a is not a flonum".
+fl.mo:Expected error in mat flsingle: "flsingle: 3 is not a flonum".
+fl.mo:Expected error in mat flsingle: "flsingle: 2.0+1.0i is not a flonum".
+fl.mo:Expected error in mat flsingle: "flsingle: 2+1i is not a flonum".
 fl.mo:Expected error in mat flinteger?: "flinteger?: a is not a flonum".
 fl.mo:Expected error in mat flinteger?: "flinteger?: "hi" is not a flonum".
 fl.mo:Expected error in mat flinteger?: "flinteger?: (3 . 4) is not a flonum".
@@ -9875,6 +10329,7 @@ foreign.mo:Expected error in mat foreign-fixed-types: "foreign-callable: invalid
 foreign.mo:Expected error in mat foreign-fixed-types: "foreign-callable: invalid return value (- x 7) from #<procedure>".
 foreign.mo:Expected error in mat foreign-fixed-types: "foreign-callable: invalid return value (- x 7) from #<procedure>".
 foreign.mo:Expected error in mat foreign-fixed-types: "foreign-callable: invalid return value (- x 7) from #<procedure>".
+foreign.mo:Expected error in mat foreign-fixed-types: "foreign-callable: invalid return value (- x 7) from #<procedure>".
 foreign.mo:Expected error in mat foreign-C-types: "int-to-int: invalid foreign-procedure argument qqq".
 foreign.mo:Expected error in mat foreign-C-types: "unsigned-to-unsigned: invalid foreign-procedure argument qqq".
 foreign.mo:Expected error in mat foreign-C-types: "unsigned-int-to-unsigned-int: invalid foreign-procedure argument qqq".
@@ -9932,8 +10387,8 @@ foreign.mo:Expected error in mat foreign-ftype: "invalid foreign-procedure resul
 foreign.mo:Expected error in mat foreign-ftype: "invalid foreign-procedure result type specifier hag".
 foreign.mo:Expected error in mat foreign-ftype: "invalid (non-base) foreign-procedure argument ftype A".
 foreign.mo:Expected error in mat foreign-ftype: "invalid (non-base) foreign-procedure result ftype A".
-foreign.mo:Expected error in mat foreign-ftype: "invalid (swapped) foreign-procedure argument ftype swap-fixnum".
-foreign.mo:Expected error in mat foreign-ftype: "invalid (swapped) foreign-procedure result ftype swap-fixnum".
+foreign.mo:Expected error in mat foreign-ftype: "invalid (not native) foreign-procedure argument ftype swap-fixnum".
+foreign.mo:Expected error in mat foreign-ftype: "invalid (not native) foreign-procedure result ftype swap-fixnum".
 foreign.mo:Expected error in mat foreign-ftype: "invalid syntax (define-ftype foo (function "wtf" () void) +)".
 foreign.mo:Expected error in mat foreign-ftype: "invalid function-ftype convention "wtf"".
 foreign.mo:Expected error in mat foreign-ftype: "invalid function-ftype argument type specifier void".
@@ -9965,6 +10420,14 @@ foreign.mo:Expected error in mat collect-safe: "foreign-callable: string result 
 foreign.mo:Expected error in mat collect-safe: "foreign-callable: string result not allowed with __collect_safe callable".
 foreign.mo:Expected error in mat collect-safe: "foreign-callable: string result not allowed with __collect_safe callable".
 foreign.mo:Expected error in mat collect-safe: "foreign-callable: string result not allowed with __collect_safe callable".
+foreign.mo:Expected error in mat reference-bytevector: "make-reference-bytevector: -1 is not a valid bytevector length".
+foreign.mo:Expected error in mat reference-bytevector: "bytevector-reference-ref: #vu8(1 2 3) is not a reference bytevector".
+foreign.mo:Expected error in mat reference-bytevector: "bytevector-reference-ref: invalid index -8 for #vu8(0 0 0 0 0 0 ...)".
+foreign.mo:Expected error in mat reference-bytevector: "bytevector-reference-ref: invalid index oops for #vu8(0 0 0 0 0 0 ...)".
+foreign.mo:Expected error in mat reference-bytevector: "bytevector-reference*-ref: invalid index -8 for #vu8(0 0 0 0 0 0 ...)".
+foreign.mo:Expected error in mat reference-bytevector: "bytevector-reference*-ref: invalid index oops for #vu8(0 0 0 0 0 0 ...)".
+foreign.mo:Expected error in mat reference-bytevector: "reference-address->object: invalid address #f".
+foreign.mo:Expected error in mat reference-bytevector: "reference*-address->object: invalid address #f".
 ftype.mo:Expected error in mat ftype: "unexpected function ftype outside pointer field (function #f (int) int)".
 ftype.mo:Expected error in mat ftype: "unexpected function ftype outside pointer field (function #f (int) int)".
 ftype.mo:Expected error in mat ftype: "unexpected function ftype outside pointer field (function #f (int) int)".
@@ -10186,7 +10649,7 @@ ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-b
 ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-base-type field unsupported (ftype-locked-incr! A (f f2 0) x)".
 ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-integer or non-word-size field unsupported (ftype-locked-incr! A (f f2 0 f3a) x)".
 ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-base-type field unsupported (ftype-locked-incr! A (g) x)".
-ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on swapped field unsupported (ftype-locked-incr! A (h) x)".
+ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-native field unsupported (ftype-locked-incr! A (h) x)".
 ftype.mo:Expected error in mat ftype-lock-operations: "invalid syntax (ftype-locked-decr!)".
 ftype.mo:Expected error in mat ftype-lock-operations: "invalid syntax (ftype-locked-decr! A)".
 ftype.mo:Expected error in mat ftype-lock-operations: "invalid syntax (ftype-locked-decr! A x)".
@@ -10202,7 +10665,7 @@ ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-b
 ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-base-type field unsupported (ftype-locked-decr! A (f f2 0) x)".
 ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-integer or non-word-size field unsupported (ftype-locked-decr! A (f f2 0 f3a) x)".
 ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-base-type field unsupported (ftype-locked-decr! A (g) x)".
-ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on swapped field unsupported (ftype-locked-decr! A (h) x)".
+ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-native field unsupported (ftype-locked-decr! A (h) x)".
 ftype.mo:Expected error in mat ftype-lock-operations: "invalid syntax (ftype-init-lock!)".
 ftype.mo:Expected error in mat ftype-lock-operations: "invalid syntax (ftype-init-lock! A)".
 ftype.mo:Expected error in mat ftype-lock-operations: "invalid syntax (ftype-init-lock! A x)".
@@ -10218,7 +10681,7 @@ ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-b
 ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-base-type field unsupported (ftype-init-lock! A (f f2 0) x)".
 ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-integer or non-word-size field unsupported (ftype-init-lock! A (f f2 0 f3a) x)".
 ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-base-type field unsupported (ftype-init-lock! A (g) x)".
-ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on swapped field unsupported (ftype-init-lock! A (h) x)".
+ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-native field unsupported (ftype-init-lock! A (h) x)".
 ftype.mo:Expected error in mat ftype-lock-operations: "invalid syntax (ftype-lock!)".
 ftype.mo:Expected error in mat ftype-lock-operations: "invalid syntax (ftype-lock! A)".
 ftype.mo:Expected error in mat ftype-lock-operations: "invalid syntax (ftype-lock! A x)".
@@ -10234,7 +10697,7 @@ ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-b
 ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-base-type field unsupported (ftype-lock! A (f f2 0) x)".
 ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-integer or non-word-size field unsupported (ftype-lock! A (f f2 0 f3a) x)".
 ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-base-type field unsupported (ftype-lock! A (g) x)".
-ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on swapped field unsupported (ftype-lock! A (h) x)".
+ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-native field unsupported (ftype-lock! A (h) x)".
 ftype.mo:Expected error in mat ftype-lock-operations: "invalid syntax (ftype-spin-lock!)".
 ftype.mo:Expected error in mat ftype-lock-operations: "invalid syntax (ftype-spin-lock! A)".
 ftype.mo:Expected error in mat ftype-lock-operations: "invalid syntax (ftype-spin-lock! A x)".
@@ -10250,7 +10713,7 @@ ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-b
 ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-base-type field unsupported (ftype-spin-lock! A (f f2 0) x)".
 ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-integer or non-word-size field unsupported (ftype-spin-lock! A (f f2 0 f3a) x)".
 ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-base-type field unsupported (ftype-spin-lock! A (g) x)".
-ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on swapped field unsupported (ftype-spin-lock! A (h) x)".
+ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-native field unsupported (ftype-spin-lock! A (h) x)".
 ftype.mo:Expected error in mat ftype-lock-operations: "invalid syntax (ftype-unlock!)".
 ftype.mo:Expected error in mat ftype-lock-operations: "invalid syntax (ftype-unlock! A)".
 ftype.mo:Expected error in mat ftype-lock-operations: "invalid syntax (ftype-unlock! A x)".
@@ -10266,7 +10729,7 @@ ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-b
 ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-base-type field unsupported (ftype-unlock! A (f f2 0) x)".
 ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-integer or non-word-size field unsupported (ftype-unlock! A (f f2 0 f3a) x)".
 ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-base-type field unsupported (ftype-unlock! A (g) x)".
-ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on swapped field unsupported (ftype-unlock! A (h) x)".
+ftype.mo:Expected error in mat ftype-lock-operations: "locked operation on non-native field unsupported (ftype-unlock! A (h) x)".
 ftype.mo:Expected error in mat ftype-bits: "ftype-set!: invalid value 113886 for bit field of size 1".
 ftype.mo:Expected error in mat ftype-bits: "ftype-set!: invalid value #\a for bit field of size 3".
 ftype.mo:Expected error in mat ftype-bits: "ftype-set!: invalid value oops for bit field of size 14".
@@ -10510,10 +10973,10 @@ date.mo:Expected error in mat conversions/sleep: "sleep: 20 is not a time record
 exceptions.mo:Expected error in mat assert: "failed assertion (memq (quote b) (quote (1 2 a 3 4)))".
 exceptions.mo:Expected error in mat assert: "failed assertion (q ...)".
 exceptions.mo:Expected error in mat assert: "failed assertion (andmap symbol? (syntax (x ...)))".
-oop.mo:Expected error in mat oop: "incorrect number of arguments to #<procedure make-<a>>".
-oop.mo:Expected error in mat oop: "incorrect number of arguments to #<procedure make-<a>>".
-oop.mo:Expected error in mat oop: "incorrect number of arguments to #<procedure m1>".
-oop.mo:Expected error in mat oop: "incorrect number of arguments to #<procedure m1>".
+oop.mo:Expected error in mat oop: "incorrect number of arguments 0 to #<procedure make-<a>>".
+oop.mo:Expected error in mat oop: "incorrect number of arguments 2 to #<procedure make-<a>>".
+oop.mo:Expected error in mat oop: "incorrect number of arguments 1 to #<procedure m1>".
+oop.mo:Expected error in mat oop: "incorrect number of arguments 3 to #<procedure m1>".
 oop.mo:Expected error in mat oop: "m1: not applicable to 17".
 oop.mo:Expected error in mat oop: "variable <a>-x1 is not bound".
 oop.mo:Expected error in mat oop: "variable <a>-x1-set! is not bound".

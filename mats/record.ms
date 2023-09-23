@@ -728,10 +728,14 @@
 (mat foreign-data
   (begin
     (module ($fd-unaligned-integers $fd-unaligned-floats)
+      (import (rename (only (chezscheme) include) [include orig-include]))
       (define-syntax define-constant
         (syntax-rules (machine-type)
           [(_ machine-type y) (begin)]
           [(_ x y) (define x y)]))
+      (define-syntax define-constant-default
+        (syntax-rules (machine-type)
+          [(_ x y) (begin)]))
       (define-syntax features
         (syntax-rules ()
           [(_ x ...) (begin)]))
@@ -751,14 +755,12 @@
              ...
              [else (syntax-error const
                      (format "unhandled value ~s" (constant const)))])]))
-      (define-syntax include-from-s
-        (lambda (x)
-          (syntax-case x ()
-            [(k ?path)
-             (string? (datum ?path))
-             (let ([s-path (format "~a/../s/~a" *mats-dir* (datum ?path))])
-               (datum->syntax #'k `(include ,s-path)))])))
-      (include-from-s "machine.def")
+       (define-syntax include ; defining `include` so that a ".def" can `include` other ".def"s
+         (lambda (stx)
+           (syntax-case stx ()
+             [(k path)
+              #`(#,(datum->syntax #'k 'orig-include) #,(find-source (datum path)))])))
+       (include "machine.def")
      ; all this work for two constants:
       (define $fd-unaligned-integers (constant unaligned-integers))
       (define $fd-unaligned-floats (constant unaligned-floats)))
@@ -4077,6 +4079,26 @@
         (let ([record? #%$sealed-record?])
           (list (record? 3 Dtd) (record? a Dtd) (record? b Dtd) (record? c Dtd) (record? d Dtd) (record? e Dtd)))
         '(#f #f #f #f #t #f))))
+    (begin
+      (define (get-supertype-uid) '#{supertype a3utgl1aoz8jzrg100-0})
+      (define (get-subtype-uid) '#{subtype a3utgl1aoz8jzrg100-1})
+      (define $keep-rtd (make-record-type-descriptor 'supertype #f (get-supertype-uid) #f #f (cons 1 1)))
+      (define $keep-rtd2 (make-record-type-descriptor 'subtype $keep-rtd (get-subtype-uid) #f #f (cons 1 1)))
+      (let ()
+        (define rtd (make-record-type-descriptor 'supertype #f (get-supertype-uid) #f #f (cons 1 1)))
+        (define rtd2 (make-record-type-descriptor 'subtype rtd (get-subtype-uid) #f #f (cons 1 1)))
+        (define val ((record-constructor rtd2) 0 1))
+        (record? val rtd)))
+    (eval `(let ()
+             (define rtd (make-record-type-descriptor 'supertype #f (get-supertype-uid) #f #f (cons 1 1)))
+             (define rtd2 (make-record-type-descriptor 'subtype rtd (get-subtype-uid) #f #f (cons 1 1)))
+             (define val ',(read (open-string-input-port "#[#{supertype a3utgl1aoz8jzrg100-0} 0]")))
+             (record? val rtd)))
+    (eval `(let ()
+             (define rtd (make-record-type-descriptor 'supertype #f (get-supertype-uid) #f #f (cons 1 1)))
+             (define rtd2 (make-record-type-descriptor 'subtype rtd (get-subtype-uid) #f #f (cons 1 1)))
+             (define val ',(read (open-string-input-port "#[#{subtype a3utgl1aoz8jzrg100-1} 0 1]")))
+             (record? val rtd)))
 )
 
 (mat record-type-mismatch
@@ -4123,7 +4145,7 @@
           (equal?
             (cdr x)
             '(765 45 25 #t #t #f #f #t #t #f foo bar #1(x) #2(y z) #f #t
-                  (#t #f) (#f #f) (#f #t) #t pluto))))
+                  (#t #f) (#f #f) (#f #t) #t pluto #t #t))))
     (let ()
       (define prtd
         (make-record-type-descriptor 'foo #f #f #f #f
@@ -4159,7 +4181,55 @@
         (list (record-type-opaque? prtd) (record-type-opaque? rtd))
         (list (record-type-sealed? prtd) (record-type-sealed? rtd))
         (gensym? (record-type-uid prtd))
-        (record-type-uid rtd))))
+        (record-type-uid rtd)
+        (record-type-has-named-fields? prtd)
+        (record-type-has-named-fields? rtd))))
+
+  ((lambda (x)
+     (and (list? x)
+          (record? (car x))
+          (equal?
+            (cdr x)
+            '(765 45 25 #t #t #f #f #t #t #f foo bar #1(field) #2(field field) #f #t
+                  (#t #f) (#f #f) (#f #t) #t anonymous-pluto #f #f))))
+    (let ()
+      (define prtd
+        (make-record-type-descriptor 'foo #f #f #f #f
+          '(1 . 1)))
+      (define rtd
+        (make-record-type-descriptor 'bar prtd 'anonymous-pluto #t #f
+          '(2 . 1)))
+      (define rcd (make-record-constructor-descriptor rtd #f #f))
+      (define rc (r6rs:record-constructor rcd))
+      (define foo-x (record-accessor prtd 0))
+      (define foo-x! (record-mutator prtd 0))
+      (define bar-y (record-accessor rtd 0))
+      (define bar-y! (record-mutator rtd 0))
+      (define bar-z (record-accessor rtd 1))
+      (define x (rc 17 20 25))
+      (bar-y! x (+ (bar-y x) (bar-z x)))
+      (foo-x! x (* (bar-y x) (foo-x x)))
+      (list x (foo-x x) (bar-y x) (bar-z x)
+        (record-type-descriptor? rtd)
+        (record-constructor-descriptor? rcd)
+        (record-type-descriptor? rcd)
+        (record-constructor-descriptor? rtd)
+        (record-field-mutable? prtd 0)
+        (record-field-mutable? rtd 0)
+        (record-field-mutable? rtd 1)
+        (record-type-name prtd)
+        (record-type-name rtd)
+        (record-type-field-names prtd)
+        (record-type-field-names rtd)
+        (eq? (record-rtd x) prtd)
+        (eq? (record-rtd x) rtd)
+        (list (record-type-generative? prtd) (record-type-generative? rtd))
+        (list (record-type-opaque? prtd) (record-type-opaque? rtd))
+        (list (record-type-sealed? prtd) (record-type-sealed? rtd))
+        (gensym? (record-type-uid prtd))
+        (record-type-uid rtd)
+        (record-type-has-named-fields? prtd)
+        (record-type-has-named-fields? rtd))))
 
   (equal?
     (parameterize ([current-output-port (open-output-string)])
@@ -4304,7 +4374,19 @@
       (let ([ls (map a->list (list (make-c 3 4)))])
         (cons (get-output-string (current-output-port)) ls)))
     '("C in\nB in\nA in\nA out: #t\nB out: #t\nC out: #t\n"
-       (49 -7 1/7 12 (3 . 4))))
+      (49 -7 1/7 12 (3 . 4))))
+
+  (error? ; named fields vs. anonymous fields mismatch
+    (let ([prtd (make-record-type-descriptor 'foo #f #f #f #f
+                                             '#((mutable x)))])
+      (make-record-type-descriptor 'bar prtd 'anonymous-pluto #t #f
+                                   '(2 . 1))))
+  (error? ; named fields vs. anonymous fields mismatch
+    (let ([prtd (make-record-type-descriptor 'foo #f #f #f #f
+                                             '(1 . 1))])
+      (make-record-type-descriptor 'bar prtd 'anonymous-pluto #t #f
+                                   '#((mutable y) (immutable z)))))
+
   (error? ; rtd/rcd mismatch
     (let ()
       (define-syntax rtd1 (lambda (x) #`'#,(make-record-type "foo" '(x))))
@@ -5426,9 +5508,8 @@
                  r)))
            (#2%pretty-print
              ($record->vector
-               (let ([r (let ([r (#3%$record crtd 2 7 1)])
-                          (#2%pretty-print (#2%list 'parent ($record->vector r)))
-                          r)])
+               (let ([r (#3%$record crtd 2 7 1)])
+                 (#2%pretty-print (#2%list 'parent ($record->vector r)))
                  (#2%pretty-print (#2%list 'child ($record->vector r)))
                  r)))))))
   (equivalent-expansion? ; optimize-level 3 expansion of above
@@ -5467,9 +5548,8 @@
                  r)))
            (#3%pretty-print
              ($record->vector
-               (let ([r (let ([r (#3%$record crtd 2 7 1)])
-                          (#3%pretty-print (#3%list 'parent ($record->vector r)))
-                          r)])
+               (let ([r (#3%$record crtd 2 7 1)])
+                 (#3%pretty-print (#3%list 'parent ($record->vector r)))
                  (#3%pretty-print (#3%list 'child ($record->vector r)))
                  r)))))))
   (equal?
@@ -5568,18 +5648,15 @@
                    r)))
              (#2%pretty-print
                ($record->vector
-                 (let ([r (let ([r (#3%$record crtd 2 7 1)])
-                            (#2%pretty-print (#2%list 'parent ($record->vector r)))
-                            r)])
+                 (let ([r (#3%$record crtd 2 7 1)])
+                   (#2%pretty-print (#2%list 'parent ($record->vector r)))
                    (#2%pretty-print (#2%list 'child ($record->vector r)))
                    r)))
              (#2%pretty-print
                ($record->vector
-                 (let ([r (let ([r (let ([r (#3%$record gcrtd 2 10 4 3)])
-                                     (#2%pretty-print (#2%list 'parent ($record->vector r)))
-                                     r)])
-                            (#2%pretty-print (#2%list 'child ($record->vector r)))
-                            r)])
+                 (let ([r (#3%$record gcrtd 2 10 4 3)])
+                   (#2%pretty-print (#2%list 'parent ($record->vector r)))
+                   (#2%pretty-print (#2%list 'child ($record->vector r)))
                    (#2%pretty-print (#2%list 'grand-child ($record->vector r)))
                    r))))))))
   (equivalent-expansion? ; optimize-level 3 expansion of above
@@ -5630,18 +5707,15 @@
                    r)))
              (#3%pretty-print
                ($record->vector
-                 (let ([r (let ([r (#3%$record crtd 2 7 1)])
-                            (#3%pretty-print (#3%list 'parent ($record->vector r)))
-                            r)])
+                 (let ([r (#3%$record crtd 2 7 1)])
+                   (#3%pretty-print (#3%list 'parent ($record->vector r)))
                    (#3%pretty-print (#3%list 'child ($record->vector r)))
                    r)))
              (#3%pretty-print
                ($record->vector
-                 (let ([r (let ([r (let ([r (#3%$record gcrtd 2 10 4 3)])
-                                     (#3%pretty-print (#3%list 'parent ($record->vector r)))
-                                     r)])
-                            (#3%pretty-print (#3%list 'child ($record->vector r)))
-                            r)])
+                 (let ([r (#3%$record gcrtd 2 10 4 3)])
+                   (#3%pretty-print (#3%list 'parent ($record->vector r)))
+                   (#3%pretty-print (#3%list 'child ($record->vector r)))
                    (#3%pretty-print (#3%list 'grand-child ($record->vector r)))
                    r))))))))
   (error? ; given prcd is not for parent rtd
@@ -5871,7 +5945,7 @@
            (#3%$object-set! 'scheme-object ',record? ,fixnum? 23)
            (#2%write 'b)
            (#2%write 'c)
-           17))))
+           (#3%$object-ref 'scheme-object ',record? ,fixnum?)))))
   (equivalent-expansion?
     (parameterize ([optimize-level 3] [enable-cp0 #t] [#%$suppress-primitive-inlining #f])
       (expand/optimize
@@ -5891,7 +5965,7 @@
            (#3%$object-set! 'scheme-object ',record? ,fixnum? 23)
            (#3%write 'b)
            (#3%write 'c)
-           17))))
+           (#3%$object-ref 'scheme-object ',record? ,fixnum?)))))
 
   (equal?
     (with-output-to-string
@@ -6431,7 +6505,7 @@
                (let ([b (box 4)])
                  (set-box! b (* 3 (unbox b)))
                  (list (box? b) (unbox b))))))))
-    `(let ([gs (#2%gensym "record-box")])
+    `(let ([gs (#3%gensym "record-box")])
        (let ([g5 (#2%make-record-type-descriptor 'record-box #f gs #f #f '#((mutable x)))]
              [g6 (#2%make-record-type-descriptor 'record-box #f gs #f #f '#((mutable x)))]
              [g4 (#2%make-record-type-descriptor 'record-box #f gs #f #f '#((mutable x)))])
@@ -6444,13 +6518,11 @@
                        (begin
                          (if (#3%record? b g6) (#2%void) (#3%$record-oops 'unbox b g6))
                          (#3%$object-ref 'scheme-object b ,fixnum?)))])
-             (if (#3%record? b g4) (#2%void) (#3%$record-oops 'set-box! b g4))
+             (if (#3%record-instance? b g4) (#2%void) (#3%$record-oops 'set-box! b g4))
              (#3%$object-set! 'scheme-object b ,fixnum? g7))
            (#2%list
-             (#3%record? b g5)
-             (begin
-               (if (#3%record? b g6) (#2%void) (#3%$record-oops 'unbox b g6))
-               (#3%$object-ref 'scheme-object b ,fixnum?)))))))
+             (#3%record-instance? b g5)
+             (#3%$object-ref 'scheme-object b ,fixnum?))))))
     (equal?
       (let ()
         (define build-box
@@ -6480,13 +6552,9 @@
                  (record-mutator (make-record-type-descriptor
                                    name #f #f #f #f '#((mutable x))) 0)))
              (procedure? (useless 'useless-box-setter)))))
-      `(#2%procedure?
-         (let ([g0 (#2%make-record-type-descriptor 'useless-box-setter #f #f #f #f '#((mutable x)))])
-           (lambda (g1 g2)
-             (if (#3%record? g1 g0)
-                 (#2%void)
-                 (#3%$record-oops 'moi g1 g0))
-             (#3%$object-set! 'scheme-object g1 ,fixnum? g2)))))
+      `(begin
+         (#2%make-record-type-descriptor 'useless-box-setter #f #f #f #f '#((mutable x)))
+         #t))
     (let ()
       (define useless
         (lambda (name)
@@ -6533,6 +6601,7 @@
   (not (record-field-mutable? (record-type-descriptor point) 1))
   (error? (record-mutator (record-type-descriptor point) 0))
   (error? (record-mutator (record-type-descriptor point) 1))
+  (error? (r6rs:make-record-type-descriptor 'foo #f #f #f #f '(1 . 1)))
 
   (let ()
     (define-record-type point (fields x y))
@@ -7672,12 +7741,15 @@
                (#3%$record-oops 'moi g63
                  ',record-type-descriptor?))
            (#3%$object-set! 'scheme-object g63 ,fixnum? g64)))
-       (#2%equal?
-         (#2%map
-           (lambda (x) (if (#2%$record? x) ($record->vector x) x))
-           (let ([x ($make-cpoint 3 4 ($color->rgb 'red))])
-             (#2%list x ($cpoint-rgb x) ($make-point -8 -15))))
-         '(#4($cpoint 3 4 (rgb . red)) (rgb . red) #3($point -8 -15)))))
+       (let ([x ($make-cpoint 3 4 ($color->rgb 'red))])
+         (#2%equal?
+          (let ([g0 ($cpoint-rgb x)]
+                [g1 ($make-point -8 -15)])
+            (#2%list
+             (if (#2%$record? x) ($record->vector x) x)
+             (if (#2%$record? g0) ($record->vector g0) g0)
+             (if (#2%$record? g1) ($record->vector g1) g1)))
+          '(#4($cpoint 3 4 (rgb . red)) (rgb . red) #3($point -8 -15))))))
   (equivalent-expansion? ; optimize-level 3 expansion of above
     (parameterize ([optimize-level 3] [enable-cp0 #t] [#%$suppress-primitive-inlining #f])
       (expand/optimize
@@ -7718,12 +7790,15 @@
        (set! $cpoint-rgb-set!
          (lambda (g99 g100)
            (#3%$object-set! 'scheme-object g99 ,fixnum? g100)))
-       (#3%equal?
-         (#3%map
-           (lambda (x) (if (#3%$record? x) ($record->vector x) x))
-           (let ([x ($make-cpoint 3 4 ($color->rgb 'red))])
-             (#3%list x ($cpoint-rgb x) ($make-point -8 -15))))
-         '(#4($cpoint 3 4 (rgb . red)) (rgb . red) #3($point -8 -15)))))
+       (let ([x ($make-cpoint 3 4 ($color->rgb 'red))])
+         (#3%equal?
+          (let ([g0 ($cpoint-rgb x)]
+                [g1 ($make-point -8 -15)])
+            (#3%list
+             (if (#3%$record? x) ($record->vector x) x)
+             (if (#3%$record? g0) ($record->vector g0) g0)
+             (if (#3%$record? g1) ($record->vector g1) g1)))
+          '(#4($cpoint 3 4 (rgb . red)) (rgb . red) #3($point -8 -15))))))
   (begin
    ; test global define-record-type
     (define ($color->rgb c) (cons 'rgb c))
@@ -7810,12 +7885,15 @@
                (#3%$record-oops 'moi g147
                  ',record-type-descriptor?))
            (#3%$object-set! 'scheme-object g147 ,fixnum? g148)))
-       (#2%equal?
-         (#2%map
-           (lambda (x) (if (#2%$record? x) ($record->vector x) x))
-           (let ([x ($make-cpoint 3 4 'red)])
-             (#2%list x ($cpoint-rgb x) ($make-point -8 -15))))
-         '(#4($cpoint 3 4 (rgb . red)) (rgb . red) #3($point -8 -15)))))
+       (let ([x ($make-cpoint 3 4 'red)])
+         (#2%equal?
+          (let ([g0 ($cpoint-rgb x)]
+                [g1 ($make-point -8 -15)])
+            (#2%list
+             (if (#2%$record? x) ($record->vector x) x)
+             (if (#2%$record? g0) ($record->vector g0) g0)
+             (if (#2%$record? g1) ($record->vector g1) g1)))
+          '(#4($cpoint 3 4 (rgb . red)) (rgb . red) #3($point -8 -15))))))
   (equivalent-expansion? ; optimize-level 3 expansion of above
     (parameterize ([optimize-level 3] [enable-cp0 #t] [#%$suppress-primitive-inlining #f])
       (expand/optimize
@@ -7866,12 +7944,15 @@
        (set! $cpoint-rgb-set!
          (lambda (g123 g124)
            (#3%$object-set! 'scheme-object g123 ,fixnum? g124)))
-       (#3%equal?
-         (#3%map
-           (lambda (x) (if (#3%$record? x) ($record->vector x) x))
-           (let ([x ($make-cpoint 3 4 'red)])
-             (#3%list x ($cpoint-rgb x) ($make-point -8 -15))))
-         '(#4($cpoint 3 4 (rgb . red)) (rgb . red) #3($point -8 -15)))))
+       (let ([x ($make-cpoint 3 4 'red)])
+         (#3%equal?
+          (let ([g0 ($cpoint-rgb x)]
+                [g1 ($make-point -8 -15)])
+            (#3%list
+             (if (#3%$record? x) ($record->vector x) x)
+             (if (#3%$record? g0) ($record->vector g0) g0)
+             (if (#3%$record? g1) ($record->vector g1) g1)))
+          '(#4($cpoint 3 4 (rgb . red)) (rgb . red) #3($point -8 -15))))))
   (error? ; can't handle define-record-type parent
     (let ()
       (define-record-type fratrat)
@@ -8665,10 +8746,9 @@
              (if b (frob-x x) 72)))))
     `(lambda (b)
        (if b
-           (begin
-             (#3%$record-oops 'frob-x 'x ',record-type-descriptor?)
-             (#3%$object-ref 'scheme-object 'x ,fixnum?))
-           72)))
+           (#3%$record-oops 'frob-x 'x ',record-type-descriptor?)
+           (#2%void))
+       72))
   (equivalent-expansion?
     (parameterize ([optimize-level 3] [enable-cp0 #t] [#%$suppress-primitive-inlining #f])
       (expand/optimize
@@ -8866,7 +8946,7 @@
                     [r (inc r)]
                     [r (inc r)])
                r)))))
-    `(lambda (x) (#3%$record ',record-type-descriptor? 37 (#2%+ 1 (#2%+ 1 x)))))
+    `(lambda (x) (#3%$record ',record-type-descriptor? 37 (#3%+ 1 (#2%+ 1 x)))))
   (equivalent-expansion?
     (parameterize ([optimize-level 3] [enable-cp0 #t] [#%$suppress-primitive-inlining #f] [compile-profile #f])
       (expand/optimize
@@ -8893,7 +8973,7 @@
                     [r (inc r)])
                r)))))
     '(let ([rtd (#2%$make-record-type-descriptor #!base-rtd 'foo #f #f #f #f '#((immutable a) (immutable b)) 'define-record-type)])
-       (lambda (x) (#3%$record rtd 37 (#2%+ 1 (#2%+ 1 x))))))
+       (lambda (x) (#3%$record rtd 37 (#3%+ 1 (#2%+ 1 x))))))
   (equivalent-expansion?
     (parameterize ([optimize-level 3] [enable-cp0 #t] [#%$suppress-primitive-inlining #f])
       (expand/optimize
@@ -8926,7 +9006,7 @@
            (make-foo 3))))
     `(let ([ctr 0])
        (letrec ([g0 (lambda (new) (lambda (q) (new q (begin (set! ctr (#2%+ 1 xtr)) ctr))))])
-         (#3%$make-record-constructor-descriptor ',record-type-descriptor?  #f g0 'define-record-type)
+         (#3%$value (#3%$make-record-constructor-descriptor ',record-type-descriptor?  #f g0 'define-record-type))
          (#3%$record ',record-type-descriptor? 3 (begin (set! ctr (#2%+ 1 xtr)) ctr)))))
   (equivalent-expansion?
     (parameterize ([optimize-level 3] [enable-cp0 #t] [#%$suppress-primitive-inlining #f])
@@ -8945,7 +9025,7 @@
            (make-foo 3))))
     `(let ([ctr 0])
        (letrec ([g0 (lambda (new) (lambda (q) (new q (begin (set! ctr (#3%+ 1 xtr)) ctr))))])
-         (#3%$make-record-constructor-descriptor ',record-type-descriptor?  #f g0 'define-record-type)
+         (#3%$value (#3%$make-record-constructor-descriptor ',record-type-descriptor?  #f g0 'define-record-type))
          (#3%$record ',record-type-descriptor? 3 (begin (set! ctr (#3%+ 1 xtr)) ctr)))))
   (error? ; invalid uid
     (let ()
@@ -8999,7 +9079,47 @@
            (#2%list
              #t
              #t
-             (#2%record-type-descriptor? rcd)
+             (#3%record? rcd #!base-rtd)
+             (#2%record-constructor-descriptor? rtd)
+             #t
+             #t
+             #f
+             '#(x)
+             '#(y z)
+             (#2%list (#2%record-type-generative? prtd) (#2%record-type-generative? rtd))
+             (#2%list #f #f)
+             (#2%list #f #t))))))
+  (equivalent-expansion?
+    (parameterize ([optimize-level 2] [enable-cp0 #t] [#%$suppress-primitive-inlining #f])
+      (expand/optimize
+        '(let ()
+           (define prtd
+             (r6rs:make-record-type-descriptor 'foo #f #f #f #f
+               '#((mutable x))))
+           (define rtd
+             (r6rs:make-record-type-descriptor 'bar prtd 'pluto #t #f
+               '#((mutable y) (immutable z))))
+           (define rcd (make-record-constructor-descriptor rtd #f #f))
+           (list 
+             (record-type-descriptor? rtd)
+             (record-constructor-descriptor? rcd)
+             (record-type-descriptor? rcd)
+             (record-constructor-descriptor? rtd)
+             (record-field-mutable? prtd 0)
+             (record-field-mutable? rtd 0)
+             (record-field-mutable? rtd 1)
+             (record-type-field-names prtd)
+             (record-type-field-names rtd)
+             (list (record-type-generative? prtd) (record-type-generative? rtd))
+             (list (record-type-opaque? prtd) (record-type-opaque? rtd))
+             (list (record-type-sealed? prtd) (record-type-sealed? rtd))))))
+    '(let ([prtd (#2%r6rs:make-record-type-descriptor 'foo #f #f #f #f '#((mutable x)))])
+       (let ([rtd (#2%r6rs:make-record-type-descriptor 'bar prtd 'pluto #t #f '#((mutable y) (immutable z)))])
+         (let ([rcd (#3%make-record-constructor-descriptor rtd #f #f)])
+           (#2%list
+             #t
+             #t
+             (#3%record? rcd #!base-rtd)
              (#2%record-constructor-descriptor? rtd)
              #t
              #t
@@ -9257,4 +9377,31 @@
              (begin
                (#2%display 4)
                1)))))
+)
+
+(mat cp0-$record-ref
+  (equivalent-expansion?
+   (parameterize ([optimize-level 2] [enable-cp0 #t] [#%$suppress-primitive-inlining #f])
+     (expand/optimize
+    '(let ()
+       (define A (make-record-type-descriptor 'A #f #f #f #f '(2 . 0)))
+       (define x ((record-constructor A) (begin (display A) 1) (begin (display 0) 2)))
+       (+ (#3%$record-ref x 0) (#3%$record-ref x 1)))))
+   '(let ([a (#2%make-record-type-descriptor 'A #f #f #f #f '(2 . 0))])
+      (#2%display 0)
+      (#2%display a)
+      3))
+  )
+
+(mat cp0-record?
+  (equivalent-expansion?
+   (parameterize ([optimize-level 2] [enable-cp0 #t] [#%$suppress-primitive-inlining #f])
+     (expand/optimize
+      '(let ()
+         (define A (make-record-type-descriptor 'A #f #f #f #f '(2 . 0)))
+         (define-record B (a b))
+         (record? ((record-constructor A) 1 2) (record-type-descriptor B)))))
+   '(begin
+      (#2%make-record-type-descriptor 'A #f #f #f #f '(2 . 0))
+      #f))
 )

@@ -1,24 +1,24 @@
-*** errors-compile-0-f-f-f	2020-02-28 00:39:54.092147000 -0500
---- errors-compile-0-f-f-t	2020-02-28 00:49:23.793545013 -0500
+*** output-compile-0-f-f-f-experr/errors-compile-0-f-f-f	Fri Feb 24 19:33:45 2023
+--- output-compile-0-f-f-t-experr/errors-compile-0-f-f-t	Fri Feb 24 19:33:41 2023
 ***************
-*** 3887,3893 ****
+*** 4052,4058 ****
   misc.mo:Expected error in mat compute-composition: "compute-composition: invalid generation -1".
   misc.mo:Expected error in mat compute-composition: "compute-composition: invalid generation "static"".
   misc.mo:Expected error in mat make-object-finder: "make-object-finder: 17 is not a procedure".
 ! misc.mo:Expected error in mat make-object-finder: "make-object-finder: invalid generation 5".
   misc.mo:Expected error in mat make-object-finder: "make-object-finder: invalid generation oldgen".
   misc.mo:Expected error in mat make-object-finder: "make-object-finder: invalid generation -1".
-  misc.mo:Expected error in mat make-object-finder: "incorrect number of arguments to #<procedure find-next>".
---- 3887,3893 ----
+  misc.mo:Expected error in mat make-object-finder: "incorrect number of arguments 1 to #<procedure find-next>".
+--- 4052,4058 ----
   misc.mo:Expected error in mat compute-composition: "compute-composition: invalid generation -1".
   misc.mo:Expected error in mat compute-composition: "compute-composition: invalid generation "static"".
   misc.mo:Expected error in mat make-object-finder: "make-object-finder: 17 is not a procedure".
 ! misc.mo:Expected error in mat make-object-finder: "make-object-finder: invalid generation 7".
   misc.mo:Expected error in mat make-object-finder: "make-object-finder: invalid generation oldgen".
   misc.mo:Expected error in mat make-object-finder: "make-object-finder: invalid generation -1".
-  misc.mo:Expected error in mat make-object-finder: "incorrect number of arguments to #<procedure find-next>".
+  misc.mo:Expected error in mat make-object-finder: "incorrect number of arguments 1 to #<procedure find-next>".
 ***************
-*** 7426,7436 ****
+*** 7881,7891 ****
   7.mo:Expected error in mat sstats: "set-sstats-gc-bytes!: twelve is not an exact integer".
   7.mo:Expected error in mat bytes-allocated: "bytes-allocated: invalid generation yuk".
   7.mo:Expected error in mat bytes-allocated: "bytes-allocated: invalid generation -1".
@@ -30,7 +30,7 @@
   7.mo:Expected error in mat bytes-allocated: "bytes-allocated: invalid space gnu".
   7.mo:Expected error in mat bytes-allocated: "bytes-allocated: invalid space gnu".
   7.mo:Expected error in mat bytes-allocated: "bytes-allocated: invalid space gnu".
---- 7426,7436 ----
+--- 7881,7891 ----
   7.mo:Expected error in mat sstats: "set-sstats-gc-bytes!: twelve is not an exact integer".
   7.mo:Expected error in mat bytes-allocated: "bytes-allocated: invalid generation yuk".
   7.mo:Expected error in mat bytes-allocated: "bytes-allocated: invalid generation -1".
@@ -43,9 +43,9 @@
   7.mo:Expected error in mat bytes-allocated: "bytes-allocated: invalid space gnu".
   7.mo:Expected error in mat bytes-allocated: "bytes-allocated: invalid space gnu".
 ***************
-*** 8890,8902 ****
-  fx.mo:Expected error in mat r6rs:fx-: "fx-: #f is not a fixnum".
-  fx.mo:Expected error in mat r6rs:fx-: "fx-: #f is not a fixnum".
+*** 9412,9424 ****
+  fx.mo:Expected error in mat fx-/wraparound: "fx-: <-int> is not a fixnum".
+  fx.mo:Expected error in mat fx-/wraparound: "fx-: <-int> is not a fixnum".
   fx.mo:Expected error in mat fx*: "fx*: (a . b) is not a fixnum".
 ! fx.mo:Expected error in mat fx*: "fx*: fixnum overflow with arguments <int> and 2".
   fx.mo:Expected error in mat fx*: "fx*: <int> is not a fixnum".
@@ -57,9 +57,9 @@
   fx.mo:Expected error in mat r6rs:fx*: "fx*: <int> is not a fixnum".
   fx.mo:Expected error in mat r6rs:fx*: "fx*: <-int> is not a fixnum".
   fx.mo:Expected error in mat r6rs:fx*: "fx*: #f is not a fixnum".
---- 8890,8902 ----
-  fx.mo:Expected error in mat r6rs:fx-: "fx-: #f is not a fixnum".
-  fx.mo:Expected error in mat r6rs:fx-: "fx-: #f is not a fixnum".
+--- 9412,9424 ----
+  fx.mo:Expected error in mat fx-/wraparound: "fx-: <-int> is not a fixnum".
+  fx.mo:Expected error in mat fx-/wraparound: "fx-: <-int> is not a fixnum".
   fx.mo:Expected error in mat fx*: "fx*: (a . b) is not a fixnum".
 ! fx.mo:Expected error in mat fx*: "fx*: fixnum overflow computing (fx* <int> 2)".
   fx.mo:Expected error in mat fx*: "fx*: <int> is not a fixnum".

@@ -67,7 +67,11 @@ TODO:
               [(syntax-violation? c)
                (let ([form (syntax-violation-form c)]
                      [subform (syntax-violation-subform c)])
-                 (parameterize ([print-level 3] [print-length 6])
+                 (define (form-gensym-mode)
+                   (cond
+                     [(eq? (subset-mode) 'system) #f] ; so bootfile fixpoint is reached in safe mode
+                     [else (print-gensym)]))
+                 (parameterize ([print-level 3] [print-length 6] [print-gensym (form-gensym-mode)])
                    (if subform
                        (fprintf op "~a~s in ~s" prefix (syntax->datum subform) (syntax->datum form))
                        (fprintf op "~a~s" prefix (syntax->datum form))))
@@ -705,6 +709,11 @@ TODO:
     (lambda (id message)
       (error-help #f who #f message #f
         (condition (make-undefined-violation) (make-syntax-violation id #f)))))
+
+  (set-who! $unknown-undefined-violation
+    (lambda ()
+      (error-help #f who #f "undefined" #f
+        (make-undefined-violation))))
 
   (set-who! $lexical-error
     (case-lambda

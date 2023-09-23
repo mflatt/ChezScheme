@@ -2,3 +2,4 @@
 *.msi
 *.wixobj
 *.wixpdb
+/vcredist.wxs

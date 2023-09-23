@@ -41,9 +41,13 @@
         (fold-right (lambda (x rest) 
                       (case x
                         [(#\-) (cons #\_ rest)]
+                        [(#\+) (cons #\_ rest)]
                         [(#\?) (cons #\p rest)]
                         [(#\>) rest]
                         [(#\*) (cons #\s rest)]
+                        [(#\=) (cons* #\e #\q #\l rest)]
+                        [(#\?) (cons #\p rest)]
+                        [(#\$) (cons* #\s #\y #\s #\_ rest)]
                         [else (cons x rest)]))
           '()
           (string->list (symbol->string x))))))
@@ -64,7 +68,7 @@
       (pr "EXPORT ~a ~a~a;~%" tresult name targs)))
   (define &ref
     (lambda (cast x disp)
-      (format "(~a((uptr)(~a)~:[+~;-~]~d))" cast x (fx< disp 0) (abs disp))))
+      (format "(~aTO_VOIDP((uptr)(~a)~:[+~;-~]~d))" cast x (fx< disp 0) (abs disp))))
   (define ref
     (lambda (cast x disp)
       (format "(*~a)" (&ref cast x disp))))
@@ -75,6 +79,9 @@
          (lambda (a)
            (apply
              (lambda (field type disp len)
+               (putprop (string->symbol (format "~a-~a" struct field)) '*c-ref* (if len
+                                                                                    (cons name len)
+                                                                                    name))
                (if len
                    (def (format "~s(x,i)" name)
                         (format (if (eq? ref &ref) "(~a+i)" "(~a[i])")
@@ -153,17 +160,25 @@
   (define scheme-version ; adapted from 7.ss
     (let ([n (constant scheme-version)])
       (if (= (logand n 255) 0)
-          (format "~d.~d"
-            (ash n -16)
-            (logand (ash n -8) 255))
-          (format "~d.~d.~d"
-            (ash n -16)
+          (if (= (logand n 255) 0)
+              (format "~d.~d"
+                (ash n -24)
+                (logand (ash n -16) 255))
+              (format "~d.~d.~d"
+                (ash n -24)
+                (logand (ash n -16) 255)
+                (logand (ash n -8) 255)))
+          (format "~d.~d.~d-pre-release.~d"
+            (ash n -24)
+            (logand (ash n -16) 255)
             (logand (ash n -8) 255)
             (logand n 255)))))
 
   (set-who! mkscheme.h
     (lambda (ofn target-machine)
-      (fluid-let ([op (open-output-file ofn 'replace)])
+      (fluid-let ([op (if (output-port? ofn)
+                          ofn
+                          (open-output-file ofn 'replace))])
         (comment "scheme.h for Chez Scheme Version ~a (~a)" scheme-version target-machine)
   
         (nl)
@@ -175,6 +190,15 @@
         (nl)
         (comment "Warning: Some macros may evaluate arguments more than once.")
        
+        (constant-case architecture
+          [(pb)
+           (nl)
+           (pr "#if !defined(_LARGEFILE64_SOURCE) && !defined(FEATURE_WINDOWS)\n")
+           (pr "# define _LARGEFILE64_SOURCE\n") ; needed on some 32-bit platforms before <stdint.h>
+           (pr "#endif\n")
+           (pr "#include <stdint.h>\n")]
+          [else (void)])
+
         (nl) (comment "Specify declaration of exports.")
         (pr "#ifdef _WIN32~%")
         (pr "#  if __cplusplus~%")
@@ -213,6 +237,21 @@
         (pr "typedef ~a ptr;~%" (constant typedef-ptr))
         (pr "typedef ~a iptr;~%" (constant typedef-iptr))
         (pr "typedef ~a uptr;~%" (constant typedef-uptr))
+        (pr "typedef ptr xptr;~%")
+
+        (nl)
+        (comment "The `uptr` and `ptr` types are the same width, but `ptr`")
+        (comment "can be either an integer type or a pointer type; it may")
+        (comment "be larger than a pointer type.")
+        (comment "Use `TO_VOIDP` to get from the `uptr`/`ptr` world to the")
+        (comment "C pointer worlds, and use `TO_PTR` to go the other way.")
+        (pr "#ifdef PORTABLE_BYTECODE~%")
+        (pr "# define TO_VOIDP(p) ((void *)(intptr_t)(p))~%")
+        (pr "# define TO_PTR(p) ((ptr)(intptr_t)(p))~%")
+        (pr "#else~%")
+        (pr "# define TO_VOIDP(p) ((void *)(p))~%")
+        (pr "# define TO_PTR(p) ((ptr)(p))~%")
+        (pr "#endif~%")
 
         (nl)
         (comment "String elements are 32-bit tagged char objects")
@@ -237,8 +276,12 @@
   
         (deftotypep "Svectorp" ($ mask-vector) ($ type-vector))
         (deftotypep "Sfxvectorp" ($ mask-fxvector) ($ type-fxvector))
+        (deftotypep "Sflvectorp" ($ mask-flvector) ($ type-flvector))
         (deftotypep "Sbytevectorp" ($ mask-bytevector) ($ type-bytevector))
         (deftotypep "Sstringp" ($ mask-string) ($ type-string))
+        (deftotypep "Sstencil_vectorp" ($ mask-stencil-vector) ($ type-stencil-vector))
+        (deftotypep "Ssystem_stencil_vectorp" ($ mask-sys-stencil-vector) ($ type-sys-stencil-vector))
+        (deftotypep "Sany_stencil_vectorp" ($ mask-any-stencil-vector) ($ type-any-stencil-vector))
         (deftotypep "Sbignump" ($ mask-bignum) ($ type-bignum))
         (deftotypep "Sboxp" ($ mask-box) ($ type-box))
         (deftotypep "Sinexactnump" ($ mask-inexactnum) ($ type-inexactnum))
@@ -270,6 +313,12 @@
             (access "x" fxvector type)
             ($ fxvector-length-offset)))
         (defref Sfxvector_ref fxvector data)
+        
+        (def "Sflvector_length(x)"
+          (format "((iptr)((uptr)~a>>~d))"
+            (access "x" flvector type)
+            ($ flvector-length-offset)))
+        (defref Sflvector_ref flvector data)
 
         (def "Sbytevector_length(x)"
           (format "((iptr)((uptr)~a>>~d))"
@@ -288,6 +337,12 @@
 
         (defref Sunbox box ref)
   
+        (def "Sstencil_vector_length(x)"
+          (format "Spopcount(((uptr)~a)>>~d)"
+            (access "x" stencil-vector type)
+            ($ stencil-vector-mask-offset)))
+        (defref Sstencil_vector_ref stencil-vector data)
+        
         (export "iptr" "Sinteger_value" "(ptr)")
         (def "Sunsigned_value(x)" "(uptr)Sinteger_value(x)")
         (export (constant typedef-i32) "Sinteger32_value" "(ptr)")
@@ -303,6 +358,7 @@
           (format "((void)(~a = (string_char)(uptr)Schar(c)))"
             (access "x" "i" string data)))
         (def "Sfxvector_set(x,i,n)" "((void)(Sfxvector_ref(x,i) = (n)))")
+        (def "Sflvector_set(x,i,n)" "((void)(Sflvector_ref(x,i) = (n)))")
         (def "Sbytevector_u8_set(x,i,n)" "((void)(Sbytevector_u8_ref(x,i) = (n)))")
         (export "void" "Svector_set" "(ptr, iptr, ptr)")
   
@@ -326,6 +382,7 @@
         (export "ptr" "Sflonum" "(double)")
         (export "ptr" "Smake_vector" "(iptr, ptr)")
         (export "ptr" "Smake_fxvector" "(iptr, ptr)")
+        (export "ptr" "Smake_flvector" "(iptr, ptr)")
         (export "ptr" "Smake_bytevector" "(iptr, int)")
         (export "ptr" "Smake_string" "(iptr, int)")
         (export "ptr" "Smake_uninitialized_string" "(iptr)")
@@ -339,7 +396,14 @@
         (export "ptr" "Sunsigned32" (format "(~a)" (constant typedef-u32)))
         (export "ptr" "Sinteger64" (format "(~a)" (constant typedef-i64)))
         (export "ptr" "Sunsigned64" (format "(~a)" (constant typedef-u64)))
-  
+
+        (nl) (comment "Records")
+        (defref Srecord_uniform_ref record data)
+        (export "ptr" "Srecord_type" "(ptr)")
+        (export "ptr" "Srecord_type_parent" "(ptr)")
+        (export "int" "Srecord_type_uniformp" "(ptr)")
+        (export "uptr" "Srecord_type_size" "(ptr)")
+
         (nl) (comment "Miscellaneous")
         (export "ptr" "Stop_level_value" "(ptr)")
         (export "void" "Sset_top_level_value" "(ptr, ptr)")
@@ -357,11 +421,17 @@
         (export "void" "Sinitframe" "(iptr)")
         (export "void" "Sput_arg" "(iptr, ptr)")
         (export "ptr" "Scall" "(ptr, iptr)")
-        (comment "Warning: Sforeign_callable_entry_point(x) returns a pointer into x.")
-        (def "Sforeign_callable_entry_point(x)"
-             (&ref "(void (*)(void))" "x" ($ code-data-disp)))
-        (def "Sforeign_callable_code_object(x)"
-             (&ref "(ptr)" "x" (- ($ code-data-disp))))
+        (constant-case architecture
+          [(pb)
+           (def "Sforeign_callable_entry_point(x)"
+                "TO_PTR(Svector_ref(x, 2))")
+           (export "ptr" "Sforeign_callable_code_object" "(void*)")]
+          [else
+           (comment "Warning: Sforeign_callable_entry_point(x) returns a pointer into x.")
+           (def "Sforeign_callable_entry_point(x)"
+                (&ref "(void (*)(void))" "x" ($ code-data-disp)))
+           (def "Sforeign_callable_code_object(x)"
+                (&ref "(ptr)" "x" (- ($ code-data-disp))))])
   
         (nl) (comment "Customization support.")
         (export "const char *" "Skernel_version" "(void)")
@@ -369,7 +439,9 @@
         (export "void" "Sset_verbose" "(int)")
         (export "void" "Sscheme_init" "(void (*)(void))")
         (export "void" "Sregister_boot_file" "(const char *)")
+        (export "void" "Sregister_boot_direct_file" "(const char *)")
         (export "void" "Sregister_boot_file_fd" "(const char *, int fd)")
+        (export "void" "Sregister_boot_file_fd_region" "(const char *, int fd, iptr offset, iptr len, int close_after)")
         (export "void" "Sregister_heap_file" "(const char *)")
         (export "void" "Scompact_heap" "(void)")
         (export "void" "Ssave_heap" "(const char *, int)")
@@ -379,6 +451,11 @@
         (export "int"  "Sscheme_script" "(const char *, int, const char *[])")
         (export "int"  "Sscheme_program" "(const char *, int, const char *[])")
         (export "void" "Sscheme_deinit" "(void)")
+        (export "void" "Sscheme_register_signal_registerer" "(void (*f)(int))")
+        (constant-case architecture
+          [(pb)
+           (export "void" "Sregister_pbchunks" "(void **, int, int)")]
+          [else (void)])
 
         (when-feature pthreads
         (nl) (comment "Thread support.")
@@ -387,18 +464,63 @@
           (export "int" "Sdestroy_thread" "(void)")
         )
 
-        (when-feature windows
-        (nl) (comment "Windows support.")
-          (pr "#include <wchar.h>~%")
-          (export "char *" "Sgetenv" "(const char *)")
-          (export "wchar_t *" "Sutf8_to_wide" "(const char *)")
-          (export "char *" "Swide_to_utf8" "(const wchar_t *)")
-        )
+        (let ()
+          (define (gen-windows pre post)
+            (nl) (comment "Windows support.")
+            (pre)
+            (pr "#include <wchar.h>~%")
+            (export "char *" "Sgetenv" "(const char *)")
+            (export "wchar_t *" "Sutf8_to_wide" "(const char *)")
+            (export "char *" "Swide_to_utf8" "(const wchar_t *)")
+            (post))
+          (constant-case architecture
+            [(pb)
+             (gen-windows (lambda ()
+                            (pr "#if defined(FEATURE_WINDOWS)\n"))
+                          (lambda ()
+                            (pr "#endif\n")))]
+            [else
+             (when-feature windows (gen-windows void void))]))
 
         (nl) (comment "Features.")
         (for-each
           (lambda (x) (pr "#define FEATURE_~@:(~a~)~%" (sanitize x)))
           (feature-list))
+
+        (constant-case architecture
+          [(pb)
+           (nl) (comment "C call prototypes.")
+           (pr "#include <stdint.h>\n")
+           (for-each
+            (lambda (proto+id)
+              (let ([proto (car proto+id)])
+                (define (sym->type s)
+                  (case s
+                    [(int8) 'int8_t]
+                    [(int16) 'int16_t]
+                    [(int32) 'int32_t]
+                    [(uint32) 'uint32_t]
+                    [(int64) 'int64_t]
+                    [(uint64) 'uint64_t]
+                    [else s]))
+                (define (clean-type s)
+                  (case s
+                    [(void*) 'voids]
+                    [else s]))
+                (pr "typedef ~a (*pb_~a_t)(~a);~%"
+                    (sym->type (car proto))
+                    (apply string-append
+                           (symbol->string (clean-type (car proto)))
+                           (map (lambda (s) (format "_~a" (clean-type s)))
+                                (cdr proto)))
+                    (if (null? (cdr proto))
+                        ""
+                        (apply string-append
+                               (symbol->string (sym->type (cadr proto)))
+                               (map (lambda (s) (format ", ~a" (sym->type s)))
+                                    (cddr proto)))))))
+            (reverse (constant pb-prototype-table)))]
+          [else (void)])
 
         (nl) (comment "Locking macros.")
         (constant-case architecture
@@ -553,9 +675,12 @@
                (pr "                        : \"r\" (addr)   \\~%")
                (pr "                        : \"flags\", \"memory\")~%")))]
           [(ppc32)
+           (let ([reg (constant-case machine-type-name
+                        [(ppc32osx tppc32osx) ""]
+                        [else "%%"])])
             (pr "#define INITLOCK(addr)     \\~%")
-            (pr "  __asm__ __volatile__ (\"li %%r0, 0\\n\\t\"\\~%")
-            (pr "                        \"stw %%r0, 0(%0)\\n\\t\"\\~%")
+            (pr "  __asm__ __volatile__ (\"li ~ar0, 0\\n\\t\"\\~%" reg)
+            (pr "                        \"stw ~ar0, 0(%0)\\n\\t\"\\~%" reg)
             (pr "                        :             \\~%")
             (pr "                        : \"b\" (addr)\\~%")
             (pr "                        :\"memory\", \"r0\")~%")
@@ -563,16 +688,16 @@
             (nl)
             (pr "#define SPINLOCK(addr)      \\~%")
             (pr "  __asm__ __volatile__ (\"0:\\n\\t\"\\~%")                    ; top:
-            (pr "                        \"lwarx %%r0, 0, %0\\n\\t\"\\~%")     ;  start lock acquisition
-            (pr "                        \"cmpwi %%r0, 0\\n\\t\"\\~%")         ;  see if someone already owns the lock
+            (pr "                        \"lwarx ~ar0, 0, %0\\n\\t\"\\~%" reg) ;  start lock acquisition
+            (pr "                        \"cmpwi ~ar0, 0\\n\\t\"\\~%" reg)     ;  see if someone already owns the lock
             (pr "                        \"bne 1f\\n\\t\"\\~%")                ;  if so, go to our try_again loop
-            (pr "                        \"li %%r0, 1\\n\\t\"\\~%")            ;  attempt to store the value 1
-            (pr "                        \"stwcx. %%r0, 0, %0\\n\\t\"\\~%")    ; 
+            (pr "                        \"li ~ar0, 1\\n\\t\"\\~%" reg)        ;  attempt to store the value 1
+            (pr "                        \"stwcx. ~ar0, 0, %0\\n\\t\"\\~%" reg); 
             (pr "                        \"beq 2f\\n\\t\"\\~%")                ;  if we succeed, we own the lock
             (pr "                        \"1:\\n\\t\"\\~%")                    ; again:
             (pr "                        \"isync\\n\\t\"\\~%")                 ;  sync things to pause the processor 
-            (pr "                        \"lwz %%r0, 0(%0)\\n\\t\"\\~%")       ;  try a non-reserved load to see if we are likely to succeed
-            (pr "                        \"cmpwi %%r0, 0\\n\\t\"\\~%")         ;  if it is = 0, try to acquire at start
+            (pr "                        \"lwz ~ar0, 0(%0)\\n\\t\"\\~%" reg)   ;  try a non-reserved load to see if we are likely to succeed
+            (pr "                        \"cmpwi ~ar0, 0\\n\\t\"\\~%" reg)     ;  if it is = 0, try to acquire at start
             (pr "                        \"beq 0b\\n\\t\"\\~%")                ;
             (pr "                        \"b 1b\\n\\t\"\\~%")                  ;  otherwise loop through the try again
             (pr "                        \"2:\\n\\t\"\\~%")                    ; done:
@@ -582,8 +707,8 @@
 
             (nl)
             (pr "#define UNLOCK(addr)     \\~%")
-            (pr "  __asm__ __volatile__ (\"li %%r0, 0\\n\\t\"\\~%")
-            (pr "                        \"stw %%r0, 0(%0)\\n\\t\"\\~%")
+            (pr "  __asm__ __volatile__ (\"li ~ar0, 0\\n\\t\"\\~%" reg)
+            (pr "                        \"stw ~ar0, 0(%0)\\n\\t\"\\~%" reg)
             (pr "                        :             \\~%")
             (pr "                        : \"b\" (addr)\\~%")
             (pr "                        :\"memory\", \"r0\")~%")
@@ -592,11 +717,11 @@
             (pr "#define LOCKED_INCR(addr, ret) \\~%")
             (pr "  __asm__ __volatile__ (\"li %0, 0\\n\\t\"\\~%")
             (pr "                        \"0:\\n\\t\"\\~%")
-            (pr "                        \"lwarx %%r12, 0, %1\\n\\t\"\\~%")
-            (pr "                        \"addi %%r12, %%r12, 1\\n\\t\"\\~%")
-            (pr "                        \"stwcx. %%r12, 0, %1\\n\\t\"\\~%")
+            (pr "                        \"lwarx ~ar12, 0, %1\\n\\t\"\\~%" reg)
+            (pr "                        \"addi ~ar12, ~ar12, 1\\n\\t\"\\~%" reg reg)
+            (pr "                        \"stwcx. ~ar12, 0, %1\\n\\t\"\\~%" reg)
             (pr "                        \"bne 0b\\n\\t\"\\~%")
-            (pr "                        \"cmpwi %%r12, 0\\n\\t\"\\~%")
+            (pr "                        \"cmpwi ~ar12, 0\\n\\t\"\\~%" reg)
             (pr "                        \"bne 1f\\n\\t\"\\~%")
             (pr "                        \"li %0, 1\\n\\t\"\\~%")
             (pr "                        \"1:\\n\\t\"\\~%")
@@ -608,17 +733,17 @@
             (pr "#define LOCKED_DECR(addr, ret) \\~%")
             (pr "  __asm__ __volatile__ (\"li %0, 0\\n\\t\"\\~%")
             (pr "                        \"0:\\n\\t\"\\~%")
-            (pr "                        \"lwarx %%r12, 0, %1\\n\\t\"\\~%")
-            (pr "                        \"addi %%r12, %%r12, -1\\n\\t\"\\~%")
-            (pr "                        \"stwcx. %%r12, 0, %1\\n\\t\"\\~%")
+            (pr "                        \"lwarx ~ar12, 0, %1\\n\\t\"\\~%" reg)
+            (pr "                        \"addi ~ar12, ~ar12, -1\\n\\t\"\\~%" reg reg)
+            (pr "                        \"stwcx. ~ar12, 0, %1\\n\\t\"\\~%" reg)
             (pr "                        \"bne 0b\\n\\t\"\\~%")
-            (pr "                        \"cmpwi %%r12, 0\\n\\t\"\\~%")
+            (pr "                        \"cmpwi ~ar12, 0\\n\\t\"\\~%" reg)
             (pr "                        \"bne 1f\\n\\t\"\\~%")
             (pr "                        \"li %0, 1\\n\\t\"\\~%")
             (pr "                        \"1:\\n\\t\"\\~%")
             (pr "                        : \"=&r\" (ret)\\~%")
             (pr "                        : \"r\" (addr)\\~%")
-            (pr "                        : \"cc\", \"memory\", \"r12\")~%")]
+            (pr "                        : \"cc\", \"memory\", \"r12\")~%"))]
           [(arm32)
             (pr "#define INITLOCK(addr)     \\~%")
             (pr "  __asm__ __volatile__ (\"mov r12, #0\\n\\t\"\\~%")
@@ -630,12 +755,12 @@
             (nl)
             (pr "#define SPINLOCK(addr)      \\~%")
             (pr "  __asm__ __volatile__ (\"0:\\n\\t\"\\~%")
-            (pr "                        \"ldrex r12, [%0, #0]\\n\\t\"\\~%")
+            (pr "                        \"ldrex r12, [%0]\\n\\t\"\\~%")
             (pr "                        \"cmp r12, #0\\n\\t\"\\~%")
             (pr "                        \"bne 1f\\n\\t\"\\~%")
             (pr "                        \"mov r12, #1\\n\\t\"\\~%")
-            (pr "                        \"strex r11, r12, [%0]\\n\\t\"\\~%")
-            (pr "                        \"cmp r11, #0\\n\\t\"\\~%")
+            (pr "                        \"strex r7, r12, [%0]\\n\\t\"\\~%")
+            (pr "                        \"cmp r7, #0\\n\\t\"\\~%")
             (pr "                        \"beq 2f\\n\\t\"\\~%")
             (pr "                        \"1:\\n\\t\"\\~%")
             (pr "                        \"ldr r12, [%0, #0]\\n\\t\"\\~%")
@@ -645,7 +770,7 @@
             (pr "                        \"2:\\n\\t\"\\~%")
             (pr "                        :                \\~%")
             (pr "                        : \"r\" (addr)\\~%")
-            (pr "                        : \"cc\", \"memory\", \"r12\", \"r11\")~%")
+            (pr "                        : \"cc\", \"memory\", \"r12\", \"r7\")~%")
 
             (nl)
             (pr "#define UNLOCK(addr)     \\~%")
@@ -659,37 +784,225 @@
             (pr "#define LOCKED_INCR(addr, ret) \\~%")
             (pr "  __asm__ __volatile__ (\"mov %0, #0\\n\\t\"\\~%")
             (pr "                        \"0:\\n\\t\"\\~%")
-            (pr "                        \"ldrex r12, [%1, #0]\\n\\t\"\\~%")
+            (pr "                        \"ldrex r12, [%1]\\n\\t\"\\~%")
             (pr "                        \"add r12, r12, #1\\n\\t\"\\~%")
-            (pr "                        \"strex r11, r12, [%1]\\n\\t\"\\~%")
-            (pr "                        \"cmp r11, #0\\n\\t\"\\~%")
+            (pr "                        \"strex r7, r12, [%1]\\n\\t\"\\~%")
+            (pr "                        \"cmp r7, #0\\n\\t\"\\~%")
             (pr "                        \"bne 0b\\n\\t\"\\~%")
             (pr "                        \"cmp r12, #0\\n\\t\"\\~%")
+            (pr "                        \"it eq\\n\\t\"\\~%")
             (pr "                        \"moveq %0, #1\\n\\t\"\\~%")
             (pr "                        : \"=&r\" (ret)\\~%")
             (pr "                        : \"r\" (addr)\\~%")
-            (pr "                        : \"cc\", \"memory\", \"r12\", \"r11\")~%")
+            (pr "                        : \"cc\", \"memory\", \"r12\", \"r7\")~%")
 
             (nl)
             (pr "#define LOCKED_DECR(addr, ret) \\~%")
             (pr "  __asm__ __volatile__ (\"mov %0, #0\\n\\t\"\\~%")
             (pr "                        \"0:\\n\\t\"\\~%")
-            (pr "                        \"ldrex r12, [%1, #0]\\n\\t\"\\~%")
+            (pr "                        \"ldrex r12, [%1]\\n\\t\"\\~%")
             (pr "                        \"sub r12, r12, #1\\n\\t\"\\~%")
-            (pr "                        \"strex r11, r12, [%1]\\n\\t\"\\~%")
-            (pr "                        \"cmp r11, #0\\n\\t\"\\~%")
+            (pr "                        \"strex r7, r12, [%1]\\n\\t\"\\~%")
+            (pr "                        \"cmp r7, #0\\n\\t\"\\~%")
             (pr "                        \"bne 0b\\n\\t\"\\~%")
             (pr "                        \"cmp r12, #0\\n\\t\"\\~%")
+            (pr "                        \"it eq\\n\\t\"\\~%")
             (pr "                        \"moveq %0, #1\\n\\t\"\\~%")
             (pr "                        : \"=&r\" (ret)\\~%")
             (pr "                        : \"r\" (addr)\\~%")
-            (pr "                        : \"cc\", \"memory\", \"r12\", \"r11\")~%")]
+            (pr "                        : \"cc\", \"memory\", \"r12\", \"r7\")~%")]
+          [(arm64)
+           (if-feature windows
+             (begin
+               (pr "#define INITLOCK(addr) (*((long long *) addr) = 0)~%")
+
+               (nl)
+               (pr "#define SPINLOCK(addr)                           \\~%")
+               (pr "{                                                \\~%")
+               (pr "  while (_InterlockedExchange64(addr, 1) != 0) { \\~%")
+               (pr "    while(*((long long *) addr) != 0);           \\~%")
+               (pr "  }                                              \\~%")
+               (pr "} while(0)                                         ~%")
+
+               (nl)
+               (pr "#define UNLOCK(addr) (*((long long *) addr) = 0)~%")
+
+               (nl)
+               (pr "#define LOCKED_INCR(addr, res) (res = (-1 == _InterlockedExchangeAdd64(addr, 1)))~%")
+
+               (nl)
+               (pr "#define LOCKED_DECR(addr, res) (res = (1 == _InterlockedExchangeAdd64(addr, -1)))~%"))
+             (begin
+               (pr "#define INITLOCK(addr)     \\~%")
+               (pr "  __asm__ __volatile__ (\"mov x12, #0\\n\\t\"\\~%")
+               (pr "                        \"str x12, [%0, #0]\\n\\t\"\\~%")
+               (pr "                        :             \\~%")
+               (pr "                        : \"r\" (addr)\\~%")
+               (pr "                        :\"memory\", \"x12\")~%")
+
+               (nl)
+               (pr "#define SPINLOCK(addr)      \\~%")
+               (pr "  __asm__ __volatile__ (\"0:\\n\\t\"\\~%")
+               (pr "                        \"ldxr x12, [%0, #0]\\n\\t\"\\~%")
+               (pr "                        \"cmp x12, #0\\n\\t\"\\~%")
+               (pr "                        \"bne 1f\\n\\t\"\\~%")
+               (pr "                        \"mov x12, #1\\n\\t\"\\~%")
+               (pr "                        \"stxr w7, x12, [%0]\\n\\t\"\\~%")
+               (pr "                        \"cmp w7, #0\\n\\t\"\\~%")
+               (pr "                        \"beq 2f\\n\\t\"\\~%")
+               (pr "                        \"1:\\n\\t\"\\~%")
+               (pr "                        \"ldr x12, [%0, #0]\\n\\t\"\\~%")
+               (pr "                        \"cmp x12, #0\\n\\t\"\\~%")
+               (pr "                        \"beq 0b\\n\\t\"\\~%")
+               (pr "                        \"b 1b\\n\\t\"\\~%")
+               (pr "                        \"2:\\n\\t\"\\~%")
+               (pr "                        :                \\~%")
+               (pr "                        : \"r\" (addr)\\~%")
+               (pr "                        : \"cc\", \"memory\", \"x12\", \"x7\")~%")
+
+               (nl)
+               (pr "#define UNLOCK(addr)     \\~%")
+               (pr "  __asm__ __volatile__ (\"mov x12, #0\\n\\t\"\\~%")
+               (pr "                        \"str x12, [%0, #0]\\n\\t\"\\~%")
+               (pr "                        :             \\~%")
+               (pr "                        : \"r\" (addr)\\~%")
+               (pr "                        :\"memory\", \"x12\")~%")
+
+               (nl)
+               (pr "#define LOCKED_INCR(addr, ret) \\~%")
+               (pr "  do {\\~%")
+               (pr "  long _return_;\\~%")
+               (pr "  __asm__ __volatile__ (\"mov %0, #0\\n\\t\"\\~%")
+               (pr "                        \"0:\\n\\t\"\\~%")
+               (pr "                        \"ldxr x12, [%1, #0]\\n\\t\"\\~%")
+               (pr "                        \"add x12, x12, #1\\n\\t\"\\~%")
+               (pr "                        \"stxr w7, x12, [%1]\\n\\t\"\\~%")
+               (pr "                        \"cmp w7, #0\\n\\t\"\\~%")
+               (pr "                        \"bne 0b\\n\\t\"\\~%")
+               (pr "                        \"cmp x12, #0\\n\\t\"\\~%")
+               (pr "                        \"bne 1f\\n\\t\"\\~%")
+               (pr "                        \"mov %0, #1\\n\\t\"\\~%")
+               (pr "                        \"1:\\n\\t\"\\~%")
+               (pr "                        : \"=&r\" (_return_)\\~%")
+               (pr "                        : \"r\" (addr)\\~%")
+               (pr "                        : \"cc\", \"memory\", \"x12\", \"x7\");\\~%")
+               (pr "  ret = _return_;\\~%")
+               (pr "  } while (0)~%")
+
+               (nl)
+               (pr "#define LOCKED_DECR(addr, ret) \\~%")
+               (pr "  do {\\~%")
+               (pr "  long _return_;\\~%")
+               (pr "  __asm__ __volatile__ (\"mov %0, #0\\n\\t\"\\~%")
+               (pr "                        \"0:\\n\\t\"\\~%")
+               (pr "                        \"ldxr x12, [%1, #0]\\n\\t\"\\~%")
+               (pr "                        \"sub x12, x12, #1\\n\\t\"\\~%")
+               (pr "                        \"stxr w7, x12, [%1]\\n\\t\"\\~%")
+               (pr "                        \"cmp w7, #0\\n\\t\"\\~%")
+               (pr "                        \"bne 0b\\n\\t\"\\~%")
+               (pr "                        \"cmp x12, #0\\n\\t\"\\~%")
+               (pr "                        \"bne 1f\\n\\t\"\\~%")
+               (pr "                        \"mov %0, #1\\n\\t\"\\~%")
+               (pr "                        \"1:\\n\\t\"\\~%")
+               (pr "                        : \"=&r\" (_return_)\\~%")
+               (pr "                        : \"r\" (addr)\\~%")
+               (pr "                        : \"cc\", \"memory\", \"x12\", \"x7\");\\~%")
+               (pr "  ret = _return_;\\~%")
+               (pr "  } while (0)~%")))]
+          [(riscv64)
+           (pr "#define INITLOCK(addr) \\~%")
+           (pr "  __asm__ __volatile__ (\"li t0, 0\\n\\t\" \\~%")
+           (pr "                        \"sd t0, (%0)\\n\\t\" \\~%")
+           (pr "                        : \\~%")
+           (pr "                        : \"r\" (addr)  \\~%")
+           (pr "                        : \"memory\", \"t0\")~%")
+
+           (nl)
+           (pr "#define SPINLOCK(addr) \\~%")
+           (pr "  __asm__ __volatile__ (\"1:\\n\\t\" \\~%")
+           (pr "                        \"lr.d t0, (%[Addr])\\n\\t\" \\~%")
+           (pr "                        \"bne  t0, zero, 2f\\n\\t\" \\~%")
+           (pr "                        \"li   t0, 1\\n\\t\" \\~%")
+           (pr "                        \"sc.d t1, t0, (%[Addr])\\n\\t\" \\~%")
+           (pr "                        \"beq  t1, zero, 3f\\n\\t\" \\~%")
+           (pr "                        \"2:\\n\\t\" \\~%")
+           (pr "                        \"ld   t0, (%[Addr])\\n\\t\" \\~%")
+           (pr "                        \"beq  t0, zero, 1b\\n\\t\" \\~%")
+           (pr "                        \"j 2b\\n\\t\" \\~%")
+           (pr "                        \"3:\\n\\t\" \\~%")
+           (pr "                        : \\~%")
+           (pr "                        : [Addr] \"r\" (addr) \\~%")
+           (pr "                        : \"memory\", \"t0\", \"t1\")~%")
+
+           (nl)
+           (pr "#define UNLOCK(addr) \\~%")
+           (pr "  __asm__ __volatile__ (\"li t0, 0\\n\\t\" \\~%")
+           (pr "                        \"sd t0, (%0)\\n\\t\" \\~%")
+           (pr "                        : \\~%")
+           (pr "                        : \"r\" (addr) \\~%")
+           (pr "                        : \"memory\", \"t0\")~%")
+
+           (nl)
+           (pr "#define LOCKED_INCR(addr, ret) \\~%")
+           (pr "  do { \\~%")
+           (pr "    long _return_; \\~%")
+           (pr "    __asm__ __volatile__ (\"li %0, 0\\n\\t\" \\~%")
+           (pr "                          \"1:\\n\\t\" \\~%")
+           (pr "                          \"lr.d t0, (%1)\\n\\t\" \\~%")
+           (pr "                          \"addi t0, t0, 1\\n\\t\" \\~%")
+           (pr "                          \"sc.d t1, t0, (%1)\\n\\t\" \\~%")
+           (pr "                          \"bne  t1, zero, 1b\\n\\t\" \\~%")
+           (pr "                          \"bne  t0, zero, 2f\\n\\t\" \\~%")
+           (pr "                          \"li   %0, 1\\n\\t\" \\~%")
+           (pr "                          \"2:\\n\\t\" \\~%")
+           (pr "                          : \"=&r\" (_return_) \\~%")
+           (pr "                          : \"r\" (addr) \\~%")
+           (pr "                          : \"memory\", \"t0\", \"t1\" \\~%")
+           (pr "                          ); \\~%")
+           (pr "    ret = _return_; \\~%")
+           (pr "  } while (0)~%")
+
+           (nl)
+           (pr "#define LOCKED_DECR(addr, ret) \\~%")
+           (pr "  do { \\~%")
+           (pr "    long _return_; \\~%")
+           (pr "    __asm__ __volatile__ (\"li %0, 0\\n\\t\" \\~%")
+           (pr "                          \"1:\\n\\t\" \\~%")
+           (pr "                          \"lr.d t0, (%1)\\n\\t\" \\~%")
+           (pr "                          \"addi t0, t0, -1\\n\\t\" \\~%")
+           (pr "                          \"sc.d t1, t0, (%1)\\n\\t\" \\~%")
+           (pr "                          \"bne  t1, zero, 1b\\n\\t\" \\~%")
+           (pr "                          \"bne  t0, zero, 2f\\n\\t\" \\~%")
+           (pr "                          \"li   %0, 1\\n\\t\" \\~%")
+           (pr "                          \"2:\\n\\t\" \\~%")
+           (pr "                          : \"=&r\" (_return_) \\~%")
+           (pr "                          : \"r\" (addr) \\~%")
+           (pr "                          : \"memory\", \"t0\", \"t1\" \\~%")
+           (pr "                          ); \\~%")
+           (pr "    ret = _return_; \\~%")
+           (pr " } while (0)~%")]
+          [(pb)
+           (pr "#define INITLOCK(addr) (*((long *) addr) = 0)~%")
+           (pr "#define UNLOCK(addr) (*((long *) addr) = 0)~%")
+           (if-feature pthreads
+             (begin
+               (pr "#define SPINLOCK(addr) S_pb_spinlock(addr)~%")
+               (pr "#define LOCKED_INCR(addr, res) (res = S_pb_locked_adjust(addr, 1))~%")
+               (pr "#define LOCKED_DECR(addr, res) (res = S_pb_locked_adjust(addr, -1))~%")
+               (export "void" "S_pb_spinlock" "(void*)")
+               (export "int" "S_pb_locked_adjust" "(void*, int)"))
+             (begin
+               (pr "#define SPINLOCK(addr) (*((long *) addr) = 1)~%")               
+               (pr "#define LOCKED_INCR(addr, res) (res = ((*(uptr*)addr)++ == -1))~%")
+               (pr "#define LOCKED_DECR(addr, res) (res = ((*(uptr*)addr)-- == 1))~%")))]
           [else
             ($oops who "asm locking code is not yet defined for ~s" (constant architecture))]))))
 
   (set! mkequates.h
     (lambda (ofn)
-      (fluid-let ([op (open-output-file ofn 'replace)])
+      (fluid-let ([op (if (output-port? ofn)
+                          ofn
+                          (open-output-file ofn 'replace))])
         (comment "equates.h for Chez Scheme Version ~a" scheme-version)
   
         (nl)
@@ -719,8 +1032,10 @@
             (cond
               [(getprop x '*constant* #f) =>
                (lambda (k)
-                 (let ([type (getprop x '*constant-ctype* #f)])
-                   (def (sanitize x)
+                 (let ([type (getprop x '*constant-ctype* #f)]
+                       [c-name (sanitize x)])
+                   (putprop x '*c-name* c-name)
+                   (def c-name
                      (if (or (fixnum? k) (bignum? k))
                          (if (< k 0)
                              (if (or (not type) (eq? type 'int))
@@ -771,6 +1086,26 @@
           (print-field-disps "code_info" (let () (include "types.ss") (record-type-descriptor code-info))))
 
         (nl)
+        (comment "derived endianness")
+        (case (constant native-endianness)
+          [(little)
+           (def "native_endianness_is_little" 1)
+           (def "native_endianness_is_big" 0)]
+          [(big)
+           (def "native_endianness_is_little" 0)
+           (def "native_endianness_is_big" 1)]
+          [else
+           (def "native_endianness_is_little" 0)
+           (def "native_endianness_is_big" 0)])
+        (case (constant fasl-endianness)
+          [(little)
+           (def "fasl_endianness_is_little" 1)
+           (def "fasl_endianness_is_big" 0)]
+          [else
+           (def "fasl_endianness_is_little" 0)
+           (def "fasl_endianness_is_big" 1)])
+
+        (nl)
         (comment "predicates")
         (deftypep "Simmediatep" ($ mask-immediate) ($ type-immediate))
         (deftotypep "Sportp" ($ mask-port) ($ type-port))
@@ -788,10 +1123,10 @@
         (definit INITBOXREF box ref)
         (defset SETBOXREF box ref)
 
+        (defref EPHEMERONPREVREF ephemeron prev-ref)
+        (definit INITEPHEMERONPREVREF ephemeron prev-ref)
         (defref EPHEMERONNEXT ephemeron next)
         (definit INITEPHEMERONNEXT ephemeron next)
-        (defref EPHEMERONTRIGGERNEXT ephemeron trigger-next)
-        (definit INITEPHEMERONTRIGGERNEXT ephemeron trigger-next)
 
         (defref TLCTYPE tlc type)
         (defref TLCKEYVAL tlc keyval)
@@ -801,6 +1136,9 @@
         (definit INITTLCHT tlc ht)
         (definit INITTLCNEXT tlc next)
         (defset SETTLCNEXT tlc next)
+
+        (defref PHANTOMTYPE phantom type)
+        (defref PHANTOMLEN  phantom length)
 
         (defref SYMVAL symbol value)
         (defref SYMPVAL symbol pvalue)
@@ -831,8 +1169,14 @@
         (defref FXVECTOR_TYPE fxvector type)
         (defref FXVECTIT fxvector data)
 
+        (defref FLVECTOR_TYPE flvector type)
+        (defref FLVECTIT flvector data)
+
         (defref BYTEVECTOR_TYPE bytevector type)
         (defref BVIT bytevector data)
+
+        (defref STENVECTTYPE stencil-vector type)
+        (definit INITSTENVECTIT stencil-vector data)
 
         (defref INEXACTNUM_TYPE inexactnum type)
         (defref INEXACTNUM_REAL_PART inexactnum real)
@@ -841,10 +1185,12 @@
         (defref EXACTNUM_TYPE exactnum type)
         (defref EXACTNUM_REAL_PART exactnum real)
         (defref EXACTNUM_IMAG_PART exactnum imag)
+        (defref EXACTNUM_PAD exactnum pad)
 
         (defref RATTYPE ratnum type)
         (defref RATNUM ratnum numerator)
         (defref RATDEN ratnum denominator)
+        (defref RATPAD ratnum pad)
 
         (defref CLOSENTRY closure code)
         (defref CLOSIT closure data)
@@ -882,18 +1228,20 @@
         (defref RELOCCODE reloc-table code)
         (defref RELOCIT reloc-table data)
 
+        (defref CONTCODE continuation code)
         (defref CONTSTACK continuation stack)
         (defref CONTLENGTH continuation stack-length)
         (defref CONTCLENGTH continuation stack-clength)
         (defref CONTLINK continuation link)
         (defref CONTRET continuation return-address)
         (defref CONTWINDERS continuation winders)
+        (defref CONTATTACHMENTS continuation attachments)
 
         (defref RTDCOUNTSTYPE rtd-counts type)
         (defref RTDCOUNTSTIMESTAMP rtd-counts timestamp)
         (defref RTDCOUNTSIT rtd-counts data)
 
-        (defref RECORDDESCPARENT record-type parent)
+        (defref RECORDDESCANCESTRY record-type ancestry)
         (defref RECORDDESCSIZE record-type size)
         (defref RECORDDESCPM record-type pm)
         (defref RECORDDESCMPM record-type mpm)
@@ -926,11 +1274,15 @@
         (defref GUARDIANREP guardian-entry rep)
         (defref GUARDIANTCONC guardian-entry tconc)
         (defref GUARDIANNEXT guardian-entry next)
+        (defref GUARDIANORDERED guardian-entry ordered?)
+        (defref GUARDIANPENDING guardian-entry pending)
 
         (definit INITGUARDIANOBJ guardian-entry obj)
         (definit INITGUARDIANREP guardian-entry rep)
         (definit INITGUARDIANTCONC guardian-entry tconc)
         (definit INITGUARDIANNEXT guardian-entry next)
+        (definit INITGUARDIANORDERED guardian-entry ordered?)
+        (definit INITGUARDIANPENDING guardian-entry pending)
 
         (defref FORWARDMARKER forward marker)
         (defref FORWARDADDRESS forward address)
@@ -941,6 +1293,17 @@
         (defref RPHEADERFRAMESIZE rp-header frame-size)
         (defref RPHEADERLIVEMASK rp-header livemask)
         (defref RPHEADERTOPLINK rp-header toplink)
+
+        (defref RPCOMPACTHEADERMASKANDSIZE rp-compact-header mask+size+mode)
+        (defref RPCOMPACTHEADERTOPLINK rp-compact-header toplink)
+
+        (defref VFASLHEADER_DATA_SIZE vfasl-header data-size)
+        (defref VFASLHEADER_TABLE_SIZE vfasl-header table-size)
+        (defref VFASLHEADER_RESULT_OFFSET vfasl-header result-offset)
+        (defref VFASLHEADER_VSPACE_REL_OFFSETS vfasl-header vspace-rel-offsets)
+        (defref VFASLHEADER_SYMREF_COUNT vfasl-header symref-count)
+        (defref VFASLHEADER_RTDREF_COUNT vfasl-header rtdref-count)
+        (defref VFASLHEADER_SINGLETONREF_COUNT vfasl-header singletonref-count)
 
         (nl)
         (comment "machine types")
@@ -962,6 +1325,9 @@
 
         (nl)
         (comment "threads")
+        (when-feature pthreads
+          (pr "#define scheme_feature_pthreads 1~%"))
+        (defref THREADTYPE thread type)
         (defref THREADTC thread tc)
 
         (nl)
@@ -999,6 +1365,10 @@
              (libspec-index (lookup-libspec nonprocedure-code)))
         (def "library_dounderflow"
              (libspec-index (lookup-libspec dounderflow)))
+        (def "library_popcount_slow"
+             (libspec-index (lookup-libspec popcount-slow)))
+        (def "library_cpu_features"
+             (libspec-index (lookup-libspec cpu-features)))
 
       )))
 )

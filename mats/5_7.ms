@@ -25,6 +25,7 @@
     (not (eq? (gensym "hi")
          (gensym "hi")))
     (equal? (symbol->string (gensym "hi")) "hi")
+    (immutable-string? (symbol->string (gensym "hi")))
     (error? (gensym '#(a b c)))
  )
 
@@ -68,6 +69,7 @@
 
 (mat symbol->string
     (equal? (symbol->string 'foo) "foo")
+    (immutable-string? (symbol->string 'foo))
     (equal? (symbol->string (string->symbol "hi")) "hi")
     (equal? (symbol->string (gensym "hi there")) "hi there")
     (error? (symbol->string 3))
@@ -80,14 +82,18 @@
     (gensym->unique-string 3))
   (error? ; not a gensym
     (gensym->unique-string 'spam))
-  (string? (gensym->unique-string (gensym)))
+  (immutable-string? (gensym->unique-string (gensym)))
   (equal?
     (gensym->unique-string '#{g0 e6sfz8u1obe67hsew4stu0-0})
     "e6sfz8u1obe67hsew4stu0-0")
   (let* ([s (gensym->unique-string (gensym))]
          [l (string-length s)]
-         [k (substring s 0 (- l 1))]
-         [n (string->number (substring s (- l 1) l))]
+         [dash-pos (let loop ([i (- l 1)])
+                     (if (char=? #\- (string-ref s i))
+                         (add1 i)
+                         (loop (sub1 i))))]
+         [k (substring s 0 dash-pos)]
+         [n (string->number (substring s dash-pos l))]
          [next-un (string-append k (number->string (+ n 1)))])
     (define thief (gensym "pn" next-un)) ; steals next-un
     (define gs (gensym))
@@ -106,7 +112,7 @@
     (let ([gs-un (gensym->unique-string gs)])
       (and (eq? gs (gensym (symbol->string gs) gs-un))
            (not (equal? gs-un (gensym->unique-string thief))))))
- )
+)
 
 (mat putprop-getprop
     (begin (putprop 'xyz 'key 'value) (eq? (getprop 'xyz 'key) 'value))
@@ -127,3 +133,23 @@
     (error? (putprop "hi" 'key 'value))
     (error? (property-list '(a b c)))
  )
+
+(mat uninterned-symbol
+     (symbol? (string->uninterned-symbol "hello"))
+     (uninterned-symbol? (string->uninterned-symbol "hello"))
+     (not (gensym? (string->uninterned-symbol "hello")))
+
+     (equal? "hello" (symbol->string (string->uninterned-symbol "hello")))
+     (immutable-string? (symbol->string (string->uninterned-symbol "hello")))
+
+     (not (eq? (string->uninterned-symbol "hello")
+               (string->uninterned-symbol "hello")))
+
+     (let-values ([(o get) (open-bytevector-output-port)])
+       (let ([s (string->uninterned-symbol "hello")])
+         (fasl-write (list s s) o)
+         (let ([r (fasl-read (open-bytevector-input-port (get)))])
+           (and (eq? (car r) (cadr r))
+                (equal? "hello" (symbol->string (car r)))))))
+
+     )

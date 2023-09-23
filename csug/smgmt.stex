@@ -93,6 +93,23 @@ If \scheme{collect-generation-radix} is set to 4, the system thus
 collects generation 0 every time, generation 1 every 4 times,
 generation 2 every 16 times, and so on.
 
+The maximum generation $mg$ is collected on the gc-trip schedule only
+if the total amount of allocated memory before collection is $k$ times
+the total amount of allocated memory after the previous collection of
+$mg$, where the $k$ is the value of
+\index{\scheme{collect-maximum-generation-threshold-factor}}\scheme{collect-maximum-generation-threshold-factor}.
+If a collection of $mg$ is skipped by this rule, then gc-trip is
+rewound to the previous value that is a multiple of $r^{mg-1}$ (so
+that the next time to collect $mg-1$ is potentially also a time to
+collect $mg$). The intent of this $k$ factor is to avoid unnecessary
+traversal of long-lived objects when rapidly allocating short-lived
+objects; for objects that will live until the end of a process, promoting
+them to the static generation can be even more effective, but
+promotion requires additional reasoning to ensure that an object is
+not retained inappropriately, while the
+\scheme{collect-maximum-generation-threshold-factor} parameter allows
+the collector to adapt more automatically.
+
 When \scheme{collect} is invoked with arguments, the generations to be
 collected and their target generations are determined by the arguments.
 In addition, the first argument \var{cg} affects the value of gc-trip;
@@ -122,7 +139,8 @@ storage management for dynamically typed languages''~\cite{Dybvig:sm}.
 \formdef{collect}{\categoryprocedure}{(collect \var{cg})}
 \formdef{collect}{\categoryprocedure}{(collect \var{cg} \var{max-tg})}
 \formdef{collect}{\categoryprocedure}{(collect \var{cg} \var{min-tg} \var{max-tg})}
-\returns unspecified
+\formdef{collect}{\categoryprocedure}{(collect \var{cg} \var{min-tg} \var{max-tg} \var{objs})}
+\returns a list if \var{objs} is a list, unspecified otherwise
 \listlibraries
 \endentryheader
 
@@ -173,6 +191,20 @@ be greater than \var{cg}.
 If \var{min-tg} is not present (but \var{cg} is), it defaults to
 the same value as \var{max-tg}.
 
+If present, \var{objs} must be either \scheme{#f} or a list.
+If \var{objs} is a list, the collection is combined with counting as
+in \scheme{compute-size-increments}. Counting looks through all
+generations, as when \scheme{'static} is the second argument to
+\scheme{compute-size-increments}, but the returned sizes from
+\scheme{collect} do not include any objects in a generation older than
+\var{g}. Another difference is that an object later in \var{objs} is
+treated as unreachable by earlier objects in \var{objs} only when the
+later object is a record, thread, or procedure (including
+continuations). Finally, if an object is included in \var{objs} using
+a weak pair, then the object's result size is 0 unless it is reachable
+from earlier objects; if the object is not reachable at all, it can be
+collected.
+
 %----------------------------------------------------------------------------
 \entryheader
 \formdef{collect-rendezvous}{\categoryprocedure}{(collect-rendezvous)}
@@ -184,7 +216,9 @@ the same value as \var{max-tg}.
 Requests a garbage collection in the same way as when the system
 determines that a collection should occur. All running threads are
 coordinated so that one of them calls the collect-request handler, while
-the other threads pause until the handler returns.
+the other threads pause until the handler returns. If the initial
+thread is active at the time of the rendezvous, it is used to call
+the collect-request handler.
 
 Note that if the collect-request handler (see
 \scheme{collect-request-handler}) does not call \scheme{collect}, then
@@ -251,17 +285,41 @@ effectively delays collection of older generations indefinitely.
 
 %----------------------------------------------------------------------------
 \entryheader
+\formdef{collect-maximum-generation-threshold-factor}{\categoryglobalparameter}{collect-maximum-generation-threshold-factor}
+\listlibraries
+\endentryheader
+
+\noindent
+This parameter determines how often the maximum generation is collected
+when \scheme{collect} is invoked without arguments, as by the default
+collect-request handler.
+Its value must be a nonnegative real number.
+The maximum generation is collected only when the total amount of allocated
+memory before a collection is $k$ times the amount of memory allocated
+after the most recent collection of the maximum generation, where $k$
+is the value of \scheme{collect-maximum-generation-threshold-factor}.
+
+Setting \scheme{collect-maximum-generation-threshold-factor} to zero
+causes every regularly scheduled collection of the maximum generation
+to take place. Setting the value of
+\scheme{collect-maximum-generation-threshold-factor} to a large number
+can increase peak memory use by delaying collection of the maximum
+generation.
+
+
+%----------------------------------------------------------------------------
+\entryheader
 \formdef{collect-maximum-generation}{\categoryglobalparameter}{collect-maximum-generation}
 \listlibraries
 \endentryheader
 
 This parameter determines the maximum nonstatic generation, hence the
 total number of generations, currently in use.
-Its value is an exact integer in the range 1 through 254.
+Its value is an exact integer in the range 1 through 6.
 When set to 1, only two nonstatic generations are used; when set to 2,
 three nonstatic generations are used, and so on.
-When set to 254, 255 nonstatic generations are used, plus the single
-static generation for a total of 256 generations.
+When set to 6, 7 nonstatic generations are used, plus the single
+static generation for a total of 8 generations.
 Increasing the number of generations effectively decreases how often old
 objects are collected, potentially decreasing collection overhead but
 potentially increasing the number of inaccessible objects retained in the
@@ -336,6 +394,26 @@ if (a) the two parameters have the same value before the change, or (b)
 
 %----------------------------------------------------------------------------
 \entryheader
+\formdef{in-place-minimum-generation}{\categoryglobalparameter}{in-place-minimum-generation}
+\listlibraries
+\endentryheader
+
+This parameter determines when the storage-management system attempts
+to trade long-term space usage for the benefit of collection time and
+short-term space usage. When performing a collection at a generation
+at least as large as this parameter's value, objects already residing
+at the generation are kept in place---unless the objects are in a
+memory region where previously keeping them in place resulted in too
+much fragmentation.
+
+Typically, the value of \scheme{in-place-minimum-generation} should
+match the value of the \scheme{collect-maximum-generation} parameter,
+but the value of this parameter can be lower to move objects even less
+frequently, or it can be higher to disable attempts to keep otherwise
+mobile objects in place.
+
+%----------------------------------------------------------------------------
+\entryheader
 \formdef{heap-reserve-ratio}{\categoryglobalparameter}{heap-reserve-ratio}
 \listlibraries
 \endentryheader
@@ -351,6 +429,19 @@ occupied nonstatic page.
 Setting it to a smaller value may result in a smaller average virtual
 memory footprint, while setting it to a larger value may result in fewer
 calls into the operating system to request and free memory space.
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{keep-live}{\categoryprocedure}{(keep-live \var{v})}
+\returns unspecified
+\listlibraries
+\endentryheader
+
+\noindent
+Ensures that the value produced by \var{v} is retained by the store
+manager until the \scheme{keep-live} call is performed. This function
+can be particularly useful for ensuring that an immobile object
+remains in place.
 
 
 \section{Weak Pairs, Ephemeron Pairs, and Guardians\label{SECTGUARDWEAKPAIRS}}
@@ -575,7 +666,8 @@ reference, and that non-weak reference prevents the car field from becoming
 %----------------------------------------------------------------------------
 \entryheader
 \formdef{make-guardian}{\categoryprocedure}{(make-guardian)}
-\returns a new guardian
+\formdef{make-guardian}{\categoryprocedure}{(make-guardian \var{ordered?})}
+\returns a new guardian that is unordered unless \var{ordered?} is true
 \listlibraries
 \endentryheader
 
@@ -661,9 +753,25 @@ This feature circumvents the problems that might otherwise arise with
 shared or cyclic structure.
 A shared or cyclic structure consisting of inaccessible objects is
 preserved in its entirety, and each piece registered for preservation
-with any guardian is placed in the inaccessible set for that guardian.
+with any unordered guardian is placed in the inaccessible set for that guardian.
 The programmer then has complete control over the order in which pieces
 of the structure are processed.
+
+An ordered guardian, as created by providing a true value for
+\var{ordered?}, treats an object as inaccessible only when it is not
+accessible from any representative of an object that is in any
+usable guardian's inaccessible group and that is distinct from the
+object itself. Cycles among objects registered with ordered guardians
+can never become inaccessible unless the cycle is broken or some of
+the relevant guardians are dropped by the program, and each
+registered object's representative (if different from the object) can
+contribute to such cycles. If an object is registered to an ordered
+guardian with a representative that is different from the object but
+that references the object, then the object is in a cycle and will not
+become inaccessible unless the reference from the representative to
+the object is destroyed. Weak references do not count, so objects that
+form a cycle only when counting weak references may still become
+inaccessible.
 
 An object may be registered with a guardian more than once, in which
 case it will be retrievable more than once:
@@ -681,7 +789,12 @@ case it will be retrievable more than once:
 
 \noindent
 It may also be registered with more than one guardian, and guardians
-themselves can be registered with other guardians.
+themselves can be registered with other guardians. If an object
+is registered to both an unordered guardian and an ordered guardian
+and neither guardian is dropped, the object can become
+inaccessible for the ordered guardian only after it has been
+determined inaccessible for the unordered guardian and then
+retrieved and dropped again by the program.
 
 An object that has been registered with a guardian without a
 representative and placed in
@@ -964,3 +1077,135 @@ or objects that have been made static is unnecessary and ineffective but harmles
 This predicate returns true if \var{obj} cannot be relocated or reclaimed
 by the collector, including immediate values, such as fixnums,
 booleans, and characters, and objects that have been made static.
+
+
+\section{Immobile Objects\label{SECTSMGMTIMMOBILE}}
+
+Like a locked object, an \emph{immobile} object will not be relocated by
+the storage manager. Unlike a locked object, and immobile object will
+be reclaimed by the storage manager if it is unreachable.
+Foreign-callable code objects are immobile, as are objects allocated
+by functions that specifically create immobile objects.
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{box-immobile}{\categoryprocedure}{(box-immobile \var{obj})}
+\returns a box
+\listlibraries
+\endentryheader
+
+\noindent
+Like \scheme{box}, but creates a box that will not be relocated in memory
+by the storage management system until it is reclaimed.
+
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{make-immobile-vector}{\categoryprocedure}{(make-immobile-vector \var{n})}
+\formdef{make-immobile-vector}{\categoryprocedure}{(make-immobile-vector \var{n} \var{obj})}
+\returns a vector
+\listlibraries
+\endentryheader
+
+\noindent
+Like \scheme{make-vector}, but creates a vector that will not be relocated
+in memory by the storage management system until it is reclaimed.
+
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{make-immobile-bytevector}{\categoryprocedure}{(make-immobile-bytevector \var{n})}
+\formdef{make-immobile-bytevector}{\categoryprocedure}{(make-immobile-bytevector \var{n} \var{byte})}
+\returns a vector
+\listlibraries
+\endentryheader
+
+\noindent
+Like \scheme{make-bytevector}, but creates a bytevector that will not be relocated
+in memory by the storage management system until it is reclaimed.
+
+
+
+\section{Phantom Bytevectors\label{SECTSMGMTPHANTOM}}
+
+\index{phamtom bytevectors}A \emph{phantom bytevector} represents
+memory that is allocated outside of the Scheme stroage management
+system. A phantom bytevector itself uses a small amount of space, but
+it contains a length that reflects external allocation. Representing
+external allocation can be useful for reflecting memory consumption
+and triggering garbage-collection heuristics based on consumption. For
+example, for a program that allocates external objects and frees
+through a guardian, representing the external object's memory use can
+trigger earlier garbage collections when the external objects are
+large. A phantom bytevector can also reflect external allocation to
+tools like \scheme{compute-size}, since the length of a phantom
+bytevector is included in the result of \scheme{compute-size} for the
+phantom bytevector.
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{make-phantom-bytevector}{\categoryprocedure}{(make-phantom-bytevector \var{n})}
+\returns a phantom bytevector
+\listlibraries
+\endentryheader
+
+\noindent
+\var{n} must be an exact nonnegative integer.
+
+Creates a phantom bytevector that reflects \var{n} bytes of external
+allocation.
+
+The value \var{n} must reflect actual allocation in the sense of
+consuming a portion of the process's address space. Claiming
+significantly more bytes than are actually allocated introduces the
+possibility of overflow within the storage management system's
+calculations.
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{phantom-bytevector?}{\categoryprocedure}{(phantom-bytevector? \var{obj})}
+\returns \scheme{#t} if obj is a phantom bytevector, \scheme{#f} otherwise
+\listlibraries
+\endentryheader
+
+\schemedisplay
+(phantom-bytevector? (make-phantom-bytevector 1024)) ;=> #t
+\endschemedisplay
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{phantom-bytevector-length}{\categoryprocedure}{(phantom-bytevector-length \var{pbv})}
+\returns the length of the phantom bytevector
+\listlibraries
+\endentryheader
+
+\noindent
+\var{pbv} must be a phantom bytevector.
+
+Returns the number of bytes of external allocation that \var{pbv}
+represents.
+
+\schemedisplay
+(phantom-bytevector-length (make-phantom-bytevector 1024)) ;=> 1024
+\endschemedisplay
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{set-phantom-bytevector-length!}{\categoryprocedure}{(set-phantom-bytevector-length! \var{pbv} \var{n})}
+\returns unspecified
+\listlibraries
+\endentryheader
+
+\noindent
+\var{pbv} must be a phantom bytevector, and \var{n} must be an exact nonnegative integer.
+
+Adjusts the allocation represented by \var{pbv} to \var{n} bytes. For
+example, when an externally allocated object represented by \var{pbv}
+is deallocated, then \var{pbv}'s length should be set to \scheme{0}.
+
+\schemedisplay
+(define pbv (make-phantom-bytevector 1024))
+(phantom-bytevector-length pbv) ;=> 1024
+(set-phantom-bytevector-length! pbv 1)
+(phantom-bytevector-length pbv) ;=> 1
+\endschemedisplay

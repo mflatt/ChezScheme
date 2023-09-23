@@ -113,7 +113,7 @@
  )
 
 (mat load-compiled-from-port
-  (begin
+  (let ()
     (define-values (o get) (open-bytevector-output-port))
     (compile-to-port '((define lcfp1 'worked) 'loaded) o)
     (eq? 'loaded (load-compiled-from-port (open-bytevector-input-port (get)))))
@@ -138,6 +138,12 @@
   (equal?
     (with-output-to-string (lambda () (printf "result = ~s\n" (revisit-compiled-from-port (open-bytevector-input-port lcfp-bv)))))
     "revisit\nvisit-revisit\nresult = revisit-return\n")
+
+  
+  (let ()
+    (define-values (o get) (open-bytevector-output-port))
+    (compile-to-port '((lambda () 'banana)) o #f #f #f (machine-type) #f (lambda (v) (eq? v 'banana)))
+    (eq? 'apple ((load-compiled-from-port (open-bytevector-input-port (get)) '#(apple)))))
 )
 
 (mat compile-to-file
@@ -1114,13 +1120,16 @@
           out)))
     "(aye captain)\n")
   (equal?
-    (begin
-      (unless (or (embedded?) (equal? *scheme* (format "~a/bin/~a/scheme~a" (path-parent *mats-dir*) (machine-type) (if (windows?) ".exe" ""))))
-        (errorf #f "not testing boot file based on ../boot/~a/petite.boot, since *scheme* isn't ../bin/~a/scheme~a"
-          (machine-type) (machine-type) (if (windows?) ".exe" "")))
+    (let ([would-be-scheme (find-source (format "..~abin~a~a~ascheme~a" 
+                                                (directory-separator)
+                                                (directory-separator) (machine-type) (directory-separator)
+                                                (if (windows?) ".exe" "")))])
+      (unless (or (embedded?) (path-equal? *scheme* would-be-scheme))
+        (errorf #f "not testing boot file based on ../boot/~a/petite.boot, since *scheme* ~a isn't ~a"
+          (machine-type) *scheme* would-be-scheme))
       (parameterize ([optimize-level 2])
         (make-boot-file "testfile.boot" '()
-          (format "~a/boot/~a/petite.boot" (path-parent *mats-dir*) (machine-type))
+          (find-source (format "../boot/~a/petite.boot" (machine-type)))
           "testfile-1.so"
           "testfile-2.so"
           "testfile-3.ss"
@@ -1142,11 +1151,16 @@
   ; regression test to verify that we can evaluate a foreign-callable form inside the procedure to
   ; which scheme-start is set, which was failing because its relocation information was discarded
   ; by the static-generation collection.
-  (equal?
-    (begin
-      (unless (or (embedded?) (equal? *scheme* (format "~a/bin/~a/scheme~a" (path-parent *mats-dir*) (machine-type) (if (windows?) ".exe" ""))))
-        (errorf #f "not testing boot file based on ../boot/~a/petite.boot, since *scheme* isn't ../bin/~a/scheme~a"
-          (machine-type) (machine-type) (if (windows?) ".exe" "")))
+  (or
+   (pb?) ; callables not always in pb, and boot files may not work with pbchunk
+   (equal?
+    (let ([would-be-scheme (find-source (format "..~abin~a~a~ascheme~a" 
+                                                (directory-separator)
+                                                (directory-separator) (machine-type) (directory-separator)
+                                                (if (windows?) ".exe" "")))])
+      (unless (or (embedded?) (path-equal? *scheme* would-be-scheme))
+        (errorf #f "not testing boot file based on ../boot/~a/petite.boot, since *scheme* ~a isn't ~a"
+          (machine-type) *scheme* would-be-scheme))
       (mkfile "testfile.ss"
         '(scheme-start
            (lambda ()
@@ -1165,7 +1179,7 @@
           (close-input-port from-stderr)
           (unless (eof-object? err) (error 'bootfile-test2 err))
           out)))
-    "#<code>\n")
+    "#<code>\n"))
 )
 
 (mat hostop
@@ -4797,8 +4811,16 @@ evaluating module init
     "yes\n#<void>\n#<void>\n(#f #f #f #f)\nhello from B1, hello from C1\n(#t #f #t #f)\n")
   (error? ; mismatched compilation instance
     (separate-eval
-      '(parameterize ([library-directories '(("testdir-dist1" . "testdir-dist1"))])
-         (verify-loadability 'load "testdir-dist2/testfile-clA.so"))))
+     '(guard [x [#t (let* ([ps (condition-irritants x)]
+                           ;; rewrite error message to hide Window separator difference
+                           [new-ps (map (lambda (p)
+                                          (if (string? p)
+                                              (list->string (subst #\/ #\\ (string->list p)))
+                                              p))
+                                        ps)])
+                      (raise (condition (make-irritants-condition new-ps) x)))]]
+             (parameterize ([library-directories '(("testdir-dist1" . "testdir-dist1"))])
+               (verify-loadability 'load "testdir-dist2/testfile-clA.so")))))
   (error? ; mismatched compilation instance
     (separate-eval
       '(parameterize ([library-directories '(("testdir-dist1" . "testdir-dist1"))])
@@ -5636,7 +5658,7 @@ evaluating module init
       (let ([b0-0 (bytes-allocated 0)]
             [b1-0 (bytes-allocated 1)]
             [bm-0 (bytes-allocated (collect-maximum-generation))])
-        (let* ([v (make-vector 2000)] [n (compute-size v)])
+        (let* ([v (make-vector 20000)] [n (compute-size v)])
           (let ([b0-1 (bytes-allocated 0)]
                 [b1-1 (bytes-allocated 1)]
                 [bm-1 (bytes-allocated (collect-maximum-generation))])
@@ -5653,8 +5675,9 @@ evaluating module init
               (parameterize ([print-vector-length #t]) (pretty-print v))
               #t))))))
   (parameterize ([collect-maximum-generation 4]
-                 [collect-generation-radix 4]
-                 [collect-trip-bytes (expt 2 20)])
+                 [collect-generation-radix 2]
+                 [collect-trip-bytes (expt 2 20)]
+                 [collect-maximum-generation-threshold-factor 0])
     (collect (collect-maximum-generation))
     (let ([b0 (maximum-memory-bytes)])
       (define tail-spin
@@ -5666,6 +5689,30 @@ evaluating module init
       (let ([b1 (maximum-memory-bytes)])
         (or (< (- b1 b0) (expt 2 24))
             (errorf #f "b0 = ~s, b1 = ~s, b1-b0 = ~s" b0 b1 (- b1 b0))))))
+  (begin
+    (define try-gc-threshold
+      (lambda (gc-max?)
+        (let* ([v (gensym)]
+               [w (weak-cons v '())])
+          (parameterize ([collect-maximum-generation 4]
+                         [collect-generation-radix 4]
+                         [collect-trip-bytes (expt 2 20)]
+                         [collect-maximum-generation-threshold-factor (if gc-max? 0 1000)])
+            (collect (collect-maximum-generation))
+            (set! v #f)
+            (let ()
+              (define tail-spin
+                (lambda (n)
+                  (do ([i 1 (fx+ i 1)] [next (cons 0 '()) (cdr next)])
+                      ((fx= i n))
+                    (set-cdr! next (cons i '())))))
+              (tail-spin 50000000)
+              (if gc-max?
+                  (eq? #!bwp (car w))
+                  (symbol? (car w))))))))
+    #t)
+  (try-gc-threshold #t)
+  (try-gc-threshold #f)
  )
 
 (mat object-counts
@@ -5696,8 +5743,8 @@ evaluating module init
     (pair?
       (with-interrupts-disabled
         (let ([cmg (collect-maximum-generation)])
-          (collect-maximum-generation 4)
-          (collect 4 4)
+          (collect-maximum-generation 3)
+          (collect 3 3)
           (let ()
             (define (locate type gen ls)
               (cond
@@ -5714,42 +5761,42 @@ evaluating module init
             (let ([hc (object-counts)])
               (assert (locate 'box 0 hc))
               (assert (locate (record-type-descriptor flub) 0 hc))
-              (collect-maximum-generation 7)
+              (collect-maximum-generation 6)
               (let ([hc (object-counts)])
                 (assert (locate 'box 0 hc))
                 (assert (locate (record-type-descriptor flub) 0 hc))
-                (collect 7 7)
+                (collect 6 6)
                 (let ()
                   (define q1 (make-flub q0))
                   (define b1 (box b0))
-                  (collect 6 6)
+                  (collect 5 5)
                   (let ()
                     (define q2 (make-flub q1))
                     (define b2 (box b1))
-                    (collect 5 5)
+                    (collect 4 4)
                     (let ([hc (object-counts)])
+                      (assert (locate 'box 4 hc))
                       (assert (locate 'box 5 hc))
                       (assert (locate 'box 6 hc))
-                      (assert (locate 'box 7 hc))
+                      (assert (locate (record-type-descriptor flub) 4 hc))
                       (assert (locate (record-type-descriptor flub) 5 hc))
                       (assert (locate (record-type-descriptor flub) 6 hc))
-                      (assert (locate (record-type-descriptor flub) 7 hc))
-                      (collect-maximum-generation 5)
+                      (collect-maximum-generation 4)
                       (let ([hc (object-counts)])
-                        (assert (locate 'box 5 hc))
+                        (assert (locate 'box 4 hc))
+                        (assert (not (locate 'box 5 hc)))
                         (assert (not (locate 'box 6 hc)))
-                        (assert (not (locate 'box 7 hc)))
-                        (assert (locate (record-type-descriptor flub) 5 hc))
+                        (assert (locate (record-type-descriptor flub) 4 hc))
+                        (assert (not (locate (record-type-descriptor flub) 5 hc)))
                         (assert (not (locate (record-type-descriptor flub) 6 hc)))
-                        (assert (not (locate (record-type-descriptor flub) 7 hc)))
-                        (collect 5 5)
+                        (collect 4 4)
                         (let ([hc (object-counts)])
-                          (assert (locate 'box 5 hc))
+                          (assert (locate 'box 4 hc))
+                          (assert (not (locate 'box 5 hc)))
                           (assert (not (locate 'box 6 hc)))
-                          (assert (not (locate 'box 7 hc)))
-                          (assert (locate (record-type-descriptor flub) 5 hc))
+                          (assert (locate (record-type-descriptor flub) 4 hc))
+                          (assert (not (locate (record-type-descriptor flub) 5 hc)))
                           (assert (not (locate (record-type-descriptor flub) 6 hc)))
-                          (assert (not (locate (record-type-descriptor flub) 7 hc)))
                           (collect-maximum-generation cmg)
                           (collect cmg cmg)
                           (cons q2 b2)))))))))))))
@@ -5768,6 +5815,92 @@ evaluating module init
     `(100001 . 1))
   (let ([a (assq 'reloc-table (object-counts))])
     (or (not a) (not (assq 'static (cdr a)))))
+)
+
+(mat object-references
+  (begin
+    (define variable-whose-value-is-a-gensym (gensym))
+    (define guardian-to-hold-gensyms (make-guardian))
+    ;; works on tree-shaped objects, except that
+    ;; weak/ephemeron pairs can create DAGs; if a weak pair has
+    ;; a non-#!bwp in the `car`, it must be referenced
+    ;; by a box or by `guardian-to-hold-gensyms`
+    (define (check-references obj)
+      (let ([backrefs (make-eq-hashtable)]
+            [old-collect (collect-request-handler)])
+        (enable-object-backreferences #t)
+        (collect-request-handler void)
+        (collect (collect-maximum-generation))
+        (for-each (lambda (brs)
+                    (for-each (lambda (br)
+                                (hashtable-set! backrefs (car br) (cdr br)))
+                              brs))
+                  (object-backreferences))
+        (enable-object-backreferences #f)
+        (collect-request-handler old-collect)
+        (and
+         ;; Check the given object
+         (let loop ([obj obj] [parent #f])
+           (and (or (not parent)
+                    (null? obj)
+                    (boolean? obj)
+                    (eq? parent (hashtable-ref backrefs obj #f)))
+                (cond
+                 [(pair? obj)
+                  (and (cond
+                        [(weak-pair? obj)
+                         (let ([a (car obj)])
+                           (or (eq? a #!bwp)
+                               (let ([p (hashtable-ref backrefs a #f)])
+                                 (or (box? p)
+                                     ;; retained by `guardian-to-hold-gensyms`
+                                     ;; means retains by it's tconc
+                                     (and (pair? p)
+                                          (eq? guardian-to-hold-gensyms
+                                               (hashtable-ref backrefs p #f)))))))]
+                        [(ephemeron-pair? obj) #t]
+                        [else
+                         (loop (car obj) obj)])
+                       (loop (cdr obj) obj))]
+                 [(vector? obj)
+                  (let vloop ([i 0])
+                    (or (= i (vector-length obj))
+                        (and (loop (vector-ref obj i) obj)
+                             (vloop (add1 i)))))]
+                 [(box? obj)
+                  (loop (unbox obj) obj)]
+                 [(procedure? obj)
+                  (let ([insp (inspect/object obj)])
+                    (let ploop ([i 0])
+                      (or (= i (insp 'length))
+                          (and (loop (((insp 'ref i) 'ref) 'value) obj)
+                               (ploop (add1 i))))))]
+                 [else #t])))
+         ;; Check a symbol binding
+         (let ([var (hashtable-ref backrefs variable-whose-value-is-a-gensym #f)])
+           (and (eq? 'symbol ((inspect/object var) 'type))
+                (equal? "variable-whose-value-is-a-gensym"
+                        (((inspect/object var) 'name) 'value)))))))
+    #t)
+  (check-references (list (gensym)
+                          (vector (gensym) (box (cons (gensym) (gensym))) (gensym))
+                          (if (eq? (current-eval) interpret)
+                              'skip ; closures in interpreter don't capture only free variables
+                              (let ([v (gensym)])
+                                (lambda ()
+                                  v)))
+                          ;; make sure `weak-cons` doesn't retain
+                          (weak-cons (gensym) #f)
+                          (let ([v (gensym)])
+                            ;; weak pair won't count as retaining reference
+                            (weak-cons v
+                                       ;; containing box will count
+                                       (box v)))
+                          (let ([v (gensym)])
+                            (guardian-to-hold-gensyms v)
+                            (weak-cons v #f))
+                          (let ([v (gensym)])
+                            (list v (ephemeron-cons v (gensym))))))
 )
 
 (mat collect-rendezvous
@@ -6048,16 +6181,18 @@ evaluating module init
    (>= (collections) 0)
    (>= (bytes-deallocated) 0)
    (let ([b (bytes-deallocated)] [c (collections)])
-     (let ([x (make-list 10 'a)])
-       (pretty-print x)
-       (collect)
-       (and (> (collections) c) (> (bytes-deallocated) b))))
+     (with-interrupts-disabled ; ensure allocated list stays in generation 0 until printed
+      (let ([x (make-list 10 'a)])
+        (pretty-print x))
+      (collect))
+     (and (> (collections) c) (or (eq? (current-eval) interpret)
+                                  (> (bytes-deallocated) b))))
    (>= (bytes-allocated #f #f) 0)
    (andmap (lambda (space)
           (>= (bytes-allocated #f space) 0))
      (#%$spaces))
    (let ()
-     (define fudge 2000)
+     (define fudge (if (or (positive? (heap-check-interval)) (> (collect-maximum-generation) 4)) 4000 2000))
      (define ~=
        (lambda (x y)
          (<= (abs (- x y)) fudge)))

@@ -92,6 +92,7 @@
                       [(i3nt-stdcall) '__stdcall]
                       [(i3nt-com) '__com]
                       [(adjust-active) '__collect_safe]
+                      [(varargs) '__varargs]
                       [else #f]))
                   x*)))
          (define-who uncprep-fp-specifier
@@ -130,7 +131,8 @@
                    '(let $primitive quote begin case-lambda
                       library-case-lambda lambda if set!
                       letrec letrec* $foreign-procedure
-                      $foreign-callable eval-when))))
+                      $foreign-callable eval-when
+                      $lambda/lift-barrier))))
              (nanopass-case (Lsrc Expr) x
                [(ref ,maybe-src ,x) (get-name x)]
                [(call ,preinfo0 (case-lambda ,preinfo1 (clause (,x* ...) ,interface ,body)) ,e* ...)
@@ -158,7 +160,26 @@
                [(call ,preinfo ,e ,e* ...)
                 (cache-sexpr preinfo
                   (lambda ()
-                    `(,(uncprep e) ,@(map uncprep e*))))]
+                    (nanopass-case (Lsrc Expr) e
+                      [,pr `(,(uncprep e) ,@(map uncprep e*))]
+                      [else
+                       (let ([a `(,(uncprep e) ,@(map uncprep e*))])
+                         (let ([prim (if (or (preinfo-call-check? preinfo)
+                                             ;; Reporting `#3%$app` is redundant for unsafe mode.
+                                             ;; Note that we're losing explicit `#2%$app`s.
+                                             (>= (optimize-level) 3)
+                                             (enable-unsafe-application))
+                                         (lambda (s a) (if s (cons s a) a))
+                                         (lambda (s arg) (cons `($primitive 3 ,(or s '$app)) a)))])
+                           (cond
+                             [(preinfo-call-no-return? preinfo)
+                              (prim '$app/no-return a)]
+                             [(preinfo-call-single-valued? preinfo)
+                              (prim '$app/value a)]
+                             [(preinfo-call-can-inline? preinfo)
+                              (prim #f a)]
+                             [else
+                              (prim '$app/no-inline a)])))])))]
                [,pr (let ([sym (primref-name pr)])
                       (if sexpr?
                           ($sgetprop sym '*unprefixed* sym)
@@ -178,7 +199,10 @@
                   (lambda ()
                     (let ((cl* (map uncprep-lambda-clause cl*)))
                       (if (and (not (null? cl*)) (null? (cdr cl*)))
-                          `(lambda ,@(car cl*))
+                          (if (fx= (bitwise-and (constant code-flag-lift-barrier) (preinfo-lambda-flags preinfo))
+                                   (constant code-flag-lift-barrier))
+                              `($lambda/lift-barrier ,@(car cl*))
+                              `(lambda ,@(car cl*)))
                           `(case-lambda ,@cl*)))))]
                [(if ,[e0] ,[e1] ,[e2]) `(if ,e0 ,e1 ,e2)]
                [(set! ,maybe-src ,x ,[e]) `(set! ,(get-name x) ,e)]
@@ -205,7 +229,7 @@
                [(moi) ''moi]
                [(pariah) `(pariah (void))]
                [(profile ,src) `(void)]
-               [(cte-optimization-loc ,box ,[e]) e]
+               [(cte-optimization-loc ,box ,[e] ,exts) e]
                ; for debugging:
                [(cpvalid-defer ,[e]) `(cpvalid-defer ,e)]
                [else ($oops who "unexpected record ~s" x)])))
@@ -216,6 +240,10 @@
       (if (eq? (subset-mode) 'system)
           ($system-environment)
           (interaction-environment)))
+    (define (cptypes x)
+      (if (enable-type-recovery)
+          ($cptypes x)
+          x))
     (define e/o
       (lambda (who cte? x env)
         (define (go x)
@@ -226,7 +254,7 @@
                   (let ([x ((run-cp0)
                             (lambda (x)
                               (set! cpletrec-ran? #t)
-                              ($cpletrec ($cp0 x $compiler-is-loaded?)))
+                              ($cpletrec (cptypes ($cp0 x $compiler-is-loaded?))))
                             ($cpvalid x))])
                     (if cpletrec-ran? x ($cpletrec x))))))))
         (unless (environment? env)

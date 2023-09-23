@@ -35,6 +35,22 @@
              (with-syntax ((m (- nv 1)))
                (syntax (biglambda m (g . vars) (+ g e))))))))))
 
+(mat version
+  (string? (scheme-version))
+  (string? (scheme-version #f))
+  (string? (scheme-version #t))
+  (equal? (scheme-version) (scheme-version #f))
+  (= 3 (length (call-with-values scheme-version-number list)))
+  (let* ([alpha-s (format "-pre-release.~s" (scheme-pre-release))]
+         [ends? (lambda (s)
+                  (let ([len (string-length s)])
+                    (and (> len (string-length alpha-s))
+                         (equal? alpha-s (substring s (- len (string-length alpha-s)) len)))))])
+    (and (if (scheme-pre-release)
+             (ends? (scheme-version #t))
+             (not (ends? (scheme-version #t))))
+         (not (ends? (scheme-version))))))
+
 (mat cycle
   (let ((x '#1=(a b . #1#)))
     (eqv? x x))
@@ -1049,6 +1065,210 @@
   (fixnum? (let ([k (call/1cc (lambda (k) k))]) (collect) (compute-size k)))
 )
 
+(mat compute-size-increments
+  (error? (compute-size-increments 'not-a-list))
+  (error? (compute-size-increments 0))
+  (error? (compute-size-increments (list 0) -1))
+  (error? (compute-size-increments (list 0) "static"))
+  (error? (compute-size-increments (list 0) '()))
+  (begin
+    (define pair-size (compute-size (cons 1 2)))
+    (define ephemeron-size (compute-size (ephemeron-cons 1 2)))
+    #t)
+  (equal? (list pair-size pair-size)
+          (compute-size-increments (list (cons 1 2) (cons 3 4))))
+  (equal? (list pair-size 0)
+          (compute-size-increments (let ([p (cons 1 2)])
+                                     (list p p))))
+  (equal? (list (* 3 pair-size) pair-size)
+          (let ([l (list 1 2)])
+            (compute-size-increments (list (cons 3 l) (cons 4 l)))))
+  (equal? (list pair-size)
+          (compute-size-increments (list (weak-cons (make-bytevector 100) #f))))
+  (let* ([x (make-bytevector 100)]
+         [ls (list (lambda () x) x)])
+    (equal? (compute-size-increments ls)
+            (reverse (compute-size-increments (reverse ls)))))
+  ;; Ephemeron(s) found before key:
+  (equal? (list ephemeron-size (* 2 pair-size))
+          (compute-size-increments (let* ([p (cons 0 0)]
+                                          [e (ephemeron-cons p (cons 0 0))])
+                                     (list e p))))
+  (equal? (list ephemeron-size (* 3 pair-size))
+          (let* ([v (cons 1 2)]
+                 [e (ephemeron-cons v (cons 3 4))])
+            (compute-size-increments (list e (cons v #f)))))
+  (equal? (list (* 2 (+ ephemeron-size pair-size)) (* 4 pair-size))
+          (let* ([v (cons 1 2)]
+                 [e* (list (ephemeron-cons v (cons 3 4))
+                           (ephemeron-cons v (cons 5 6)))])
+            (compute-size-increments (list e* (cons v #f)))))
+  ;; Key found before ephemeron(s):
+  (equal? (list (* 2 pair-size) (+ ephemeron-size pair-size))
+          (let* ([v (cons 1 2)]
+                 [e (ephemeron-cons v (cons 3 4))])
+            (compute-size-increments (list (cons v #f) e))))
+  (equal? (list (* 2 pair-size) (+ (* 4 pair-size) (* 2 ephemeron-size)))
+          (let* ([v (cons 1 2)]
+                 [e* (list (ephemeron-cons v (cons 3 4))
+                           (ephemeron-cons v (cons 5 6)))])
+            (compute-size-increments (list (cons v #f) e*))))
+  ;; This call will encounter many kinds of objects, just to make
+  ;; sure it doesn't fail:
+  (list? (compute-size-increments (list (call/cc values)) 'static))
+  ;; Check that a deactivated thread's continuation can be traversed
+  ;; for `compute-size-increments`:
+  (or (not (threaded?))
+      (let* ([ready (box #f)]
+             [saved (box #f)]
+             [m (make-mutex)]
+             [N 1000000]
+             [pause-until (lambda (check)
+                            (let loop ()
+                              (unless (check)
+                                (sleep (make-time 'time-duration 10000 0))
+                                (loop))))])
+        (mutex-acquire m)
+        (let ([th (fork-thread
+                   (lambda ()
+                     (let ([bstr (make-bytevector N)])
+                       (set-box! ready 'go)
+                       ;; Block so that thread becomes deactivated
+                       (mutex-acquire m)
+                       (mutex-release m)
+                       ;; bstr is retained in the thread's continuation until here
+                       (set-box! saved (bytevector-u8-ref bstr 0))
+                       (pause-until (lambda () (box-cas! ready 'finish 'done)))
+                       ;; Block so that thread becomes deactivated, again
+                       (mutex-acquire m)
+                       (mutex-release m))))])
+          ;; Wait for thread to start
+          (pause-until (lambda () (eq? 'go (unbox ready))))
+          ;; Wait for thread to become inactive, blocked on the mutex
+          (pause-until (lambda () (= 1 (#%$top-level-value '$active-threads))))
+          ;; Get thread's size, which should include bstr
+          (let ([pre-sizes (compute-size-increments (list th))])
+            (mutex-release m)
+            ;; Wait for bytevector to be discarded in the thread
+            (pause-until (lambda () (unbox saved)))
+            (mutex-acquire m)
+            (set-box! ready 'finish)
+            ;; Wait for thread to become inactive again
+            (pause-until (lambda () (eq? 'done (unbox ready))))
+            (pause-until (lambda () (= 1 (#%$top-level-value '$active-threads))))
+            ;; Get thread's size, which shouldn't include bstr
+            (let ([post-sizes (compute-size-increments (list th))])
+              (mutex-release m)
+              ;; Wait for thread to exit
+              (thread-join th)
+              ;; Make sure `compute-size-increments` doesn't crash on a
+              ;; terminated thread:
+              (compute-size-increments (list th))
+              ;; Main result: detected size of `bstr` in the thread
+              ;; while it was part of the continuation
+              (or (eq? (current-eval) interpret) ; interpreter continuation is not precise enough
+                  (and (> (car pre-sizes) N)
+                       (< (car post-sizes) N))
+                  (error 'compute-size-increments "failed ~s ~s ~s" pre-sizes N post-sizes)))))))
+  )
+
+(mat collect+compute-size-increments
+  (eq? (void) (collect 0 0 0 #f))
+  (eq? '() (collect 0 0 0 '()))
+
+  (error? (collect 0 0 0 'not-a-list))
+  (error? (collect 0 0 0 0))
+  (error? (collect 'not-a-generation 0 0 '()))
+  (error? (collect 0 'not-a-generation 0 '()))
+  (error? (collect 0 0 'not-a-generation '()))
+  (error? (collect 1 0 0 '()))
+  
+  (begin
+    (define-record-type count-wrap (fields val))
+    (collect 0 0 0 (list (make-count-wrap 0))) ; take care of one-time initialization costs
+    (define wrap-size (car (collect 0 0 0 (list (make-count-wrap 0))))) ; includes rtd
+    (define just-wrap-size (cadr (collect 0 0 0 (list (make-count-wrap 0) (make-count-wrap 1)))))
+    (define pair-size (compute-size (cons 1 2)))
+    (define ephemeron-size (compute-size (ephemeron-cons 1 2)))
+    #t)
+  (equal? (list pair-size pair-size)
+          (collect 0 0 0 (list (cons 1 2) (cons 3 4))))
+  (equal? (list pair-size 0)
+          (collect 0 0 0 (let ([p (cons 1 1)])
+                           (list p p))))
+  (equal? (list (* 3 pair-size) pair-size)
+          (let ([l (list 1 2)])
+            (collect 0 0 0 (list (cons 3 l) (cons 4 l)))))
+  (equal? (list pair-size)
+          (collect 0 0 0 (list (weak-cons (make-bytevector 100) #f))))
+  ;; Ephemeron(s) found before key:
+  (equal? (list ephemeron-size (+ (* 2 pair-size) wrap-size))
+          (collect 0 0 0 (let* ([p (make-count-wrap (cons 0 0))]
+                               [e (ephemeron-cons p (cons 0 0))])
+                           (list e p))))
+  (equal? (list ephemeron-size (+ (* 3 pair-size) wrap-size))
+          (let* ([v (make-count-wrap (cons 1 2))]
+                 [e (ephemeron-cons v (cons 3 4))])
+            (collect 0 0 0 (list e (cons v #f)))))
+  (equal? (list (* 2 (+ ephemeron-size pair-size)) (+ (* 4 pair-size) wrap-size))
+          (let* ([v (make-count-wrap (cons 1 2))]
+                 [e* (list (ephemeron-cons v (cons 3 4))
+                           (ephemeron-cons v (cons 5 6)))])
+            (collect 0 0 0 (list e* (cons v #f)))))
+  ;; Key found before ephemeron(s):
+  (equal? (list (+ (* 2 pair-size) wrap-size) (+ ephemeron-size pair-size))
+          (let* ([v (make-count-wrap (cons 1 2))]
+                 [e (ephemeron-cons v (cons 3 4))])
+            (collect 0 0 0 (list (cons v #f) e))))
+  (equal? (list (* 2 pair-size) (+ (* 4 pair-size) (* 2 ephemeron-size)))
+          (let* ([v (cons 1 2)]
+                 [e* (list (ephemeron-cons v (cons 3 4))
+                           (ephemeron-cons v (cons 5 6)))])
+            (collect 0 0 0 (list (cons v #f) e*))))
+  ;; Weakly held objects:
+  (equal? '(0)
+          (let* ([v (make-count-wrap (cons 1 2))]
+                 [ls (weak-cons v '())])
+            (collect 0 0 0 ls)))
+  (equal? (list wrap-size pair-size (+ just-wrap-size pair-size))
+          (let* ([v (make-count-wrap (cons 1 2))]
+                 [ls (cons* (make-count-wrap 0) (cons v 1) (weak-cons v '()))])
+            (collect 0 0 0 ls)))
+  (equal? (list 0 (+ wrap-size (* 2 pair-size)))
+          (let* ([v (make-count-wrap (cons 1 2))]
+                 [ls (weak-cons v (cons (cons v 1) '()))])
+            (collect 0 0 0 ls)))
+  (equal? #!bwp
+          (let* ([v (make-count-wrap (cons 1 2))]
+                 [ls (weak-cons v '())])
+            (collect 0 0 0 ls)
+            (car ls)))
+  ;; These calls will encounter many kinds of objects, just to make
+  ;; sure they don't fail:
+  (list? (collect 0 0 0 (list (call/cc values))))
+  (list? (collect (collect-maximum-generation) (collect-maximum-generation) (collect-maximum-generation) (list (call/cc values))))
+
+  (let ()
+    (define e (ephemeron-cons #t (gensym)))
+    (collect 0 1)
+    (let ([g (gensym)])
+      (set-car! e g)
+      (set! g #f)
+      ;; For this collection, `e` is both on the dirty list
+      ;; and involved in measuring; make sure those roles
+      ;; don't conflict
+      (collect 1 1 1 (list e))
+      (equal? e (cons #!bwp #!bwp))))
+
+  (let ()
+    (define e (ephemeron-cons #t 'other))
+    (collect 0 1)
+    (let ([g (gensym)])
+      (set-car! e g)
+      (collect 1 1 1 (list e))
+      (equal? e (cons g 'other))))
+)
+
 (mat compute-composition
   (error? (compute-composition 0 -1))
   (error? (compute-composition 0 "static"))
@@ -1773,7 +1993,7 @@
 )
 
 (mat $fasl-file-equal?
-  (let ([fn (format "~a/fatfib.ss" *examples-directory*)])
+  (let ([fn (find-source "fatfib.ss")])
     (parameterize ([generate-inspector-information #t])
       (compile-file fn "testfile-fatfib1.so"))
     (parameterize ([generate-inspector-information #t])
@@ -1801,6 +2021,61 @@
   (not (#%$fasl-file-equal? "testfile-fatfib1.so" "testfile-fatfib3.so"))
   (error? (#%$fasl-file-equal? "testfile-fatfib1.so" "testfile-fatfib3.so" #t))
 )
+
+(mat vfasl
+  (begin
+    (define-record-type vfasl-demo
+      (fields x y)
+      (nongenerative #{vfasl-demo pfwhk286n2j894o33awcq9er4-0}))
+    (define vfasl-content (list 1 1/2 3.0 4+5i 6.0+7.0i
+                                "apple" 'banana (string->uninterned-symbol "coconut")
+                                (make-vfasl-demo 10 "11")
+                                (vector 1 'two "three")
+                                (stencil-vector 30 'one 2.0 0+3i "four")
+                                (box 88)
+                                "" '#() '#vu8() (make-fxvector 0) (make-flvector 0)
+                                (string->immutable-string "") (vector->immutable-vector '#())
+                                (bytevector->immutable-bytevector '#vu8())))
+    (define (same-vfasl-content? v)
+      (andmap (lambda (a b)
+                (or (eqv? a b)
+                    (and (uninterned-symbol? a)
+                         (uninterned-symbol? b)
+                         (equal? (symbol->string a) (symbol->string b)))
+                    (and (or (and (string? a)
+                                  (positive? (string-length a)))
+                             (and (vector? a)
+                                  (positive? (vector-length a)))
+                             (box? a)
+                             (stencil-vector? a))
+                         (equal? a b))
+                    (and (vfasl-demo? a)
+                         (vfasl-demo? b)
+                         (equal? (vfasl-demo-x a)
+                                 (vfasl-demo-x b))
+                         (equal? (vfasl-demo-y a)
+                                 (vfasl-demo-y b)))
+                    (begin
+                      (printf "~s ~s\n" a b)
+                      #f)))
+              vfasl-content
+              v))
+    (compile-to-file (list `(define (vfasled) ',vfasl-content)
+                           `(define (get-vfasled) vfasled)
+                           `(define (call-vfasled) (vfasled)))
+                     "testfile-fasl.so")
+    (case (machine-type)
+      [(pb tpb)
+       ;; vfasl not supported with endianness not statically known
+       (load "testfile-fasl.so")]
+      [else
+       (vfasl-convert-file "testfile-fasl.so" "testfile-vfasl.so" #f)
+       (load "testfile-vfasl.so")])
+    #t)
+  
+  (same-vfasl-content? (vfasled))
+  (eq? vfasled (get-vfasled))
+  (eq? (vfasled) (call-vfasled)))
 
 (mat cost-center
   (error? ; wrong number of arguments
@@ -1911,34 +2186,21 @@
     #t)
 
   (when-threaded
-    (let-syntax ([mats-dir-relative
-                  (lambda (x)
-                    (syntax-case x ()
-                      [(_ (include ?path))
-                       (string? (datum ?path))
-                       #`(include #,(format "~a/~a" *mats-dir* (datum ?path)))]))])
-      (mats-dir-relative
-        (include "../../mats/thread-check.ss")))
-    ($thread-check))
+    (begin
+      (include "thread-check.ss")
+      ($thread-check)))
 
   (when-threaded
     ((lambda (x)
        (<= 200 x 2000))
-     (let ([cc (make-cost-center)]
-           [finished #f]
-           [finished-mutex (make-mutex)]
-           [finished-condition (make-condition)])
+     (let ([cc (make-cost-center)])
        (define sum-th
          (lambda ()
-           (with-cost-center cc (lambda () ($cc-sum-1 (iota 10))))
-           (with-mutex finished-mutex
-             (if finished
-                 (condition-signal finished-condition)
-                 (set! finished #t)))))
-       (with-mutex finished-mutex
-         (fork-thread sum-th)
-         (fork-thread sum-th)
-         (condition-wait finished-condition finished-mutex))
+           (with-cost-center cc (lambda () ($cc-sum-1 (iota 10))))))
+       (define t1 (fork-thread sum-th))
+       (define t2 (fork-thread sum-th))
+       (thread-join t1)
+       (thread-join t2)
        (cost-center-instruction-count cc))))
 
   (when-threaded ($thread-check))
@@ -1947,41 +2209,28 @@
     (reset-cost-center! $cc-1)
     ((lambda (x)
        (<= 200 x 3000))
-     (let ([finished #f]
-           [finished-mutex (make-mutex)]
-           [finished-condition (make-condition)])
+     (let ()
        (define sum-th
          (lambda ()
-           ($cc-sum-2 (iota 10))
-           (with-mutex finished-mutex
-             (if finished
-                 (condition-signal finished-condition)
-                 (set! finished #t)))))
-       (with-mutex finished-mutex
-         (fork-thread sum-th)
-         (fork-thread sum-th)
-         (condition-wait finished-condition finished-mutex))
+           ($cc-sum-2 (iota 10))))
+       (define t1 (fork-thread sum-th))
+       (define t2 (fork-thread sum-th))
+       (thread-join t1)
+       (thread-join t2)
        (cost-center-instruction-count $cc-1))))
 
   (when-threaded ($thread-check))
 
   (when-threaded
     (reset-cost-center! $cc-1)
-    (let ([cc (make-cost-center)]
-          [finished #f]
-          [finished-mutex (make-mutex)]
-          [finished-condition (make-condition)])
+    (let ([cc (make-cost-center)])
       (define sum-th
         (lambda ()
-          (with-cost-center cc (lambda () ($cc-sum-2 (iota 10))))
-          (with-mutex finished-mutex
-            (if finished
-                (condition-signal finished-condition)
-                (set! finished #t)))))
-       (with-mutex finished-mutex
-         (fork-thread sum-th)
-         (fork-thread sum-th)
-         (condition-wait finished-condition finished-mutex))
+          (with-cost-center cc (lambda () ($cc-sum-2 (iota 10))))))
+       (define t1 (fork-thread sum-th))
+       (define t2 (fork-thread sum-th))
+       (thread-join t1)
+       (thread-join t2)
        (<= (cost-center-instruction-count $cc-1)
            (cost-center-instruction-count cc))))
 
@@ -2130,21 +2379,14 @@
       (case (fixnum-width)
         [(30) 160]
         [(61) 320])
-      (let ([cc (make-cost-center)]
-            [finished #f]
-            [finished-mutex (make-mutex)]
-            [finished-condition (make-condition)])
+      (let ([cc (make-cost-center)])
         (define reverse-th
           (lambda ()
-            (with-cost-center cc (lambda () ($cc-reverse-1 (iota 10))))
-            (with-mutex finished-mutex
-              (if finished
-                  (condition-signal finished-condition)
-                  (set! finished #t)))))
-        (with-mutex finished-mutex
-          (fork-thread reverse-th)
-          (fork-thread reverse-th)
-          (condition-wait finished-condition finished-mutex))
+            (with-cost-center cc (lambda () ($cc-reverse-1 (iota 10))))))
+        (define t1 (fork-thread reverse-th))
+        (define t2 (fork-thread reverse-th))
+        (thread-join t1)
+        (thread-join t2)
         (cost-center-allocation-count cc))))
 
   (when-threaded ($thread-check))
@@ -2153,41 +2395,28 @@
     (reset-cost-center! $cc-2)
     ((lambda (x) ; wide range to accommodate both 4-byte and 8-byte words
        (<= 160 x 960))
-     (let ([finished #f]
-           [finished-mutex (make-mutex)]
-           [finished-condition (make-condition)])
+     (let ()
        (define reverse-th
          (lambda ()
-           ($cc-reverse-2 (iota 10))
-           (with-mutex finished-mutex
-             (if finished
-                 (condition-signal finished-condition)
-                 (set! finished #t)))))
-       (with-mutex finished-mutex
-         (fork-thread reverse-th)
-         (fork-thread reverse-th)
-         (condition-wait finished-condition finished-mutex))
+           ($cc-reverse-2 (iota 10))))
+        (define t1 (fork-thread reverse-th))
+        (define t2 (fork-thread reverse-th))
+        (thread-join t1)
+        (thread-join t2)
        (cost-center-allocation-count $cc-2))))
 
   (when-threaded ($thread-check))
 
   (when-threaded
     (reset-cost-center! $cc-2)
-    (let ([cc (make-cost-center)]
-          [finished #f]
-          [finished-mutex (make-mutex)]
-          [finished-condition (make-condition)])
+    (let ([cc (make-cost-center)])
       (define reverse-th
         (lambda ()
-          (with-cost-center cc (lambda () ($cc-reverse-2 (iota 10))))
-          (with-mutex finished-mutex
-            (if finished
-                (condition-signal finished-condition)
-                (set! finished #t)))))
-       (with-mutex finished-mutex
-         (fork-thread reverse-th)
-         (fork-thread reverse-th)
-         (condition-wait finished-condition finished-mutex))
+          (with-cost-center cc (lambda () ($cc-reverse-2 (iota 10))))))
+       (define t1 (fork-thread reverse-th))
+       (define t2 (fork-thread reverse-th))
+       (thread-join t1)
+       (thread-join t2)
        (<= (cost-center-instruction-count $cc-2)
            (cost-center-instruction-count cc))))
 
@@ -2457,6 +2686,8 @@
   (fx= (cost-center-allocation-count $cc-3) 0)
   (time=? (cost-center-time $cc-3) (make-time 'time-duration 0 0))
 )
+
+
 
 (mat lock-object
   (begin
@@ -2791,7 +3022,20 @@
     (let ([ls ($locked-objects)])
       (unless (null? ls) (errorf #f "found locked objects ~s" ls))
       #t))
-)
+
+  ;; Make sure a locked object that spans segments is appropriately
+  ;; swept when it's modified to ceate a backpointer
+  (let* ([N 100000]
+         [v (make-vector N)])
+    (lock-object v)
+    (collect 0)
+    (let ([p (cons 1 2)])
+      (vector-set! v (sub1 N) p)
+      (collect 0)
+      (set-car! p 'yes)
+      (unlock-object v)
+      (equal? '(yes . 2) (vector-ref v (sub1 N)))))
+  )
 
 (mat eval-order
   (eqv? (call/cc (lambda (k) (0 (k 1)))) 1)
@@ -2870,8 +3114,8 @@
 )
 
 (mat sci-bug
-  (equal? (expt 10.0 (- 21)) 1e-21)
-  (equal? (flexpt 10.0 (- 21.0)) 1e-21)
+  (fl~= (expt 10.0 (- 21)) 1e-21)
+  (fl~= (flexpt 10.0 (- 21.0)) 1e-21)
 )
 
 (mat apropos
@@ -4416,13 +4660,14 @@
         '(if (#3%zero? (#3%random 1000))
              (begin (pariah (void)) (#3%display 0))
              (#3%display 1))
-        '(if (#2%zero? (#2%random 1000))
+        '(if (#3%zero? (#2%random 1000))
              (begin (pariah (void)) (#2%display 0))
              (#2%display 1))))
 )
 
-;; #%$read-time-stamp-counter requires a kernel module on arm32le
-(unless (memq (machine-type) '(arm32le tarm32le))
+(unless (memq (machine-type) '(arm32le tarm32le arm64le tarm64le arm64osx tarm64osx ; timestamp counter tends to be priviledged on Arm
+				       arm64nt tarm64nt
+                                       pb pb32l pb32b pb64l pb64b tpb tpb32l tpb32b tpb64l tpb64b)) ; doesn't increment for pb
   (mat $read-time-stamp-counter
 
     (let ([t (#%$read-time-stamp-counter)])
@@ -4449,14 +4694,18 @@
                 (loop (fx- count 1)
                       (if (< t0 t1)
                           (fx+ success 1)
-                          success)))))))))
+                          success)))))))
+    ))
 
 (mat procedure-arity-mask
   (equal? (procedure-arity-mask (lambda () #f)) 1)
   (equal? (procedure-arity-mask (lambda (x) x)) 2)
   (equal? (procedure-arity-mask (lambda (x y z w) x)) 16)
+  (equal? (procedure-arity-mask (interpret '(lambda (x y z w) x))) 16)
   (or (eq? (current-eval) interpret)
       (equal? (procedure-arity-mask (lambda (x y z w a b c d e f g h i j) x)) (ash 1 14)))
+  (or (eq? (current-eval) interpret)
+      (equal? (procedure-arity-mask (interpret '(lambda (x y z w a b c d e f g h i j) x))) (ash 1 14)))
   (or (eq? (current-eval) interpret)
       (and
         (equal? (procedure-arity-mask (case-lambda)) 0)
@@ -4489,6 +4738,7 @@
     (procedure-arity-mask 17))
   )
 
+
 (mat procedure-name
   (begin
     (define (procedure-name f)
@@ -4502,32 +4752,166 @@
     (define should-be-named-h (let ([f (let ([h (lambda (x) x)]) h)]) f))
     (define should-be-named-i (letrec ([f (let ([i (lambda (x) x)]) i)]) f))
     (define should-be-named-j (let ([f (letrec ([j (lambda (x) x)]) j)]) f))
+    (define (result-should-be-named-mk-CP)
+      (let ([struct:CP (make-record-type-descriptor 'CP #f #f #f #f '(1 . 1))])
+        (let ([mk-CP (record-constructor (make-record-constructor-descriptor
+                                          struct:CP #f #f))])
+          mk-CP)))
     #t)
   (ok-name? (procedure-name procedure-name) "procedure-name")
   (ok-name? (procedure-name should-be-named-f) "f")
   (ok-name? (procedure-name should-be-named-g) "g")
   (ok-name? (procedure-name should-be-named-h) "h")
   (ok-name? (procedure-name should-be-named-i) "i")
-  (ok-name? (procedure-name should-be-named-j) "j"))
+  (ok-name? (procedure-name should-be-named-j) "j")
+
+  (or (not (enable-cp0))
+      (#%$suppress-primitive-inlining)
+      (let ([gx (make-guardian)])
+        (ok-name? (procedure-name gx) "gx")))
+  (or (not (enable-cp0))
+      (#%$suppress-primitive-inlining)
+      (ok-name? (procedure-name (result-should-be-named-mk-CP)) "mk-CP"))
+
+  (or (not (enable-cp0))
+      (andmap ok-name?
+              (map
+               procedure-name
+               (let ([f (lambda (g)
+                          (g (lambda (x) x)))])
+                 (list (f (lambda (a) a))
+                       (f (lambda (b) b)))))
+              '("a" "b")))
+  )
+
+
+(mat wrapper-procedure
+  (error? (make-wrapper-procedure))
+  (error? (make-wrapper-procedure (lambda args args)))
+  (error? (make-wrapper-procedure (lambda args args) 1))
+  (error? (make-wrapper-procedure 1 1 #f))
+  (error? (make-wrapper-procedure 'not-a-procedure 1 #f))
+  (error? (make-wrapper-procedure (lambda args args) 'not-an-exact-integer #f))
+  (error? (make-wrapper-procedure (lambda args args) 1.0 #f))
+
+  (error? (make-arity-wrapper-procedure))
+  (error? (make-arity-wrapper-procedure (lambda args args)))
+  (error? (make-arity-wrapper-procedure (lambda args args) 1))
+  (error? (make-arity-wrapper-procedure 1 1 #f))
+  (error? (make-arity-wrapper-procedure 'not-a-procedure 1 #f))
+  (error? (make-arity-wrapper-procedure (lambda args args) 'not-an-exact-integer #f))
+  (error? (make-arity-wrapper-procedure (lambda args args) 1.0 #f))
+
+  (equal? ((make-wrapper-procedure (lambda args args) 8 #f) 1 2 3)
+          '(1 2 3))
+  (equal? ((make-wrapper-procedure (lambda args args) 1 #f) 1 2 3) ; arity not checked!
+          '(1 2 3))
+  (equal? ((make-wrapper-procedure (lambda args args) (expt 2 100) #f) 1 2 3) ; arity not checked!
+          '(1 2 3))
+
+  (equal? ((make-arity-wrapper-procedure (lambda args args) 8 #f) 1 2 3)
+          '(1 2 3))
+  (equal? ((make-arity-wrapper-procedure (lambda args args) (+ (expt 2 100) 8) #f) 1 2 3)
+          '(1 2 3))
+  (error? ((make-arity-wrapper-procedure (lambda args args) 1 #f) 1 2 3))
+  (error? ((make-arity-wrapper-procedure (lambda args args) (expt 2 100) #f) 1 2 3))
+  (equal? (make-list 100 'ok) (apply (make-arity-wrapper-procedure (lambda args args) -1 #f) (make-list 100 'ok)))
+
+  (equal? (procedure-arity-mask (make-wrapper-procedure (lambda args args) 1 #f))
+          1)
+  (equal? (procedure-arity-mask (make-wrapper-procedure (lambda args args) -12345 #f))
+          -12345)
+  (equal? (procedure-arity-mask (make-wrapper-procedure (lambda args args) (expt 2 100) #f))
+          (expt 2 100))
+          
+  (equal? (procedure-arity-mask (make-arity-wrapper-procedure (lambda args args) 1 #f))
+          1)
+  (equal? (procedure-arity-mask (make-arity-wrapper-procedure (lambda args args) -12345 #f))
+          -12345)
+  (equal? (procedure-arity-mask (make-arity-wrapper-procedure (lambda args args) (expt 2 100) #f))
+          (expt 2 100))
+          
+  (not (wrapper-procedure? 10))
+  (not (wrapper-procedure? (lambda args args)))
+  (not (wrapper-procedure? (interpret '(lambda args args))))
+  (wrapper-procedure? (make-wrapper-procedure (lambda args args) 1 #f))
+  (wrapper-procedure? (make-arity-wrapper-procedure (lambda args args) 1 #f))
+
+  (error? (wrapper-procedure-data 1))
+  (error? (wrapper-procedure-data (lambda args args)))
+  (error? (wrapper-procedure-data (interpret '(lambda args args))))
+  (equal? (wrapper-procedure-data (make-wrapper-procedure (lambda args args) 1 'data))
+          'data)
+  (equal? (wrapper-procedure-data (make-arity-wrapper-procedure (lambda args args) 1 'data))
+          'data)
+
+  (error? (set-wrapper-procedure-procedure!))
+  (error? (set-wrapper-procedure-procedure! (make-arity-wrapper-procedure (lambda args args) 1 #f)))
+  (error? (set-wrapper-procedure-procedure! 1 void))
+  (error? (set-wrapper-procedure-procedure! (lambda args args) void))
+  (error? (set-wrapper-procedure-procedure! (interpret '(lambda args args)) void))
+  (let ([p (make-wrapper-procedure (lambda args args) 8 #f)])
+    (set-wrapper-procedure-procedure! p vector)
+    (equal? (p 1 2 3)
+            '#(1 2 3)))
+  (let ([p (make-arity-wrapper-procedure (lambda args args) 8 #f)])
+    (set-wrapper-procedure-procedure! p vector)
+    (equal? (p 1 2 3)
+            '#(1 2 3)))
+
+  (error? (set-wrapper-procedure-data!))
+  (error? (set-wrapper-procedure-data! (make-arity-wrapper-procedure (lambda args args) 1 #f)))
+  (error? (set-wrapper-procedure-data! 1 #t))
+  (error? (set-wrapper-procedure-data! (lambda args args) #t))
+  (error? (set-wrapper-procedure-data! (interpret '(lambda args args)) #t))
+  (let ([p (make-wrapper-procedure (lambda args args) 8 'data)])
+    (set-wrapper-procedure-data! p 'other-data)
+    (equal? (wrapper-procedure-data p)
+            'other-data))
+  (let ([p (make-arity-wrapper-procedure (lambda args args) 8 'data)])
+    (set-wrapper-procedure-data! p 'other-data)
+    (equal? (wrapper-procedure-data p)
+            'other-data))
+
+  (let ([a (make-wrapper-procedure (lambda args args) 8 #f)])
+    (lock-object a)
+    (collect)
+    (let ([g (gensym)])
+      (set-wrapper-procedure-data! a g)
+      (collect)
+      (and
+       (equal? (wrapper-procedure-data a) g)
+       (begin (unlock-object a) #t))))
+  (let ([a (make-arity-wrapper-procedure (lambda args args) 8 #f)])
+    (lock-object a)
+    (collect)
+    (let ([g (gensym)])
+      (set-wrapper-procedure-data! a g)
+      (collect)
+      (and
+       (equal? (wrapper-procedure-data a) g)
+       (begin (unlock-object a) #t))))
+  )
 
 (mat fasl-immutable
   (begin
     (define immutable-objs (list (vector->immutable-vector '#(1 2 3))
-                                 (fxvector->immutable-fxvector '#vfx(1 2 3))
                                  (string->immutable-string "abc")
                                  (bytevector->immutable-bytevector #vu8(1 2 3))
-                                 (box-immutable 1)))
+                                 (box-immutable 1)
+                                 ;; Not immutable, but we want to test strip:
+                                 (fxvector 1 2 3)
+                                 (flvector 1.5 2.5 3.5)
+                                 (stencil-vector 6 'a 'b)))
     (define immutable-zero-objs (list (vector->immutable-vector '#())
-                                      (fxvector->immutable-fxvector '#vfx())
                                       (string->immutable-string "")
                                       (bytevector->immutable-bytevector #vu8())
                                       (box-immutable 1)))
     (define (immutable? l)
       (and (immutable-vector? (list-ref l 0))
-           (immutable-fxvector? (list-ref l 1))
-           (immutable-string? (list-ref l 2))
-           (immutable-bytevector? (list-ref l 3))
-           (immutable-box? (list-ref l 4))))
+           (immutable-string? (list-ref l 1))
+           (immutable-bytevector? (list-ref l 2))
+           (immutable-box? (list-ref l 3))))
     (define (round-trip l)
       (let-values ([(o get) (open-bytevector-output-port)])
         (fasl-write l o)
@@ -4539,6 +4923,14 @@
       (let ([l2 (eval 'fasl-immutable-round-trip)])
         (and (equal? l l2)
              (immutable? l2))))
+    (define (round-trip-symbol sym)
+      (let-values ([(o get) (open-bytevector-output-port)])
+        (fasl-write sym o)
+        (let ([s (fasl-read (open-bytevector-input-port (get)))])
+          (and (symbol? s)
+               (immutable-string? (symbol->string s))
+               (or (not (gensym? s))
+                   (immutable-string? (gensym->unique-string s)))))))
     #t)
 
   (immutable? immutable-objs)
@@ -4548,13 +4940,16 @@
   (round-trip-via-strip immutable-objs)
   (round-trip-via-strip immutable-zero-objs)
 
+  (round-trip-symbol 'hello)
+  (round-trip-symbol (string->symbol "hola"))
+  (round-trip-symbol (gensym "bonjour"))
+
   ;; Make sure `fasl-read` didn't mark "mutable" null values
   ;; as immutable:
   (mutable-vector? '#())
-  (mutable-fxvector? '#vfx())
   (mutable-string? "")
   (mutable-bytevector? '#vu8())
-
+  
  )
 
 (mat show-allocation
@@ -4705,3 +5100,400 @@
   (begin
     (self-evaluating-vectors default-sev)
     #t))
+
+(mat current-generate-id
+  (begin
+    (define (make-x-generator)
+      (let ([x-uid "gf91a5b83ujz3mogjdaij7-x"]
+            [counter-ht (make-eq-hashtable)])
+        (lambda (sym)
+          (let* ([n (eq-hashtable-ref counter-ht sym 0)]
+                 [str (if (gensym? sym) (gensym->unique-string sym) (symbol->string sym))]
+                 [g (gensym (symbol->string sym) (format "~a-~a-~a" x-uid str n))])
+            (eq-hashtable-set! counter-ht sym (+ n 1))
+            g))))
+    (and (parameterize ([current-generate-id (make-x-generator)])
+           (eval `(module consistent-x (x make-pt pt-r)
+                    ;; Note: `module` doesn't currently enable `x` to be inlined
+                    (define x 1)
+                    (define-record-type pt (fields r i)))))
+         #t))
+  (begin
+    (define return-x (let ()
+                       (import consistent-x)
+                       (lambda () x)))
+    (define a-pt (let ()
+                   (import consistent-x)
+                   (make-pt -1 -2)))
+    (define get-r (let ()
+                    (import consistent-x)
+                    (lambda (p) (pt-r p))))
+    (equal? 1 (return-x)))
+  (equal? -1 (get-r a-pt))
+  (begin
+    (parameterize ([current-generate-id (make-x-generator)])
+      (eval `(module consistent-x (x make-pt pt-x)
+               (define x 2)
+               (define-record-type pt (fields x y)))))
+    (equal? 2 (return-x)))
+  (equal? -1 (get-r a-pt))
+  (begin
+    (parameterize ([current-generate-id (make-x-generator)])
+      (eval `(module consistent-x (x)
+               (define x 3)
+               (define-syntax def (syntax-rules () [(_) (define x 'other)]))
+               ;; `(def)` after above definition => expect that
+               ;; its `x` is generated second
+               (def))))
+    (equal? 3 (return-x)))
+)
+
+(mat expand-omit-library-invocations
+  (not (expand-omit-library-invocations))
+  (begin
+    (library (define-m-as-one) (export m) (import (chezscheme)) (define m 1))
+    (define (find-define-m-as-one s)
+      (or (eq? s 'define-m-as-one)
+          (and (pair? s)
+                (or (find-define-m-as-one (car s))
+                        (find-define-m-as-one (cdr s))))))
+    #t)
+  (find-define-m-as-one (expand '(let () (import (define-m-as-one)) m)))
+  (begin
+    (expand-omit-library-invocations 'yes)
+    (eq? #t (expand-omit-library-invocations)))
+  (not (find-define-m-as-one (expand '(let () (import (define-m-as-one)) m))))
+  (begin
+    (expand-omit-library-invocations #f)
+    (not (expand-omit-library-invocations)))
+  (find-define-m-as-one (expand '(let () (import (define-m-as-one)) m)))
+)
+
+(mat enable-unsafe-application
+  (begin
+   (define (get-uncprep-form e)
+     (let ([r #f])
+       (parameterize ([run-cp0 (lambda (cp0 e)
+                                 (parameterize ([enable-unsafe-application #f])
+                                   (set! r (#%$uncprep e)))
+                                 e)])
+         (expand/optimize e))
+       r))
+   #t)
+  (equivalent-expansion? (get-uncprep-form '(lambda (x) (x)))
+                         '(lambda (x) (x)))
+  (equivalent-expansion? (parameterize ([enable-unsafe-application #t])
+                           (get-uncprep-form '(lambda (x) (x))))
+                         (if (= 3 (optimize-level))
+                             '(lambda (x) (x))
+                             '(lambda (x) (#3%$app x))))
+  )
+
+(mat enable-unsafe-variable-reference
+  (begin
+   (define (get-uncprep-form e)
+     (let ([r #f])
+       (parameterize ([run-cp0 (lambda (cp0 e)
+                                 (set! r (#%$uncprep e))
+                                 e)])
+         (expand/optimize e))
+       r))
+   #t)
+  (equivalent-expansion? (parameterize ([#%$suppress-primitive-inlining #f])
+                           (get-uncprep-form '(lambda (x) (letrec ([y y]) (+ y x)))))
+                         (if (= 3 (optimize-level))
+                             '(lambda (x)
+                                (letrec ([y y])
+                                  (#3%+ y x)))
+                             '(lambda (x)
+                                (let ([valid? #f])
+                                  (letrec ([y (begin
+                                                (if valid?
+                                                    (#2%void)
+                                                    (#2%$source-violation #f #f #t "attempt to reference undefined variable ~s" 'y))
+                                                y)])
+                                    (set! valid?  #t)
+                                    (#2%+ y x))))))
+  (equivalent-expansion? (parameterize ([enable-unsafe-variable-reference #t]
+                                        [#%$suppress-primitive-inlining #f])
+                           (get-uncprep-form '(lambda (x) (letrec ([y y]) (+ y x)))))
+                         (if (= 3 (optimize-level))
+                             '(lambda (x)
+                                (letrec ([y y])
+                                  (#3%+ y x)))
+                             '(lambda (x)
+                                (letrec ([y y])
+                                  (#2%+ y x)))))
+  )
+
+(mat phantom-bytevector
+  (phantom-bytevector? (make-phantom-bytevector 0))
+  (not (phantom-bytevector? 10))
+  (not (phantom-bytevector? (vector 1 2 3)))
+
+  (error? (make-phantom-bytevector -1))
+  (error? (make-phantom-bytevector (expt 2 100)))
+  (error? (make-phantom-bytevector 'x))
+
+  (begin
+    (define $ph (make-phantom-bytevector 0))
+    (phantom-bytevector? $ph))
+  (eqv? 0 (phantom-bytevector-length $ph))      
+  (eqv? (void) (set-phantom-bytevector-length! $ph 1))
+  (eqv? 1 (phantom-bytevector-length $ph))
+  (eqv? (void) (set-phantom-bytevector-length! $ph 100))
+  (eqv? 100 (phantom-bytevector-length $ph))
+
+  (begin
+    (collect (collect-maximum-generation))
+    (define $pre-allocated (bytes-allocated))
+    (define $pre-memory (current-memory-bytes))
+    (set-phantom-bytevector-length! $ph $pre-allocated)
+    #t)
+
+  ;; Big change to `(bytes-allocated)`
+  (< (* 1.75 $pre-allocated)
+     (bytes-allocated)
+     (* 2.25 $pre-allocated))
+
+  ;; Big change to `(current-memory-bytes)`
+  (< (+ (* 0.75 $pre-allocated)
+        $pre-memory)
+     (current-memory-bytes)
+     (+ (* 1.25 $pre-memory)
+        $pre-memory))
+
+  ;; Same change after GC
+  (begin
+    (collect (collect-maximum-generation))
+    (< (* 1.75 $pre-allocated)
+       (bytes-allocated)
+       (* 2.25 $pre-allocated)))
+
+  ;; fasl => another jump by `$pre-allocated` bytes
+  (begin
+    (define $ph2
+      (let-values ([(o get) (open-bytevector-output-port)])
+        (fasl-write $ph o)
+        (fasl-read (open-bytevector-input-port (get)))))
+    (phantom-bytevector? $ph2))
+
+  (< (* 2.75 $pre-allocated)
+     (bytes-allocated)
+     (* 3.25 $pre-allocated))
+
+  ;; Try GC again
+  (begin
+    (collect (collect-maximum-generation))
+    (< (* 2.75 $pre-allocated)
+       (bytes-allocated)
+       (* 3.25 $pre-allocated)))
+
+  ;; Let GC reclaim $ph2, and `(byte-allocated)` should go down
+  (begin
+    (set! $ph2 #f)
+    (collect (collect-maximum-generation))
+    (< (* 1.75 $pre-allocated)
+       (bytes-allocated)
+       (* 2.25 $pre-allocated)))
+
+  (> (compute-size $ph) (phantom-bytevector-length $ph))
+
+  ;; Change length of `$ph`, and `(byte-allocated)` should go down
+  (begin
+    (set-phantom-bytevector-length! $ph 0)
+    (< (* 0.75 $pre-allocated)
+       (bytes-allocated)
+       (* 1.25 $pre-allocated)))
+  )
+
+(mat immobile
+  (error? (box-immobile))
+  (error? (box-immobile 1 2))
+
+  (error? (make-immobile-vector))
+  (error? (make-immobile-vector 'a))
+  (error? (make-immobile-vector -10))
+  (error? (make-immobile-vector (expt 2 100)))
+  (error? (make-immobile-vector 10 1 2))
+
+  (error? (make-immobile-bytevector))
+  (error? (make-immobile-bytevector 'a))
+  (error? (make-immobile-byte-vector -10))
+  (error? (make-immobile-bytevector (expt 2 100)))
+  (error? (make-immobile-bytevector 10 1024))
+  (error? (make-immobile-bytevector 10 1 2))
+
+  (box? (box-immobile 10))
+  (vector? (make-immobile-vector 10))
+  (eqv? 0 (vector-ref (make-immobile-vector 10) 9))
+  (bytevector? (make-immobile-bytevector 10))
+  (eqv? 0 (bytevector-u8-ref (make-immobile-bytevector 10 0) 9))
+
+  (begin
+    (define (make-objects)
+      (let loop ([i 16])
+        (cond
+          [(zero? i) '()]
+          [else
+           (let* ([b (box-immobile (format "box ~a" i))]
+                  [b-addr (#%$fxaddress b)]
+                  [v (make-immobile-vector (expt 2 i) b)]
+                  [v-addr (#%$fxaddress v)]
+                  [s (make-immobile-bytevector (expt 2 i) i)]
+                  [s-addr (#%$fxaddress s)])
+             (cons (list i
+                         b b-addr
+                         v v-addr
+                         s s-addr)
+                   (loop (sub1 i))))])))
+    (define (check-objects l)
+      (let loop ([l l])
+        (or (null? l)
+            (let-values ([(i b b-addr v v-addr s s-addr) (apply values (car l))])
+              (and (equal? (format "box ~a" i) (unbox b))
+                   (equal? (format "box ~a" i) (unbox (vector-ref v (sub1 (vector-length v)))))
+                   (eqv? i (bytevector-u8-ref s (sub1 (bytevector-length s))))
+                   (eqv? b-addr (#%$fxaddress b))
+                   (eqv? v-addr (#%$fxaddress v))
+                   (eqv? s-addr (#%$fxaddress s))
+                   (loop (cdr l)))))))
+    (define (mutate-objects l)
+      (let loop ([l l])
+        (or (null? l)
+            (let-values ([(i b b-addr v v-addr s s-addr) (apply values (car l))])
+              (set-box! b (format "box ~a" i))
+              (vector-set! v (sub1 (vector-length v)) (box (unbox b)))
+              (loop (cdr l))))))
+    #t)
+
+  (with-interrupts-disabled
+   (let ([objs (make-objects)])
+     (and (check-objects objs)
+          (begin
+            (collect 0 1)
+            (and
+             (check-objects objs)
+             (begin
+               (mutate-objects objs)
+               (collect 0 0)
+               (and
+                (check-objects objs)
+                (begin
+                  (collect (collect-maximum-generation))
+                  (check-objects objs)))))))))
+
+  (or
+   (not (threaded?))
+   (let ([m (make-mutex)]
+         [c (make-condition)]
+         [running 4])
+     (let thread-loop ([t running])
+       (unless (= t 0)
+         (fork-thread
+          (lambda ()
+            (let loop ([i 1000] [objs '()] [addrs '()])
+              (cond
+                [(= i 0)
+                 (mutex-acquire m)
+                 (set! running (sub1 running))
+                 (condition-signal c)
+                 (mutex-release m)]
+                [else
+                 (let ([v (case (modulo i 3)
+                            [(0) (box-immobile objs)]
+                            [(1) (make-immobile-vector i objs)]
+                            [(2) (make-immobile-bytevector i)])])
+                   (let ([objs (cons v objs)]
+                         [addrs (cons (#%$fxaddress v) addrs)])
+                     (collect-rendezvous)
+                     (let check ([objs objs] [addrs addrs])
+                       (unless (null? objs)
+                         (let ([v (car objs)])
+                           (unless (= (#%$fxaddress v) (car addrs))
+                             (error 'immobile "address changed: ~s" v))
+                           (cond
+                             [(box? v)
+                              (unless (eq? (unbox v) (cdr objs))
+                                (error 'immobile "bad box content"))]
+                             [(vector? v)
+                              (let loop ([j 0])
+                                (unless (= j (vector-length v))
+                                  (unless (eq? (cdr objs) (vector-ref v j))
+                                    (error 'immobile "bad vector content"))
+                                  (loop (add1 j))))]
+                             [(bytevector? v)
+                              (void)]
+                             [else
+                              (error 'immobile "bad object: ~s" v)]))
+                         (check (cdr objs) (cdr addrs))))
+                     (loop (sub1 i) objs addrs)))]))))
+         (thread-loop (sub1 t))))
+     (mutex-acquire m)
+     (let loop ()
+       (unless (= running 0)
+         (condition-wait c m)
+         (loop)))
+     (mutex-release m)
+     ;; Wait for threads to exit
+     (let ()
+       (define $threads (foreign-procedure "(cs)threads" () scheme-object))
+       (let loop ()
+         (unless (= 1 (length ($threads)))
+           (sleep (make-time 'time-duration 10000 0))
+           (loop))))
+     #t))
+
+  )
+
+(mat compacting
+  ;; try to provoke the GC into putting a record into marked
+  ;; (instead of copied) space and check the write barrier there
+  (let loop ([N 2])
+    (or (= N 8192)
+        (let sel-loop ([sels (list car cadr)])
+          (cond
+            [(null? sels) (loop (* N 2))]
+            [else
+             (let ()
+               (define rtd (make-record-type
+                            "r"
+                            (let loop ([i N])
+                              (if (zero? i)
+                                  (list '[ptr y])
+                                  (cons `[uptr ,(string->symbol (format "x~a" i))]
+                                        (loop (sub1 i)))))))
+               
+               (define (make-r)
+                 (apply (record-constructor rtd)
+                        (let loop ([i N])
+                          (if (zero? i)
+                              '(the-y-value)
+                              (cons 0 (loop (sub1 i)))))))
+               
+               (define r-y (record-accessor rtd N))
+               (define set-r-y! (record-mutator rtd N))
+               
+               (define rs (list (make-r)
+                                (make-r)
+                                (make-r)))
+               (collect (collect-maximum-generation))
+               (set! rs (list (car rs) (caddr rs)))
+               (collect (collect-maximum-generation))
+               (set-r-y! ((car sels) rs) (string-copy "new-string-to-go"))
+               (collect)
+               (and (equal? (r-y ((car sels) rs))
+                            "new-string-to-go")
+                    (sel-loop (cdr sels))))]))))
+  )
+
+(mat $begin-unsafe
+  (equivalent-expansion?
+   (parameterize ([#%$suppress-primitive-inlining #f])
+     (expand/optimize '(lambda (x)
+                         (import (only $system $begin-unsafe))
+                         (let () (fx+ 2 ($begin-unsafe (fx+ 1 x)))))))
+   (if (fx= (optimize-level) 3)
+       '(lambda (x) (#3%fx+ 2 (#3%fx+ 1 x)))
+       '(lambda (x) (#2%fx+ 2 (#3%fx+ 1 x)))))
+  )

@@ -34,12 +34,6 @@ todo:
     followed and new fptrs are generated, but that probably isn't a
     big deal.  would need to pass $fptr-ref a who argument for use in
     following pointers from ftype-&ref and ftype-set!
-  - consider trying to fix 32-bit macos x powerpc alignment issues.
-    doubles and long-longs are aligned on 8-byte boundaries if they
-    are first in a struct; otherwise, they are mostly aligned on
-    4-byte boundaries.  haven't entirely penetrated the rules governing
-    unions, but it's clear the same union can have a different size
-    depending on whether it is stand-alone or embedded in a struct
 |#
 
 #|
@@ -68,7 +62,7 @@ signedness -> signed | unsigned
 
 bits -> exact positive integer
 
-endianness -> native | big | little
+endianness -> native | big | little | swapped
 
 built-in ftype names:
     short | unsigned-short
@@ -121,7 +115,7 @@ notes:
     big-endian machines, the first field occupies the high-order bits,
     with each subsequent field just below the preceding field.
 
-  - ftype pointers are records encapsulating an ftype descriptor
+  - ftyp<e pointers are records encapsulating an ftype descriptor
     (ftd) along with the address of the foreign object, except that
     pointers of type void* are just addresses.  the encapsulated
     ftd is used to verify the applicability of an ftype-&ref,
@@ -316,14 +310,14 @@ ftype operators:
                  (record-predicate rtd))
                #,@(ftd-accessors #'record-name #'(field ...))))])))
 
-  (define-ftd-record-type base #{rtd/ftd-base a9pth58056u34h517jsrqv-8} swap? type)
+  (define-ftd-record-type base #{rtd/ftd-base a9pth58056u34h517jsrqv-18} eness type)
   (define-ftd-record-type struct #{rtd/ftd-struct a9pth58056u34h517jsrqv-3} field*)
   (define-ftd-record-type union #{rtd/ftd-union a9pth58056u34h517jsrqv-4} field*)
   (define-ftd-record-type array #{rtd/ftd-array a9pth58056u34h517jsrqv-5} length ftd)
   (define-ftd-record-type pointer #{rtd/ftd-pointer a9pth58056u34h517jsrqv-6} (mutable ftd))
-  (define-ftd-record-type bits #{rtd/ftd-ibits a9pth58056u34h517jsrqv-9} swap? field*)
+  (define-ftd-record-type bits #{rtd/ftd-ibits a9pth58056u34h517jsrqv-19} eness field*)
   (define-ftd-record-type function #{rtd/ftd-function a9pth58056u34h517jsrqv-11} conv* arg-type* result-type)
-  (module (pointer-size alignment pointer-alignment native-base-ftds swap-base-ftds)
+  (module (pointer-size alignment pointer-alignment native-base-ftds swap-base-ftds big-base-ftds little-base-ftds)
     (define alignment
       (lambda (max-alignment size)
         (gcd max-alignment size)))
@@ -337,13 +331,21 @@ ftype operators:
         integer-40 unsigned-40 integer-48 unsigned-48 integer-56 unsigned-56
         integer-64 unsigned-64 single-float double-float wchar_t size_t ssize_t ptrdiff_t))
     (define-who mfb
-      (lambda (swap?)
+      (lambda (eness)
         (lambda (ty)
           (define-syntax make
             (syntax-rules ()
               [(_ type bytes pred)
-               (if (and swap? (fx= bytes 1))
-                   (find (lambda (ftd) (eq? (ftd-base-type ftd) ty)) native-base-ftds)
+               (cond
+                 [(or (and (not (eq? eness 'native)) (fx= bytes 1))
+                      (eq? (constant native-endianness) eness))
+                  (find (lambda (ftd) (eq? (ftd-base-type ftd) ty)) native-base-ftds)]
+                 [(or (and (eq? eness 'little)
+                           (eq? (constant native-endianness) 'big))
+                      (and (eq? eness 'big)
+                           (eq? (constant native-endianness) 'little)))
+                  (find (lambda (ftd) (eq? (ftd-base-type ftd) ty)) swap-base-ftds)]
+                 [else
                    (make-ftd-base rtd/fptr
                      ; creating static gensym so base ftypes are nongenerative to support
                      ; separate compilation of ftype definitions and uses.  creating unique
@@ -352,20 +354,23 @@ ftype operators:
                      ; a different rtd/ftd with the correct "extras" (including size and
                      ; alignment) when cross compiling between machines with different
                      ; base-type characteristics.
-                     (let ([pname (format "~a~:[~;s~]" ty swap?)])
+                     (let ([pname (format "~a~a" ty (case eness
+                                                      [(native) ""]
+                                                      [(swapped) "s"]
+                                                      [(big) "b"]
+                                                      [(little) "l"]))])
                        (let ([gstring (format "~aa9pth58056u34h517jsrqv-~s-~a" pname (constant machine-type-name) pname)])
                          ($intern3 gstring (string-length pname) (string-length gstring))))
-                     (if swap?
-                         `(endian ,(constant-case native-endianness
-                                     [(big) 'little]
-                                     [(little) 'big])
-                            ,ty)
-                         ty)
-                     bytes (alignment (if (memq 'type '(single-float double-float)) (constant max-float-alignment) (constant max-integer-alignment)) bytes) swap? ty))]))
+                     (if (eq? eness 'native)
+                         ty
+                         `(endian ,eness ,ty))
+                     bytes (alignment (if (memq 'type '(single-float double-float)) (constant max-float-alignment) (constant max-integer-alignment)) bytes) eness ty)])]))
           (record-datatype cases (filter-foreign-type ty) make
             ($oops who "unrecognized type ~s" ty)))))
-    (define native-base-ftds (map (mfb #f) base-types))
-    (define swap-base-ftds (map (mfb #t) base-types)))
+    (define native-base-ftds (map (mfb 'native) base-types))
+    (define swap-base-ftds (map (mfb 'swapped) base-types))
+    (define big-base-ftds (map (mfb 'big) base-types))
+    (define little-base-ftds (map (mfb 'little) base-types)))
   (define expand-field-names
     (lambda (x*)
       (let f ([x* x*] [seen* '()])
@@ -400,8 +405,15 @@ ftype operators:
                (syntax-error ftype "non-fixnum overall size for ftype"))))
          ftd)
        (check-size
-         (let f/flags ([ftype ftype] [defid defid] [stype (syntax->datum ftype)] [packed? #f] [swap? #f] [funok? #t])
+         (let f/flags ([ftype ftype] [defid defid] [stype (syntax->datum ftype)] [packed? #f] [eness 'native] [funok? #t])
            (define (pad n k) (if packed? n (logand (+ n (- k 1)) (- k))))
+           (define (native-ftds)
+             (case eness
+               [(native) native-base-ftds]
+               [(swapped) swap-base-ftds]
+               [(big) big-base-ftds]
+               [(little) little-base-ftds]
+               [else (error 'eness "unexpected ~s" eness)]))
            (let f ([ftype ftype] [defid defid] [stype stype] [funok? funok?])
              (if (identifier? ftype)
                  (cond
@@ -413,7 +425,7 @@ ftype operators:
                                        (or (find (let ([x (syntax->datum ftype)])
                                                    (lambda (ftd)
                                                      (eq? (ftd-base-type ftd) x)))
-                                             (if swap? swap-base-ftds native-base-ftds))
+                                             (native-ftds))
                                            ftd)))])
                         (unless (ftd? ftd)
                           (syntax-error ftype "recursive or forward reference outside pointer field"))
@@ -429,7 +441,7 @@ ftype operators:
                       ftd)]
                    [(find (let ([x (syntax->datum ftype)])
                             (lambda (ftd) (eq? (ftd-base-type ftd) x)))
-                      (if swap? swap-base-ftds native-base-ftds))]
+                          (native-ftds))]
                    [else (syntax-error ftype "unrecognized ftype name")])
                  (syntax-case ftype ()
                    [(struct-kwd (field-name ftype) ...)
@@ -446,7 +458,7 @@ ftype operators:
                           (let ([ftd (car ftd*)])
                             (let ([offset (pad offset (ftd-alignment ftd))])
                               (loop (cdr id*) (cdr ftd*)
-                                (+ offset (ftd-size ftd))
+                                (+ offset ($ftd-size ftd))
                                 (max alignment (ftd-alignment ftd))
                                 (cons (list (car id*) offset ftd) field*))))))]
                    [(union-kwd (field-name ftype) ...)
@@ -458,7 +470,7 @@ ftype operators:
                         (make-ftd-union rtd/fptr
                           (and defid (symbol->string (syntax->datum defid)))
                           stype
-                          (pad (apply max 0 (map ftd-size ftd*)) alignment)
+                          (pad (apply max 0 (map $ftd-size ftd*)) alignment)
                           alignment
                           (map cons id* ftd*))))]
                    [(array-kwd ?n ftype)
@@ -470,7 +482,7 @@ ftype operators:
                         (make-ftd-array ftd
                           (and defid (symbol->string (syntax->datum defid)))
                           stype
-                          (* n (ftd-size ftd))
+                          (* n ($ftd-size ftd)) ; use `$ftd-size` for PPC Mac OS
                           (ftd-alignment ftd)
                           n ftd)))]
                    [(bits-kwd (field-name signedness bits) ...)
@@ -495,19 +507,26 @@ ftype operators:
                                     (syntax-error (car bits*) "invalid bit-field bit count"))
                                   (let-values ([(bit-size field*) (f (cdr id*) (cdr s*) (cdr bits*) (+ bit-offset bits))])
                                     (values bit-size
-                                      (let ([start (if (eq? (native-endianness) (if swap? 'little 'big))
+                                      (let ([start (if (or (eq? eness 'big)
+                                                           (and (eq? eness 'native)
+                                                                (eq? (constant native-endianness) 'big))
+                                                           (and (eq? eness 'swapped)
+                                                                (eq? (constant native-endianness) 'little)))
                                                        (- bit-size bit-offset bits)
                                                        bit-offset)])
                                         (cons (list (car id*) (signed? (car s*)) start (+ start bits))
                                               field*)))))))))
+                      (when (and (eq? (constant native-endianness) 'unknown)
+                                 (not (or (eq? eness 'little) (eq? eness 'big))))
+                        (syntax-error ftype "bit fields require a specific endianness"))
                       (let-values ([(bit-size field*) (parse-fields)])
                         (unless (memq bit-size '(8 16 24 32 40 48 56 64))
                           (syntax-error ftype "bit counts do not add up to 8, 16, 32, or 64"))
-                        (let ([offset (fxsrl bit-size 3)])
-                          (make-ftd-bits rtd/fptr
-                            (and defid (symbol->string (syntax->datum defid)))
-                            stype offset (alignment (constant max-integer-alignment) offset)
-                            (and swap? (fx> offset 1)) field*))))]
+                           (let ([offset (fxsrl bit-size 3)])
+                             (make-ftd-bits rtd/fptr
+                               (and defid (symbol->string (syntax->datum defid)))
+                               stype offset (alignment (constant max-integer-alignment) offset)
+                               eness field*))))]
                    [(*-kwd ftype)
                     (eq? (datum *-kwd) '*)
                     (cond
@@ -541,23 +560,28 @@ ftype operators:
                       (make-ftd-function rtd/fptr
                         (and defid (symbol->string (syntax->datum defid)))
                         stype #f #f
-                        ($filter-conv 'function-ftype #'(conv ...))
+                        ($filter-conv 'function-ftype #'(conv ...) (length #'(arg-type ...)))
                         (map (lambda (x) (filter-type r x #f)) #'(arg-type ...))
                         (filter-type r #'result-type #t)))]
                    [(packed-kwd ftype)
                     (eq? (datum packed-kwd) 'packed)
-                    (f/flags #'ftype #f stype #t swap? funok?)]
+                    (f/flags #'ftype #f stype #t eness funok?)]
                    [(unpacked-kwd ftype)
                     (eq? (datum unpacked-kwd) 'unpacked)
-                    (f/flags #'ftype #f stype #f swap? funok?)]
+                    (f/flags #'ftype #f stype #f eness funok?)]
                    [(endian-kwd ?eness ftype)
                     (eq? (datum endian-kwd) 'endian)
-                    (let ([eness (datum ?eness)])
-                      (unless (memq eness '(big little native))
+                    (let ([new-eness (datum ?eness)])
+                      (unless (memq new-eness '(big little native swapped))
                         (syntax-error #'?eness "invalid endianness"))
-                      (let ([swap? (and (not (eq? eness 'native))
-                                        (not (eq? eness (constant native-endianness))))])
-                        (f/flags #'ftype #f stype packed? swap? funok?)))]
+                      (let ([eness (case new-eness
+                                     [(swapped) (case eness
+                                                  [(little) 'big]
+                                                  [(big) 'little]
+                                                  [(native) 'swapped]
+                                                  [(swapped) 'native])]
+                                     [else new-eness])])
+                        (f/flags #'ftype #f stype packed? eness funok?)))]
                    [_ (syntax-error ftype "invalid ftype")])))))]))
   (define expand-fp-ftype
     (lambda (who what r ftype def-alist)
@@ -593,8 +617,8 @@ ftype operators:
               (lambda (ftd)
                 (unless (ftd-base? ftd)
                   (syntax-error ftype (format "invalid (non-base) ~s ~s ftype" who what)))
-                (when (ftd-base-swap? ftd)
-                  (syntax-error ftype (format "invalid (swapped) ~s ~s ftype" who what)))
+                (unless (eq? (ftd-base-eness ftd) 'native)
+                  (syntax-error ftype (format "invalid (not native) ~s ~s ftype" who what)))
                 (ftd-base-type ftd))]
              [else (syntax->datum ftype)])])))
   (define-who indirect-ftd-pointer
@@ -671,6 +695,56 @@ ftype operators:
       (lambda (pargs->new)
         (lambda (whoid expr ftd pointer?)
           ((pargs->new expr) (syntax->datum whoid) ftd pointer?)))))
+
+  (define-syntax use-foreign
+    (syntax-rules ()
+      [(_ op type info fptr offset val)
+       (op 'type ($ftype-pointer-address fptr) offset val)]
+      [(_ op type fptr offset)
+       (op 'type ($ftype-pointer-address fptr) offset)]))
+  (define-syntax multi-int
+    (syntax-rules ()
+      [(_ op type (fast-op arg ...))
+       (constant-case native-endianness
+         [(unknown) (use-foreign op type arg ...)]
+         [else (fast-op arg ...)])]))
+  (define-syntax wide
+    (syntax-rules ()
+      [(_ op type (fast-op arg ...))
+       (constant-case ptr-bits
+         [(64) (fast-op arg ...)]
+         [(32) (use-foreign op type arg ...)])]))
+  (define-syntax multi-int/wide
+    (syntax-rules ()
+      [(_ op type (fast-op arg ...))
+       (constant-case ptr-bits
+         [(64) (multi-int op type (fast-op arg ...))]
+         [(32) (use-foreign op type arg ...)])]))    
+  (define-syntax swapped-endianness
+    (lambda (stx)
+      (syntax-case stx ()
+        [(_)
+         (constant-case native-endianness
+           [(little) #''big]
+           [(big) #''little]
+           [(unknown) #'(if (eq? (native-endianness) 'little)
+                            'big
+                            'little)])])))
+  (define simplify-eness
+    (lambda (eness type)
+      (case type
+        [(integer-8 unsigned-8) 'native]
+        [else
+         (case eness
+           [(little) (constant-case native-endianness
+                       [(big) 'swapped]
+                       [(little) 'native]
+                       [else eness])]
+           [(big) (constant-case native-endianness
+                    [(big) 'native]
+                    [(little) 'swapped]
+                    [else eness])]
+           [else eness])])))
   (record-writer rtd/ftd
     (lambda (x p wr)
       (fprintf p "#<ftd ~s>" (record-type-name x))))
@@ -870,7 +944,7 @@ ftype operators:
                                    (if id
                                        `(,id
                                          ,(guard (c [#t 'invalid])
-                                            ($fptr-ref-bits type (ftd-bits-swap? ftd) signed?
+                                            ($fptr-ref-bits type (ftd-bits-eness ftd) signed?
                                               fptr offset start end)))
                                        '(_ _)))
                                  field))
@@ -878,7 +952,7 @@ ftype operators:
                 [(ftd-base? ftd)
                  (guard (c [#t 'invalid])
                    ($fptr-ref (filter-foreign-type (ftd-base-type ftd))
-                     (ftd-base-swap? ftd) fptr offset))]
+                     (ftd-base-eness ftd) fptr offset))]
                 [else ($oops '$fptr->sexpr "unhandled ftd ~s" ftd)])))))))
   (set! $unwrap-ftype-pointer
     (lambda (fptr)
@@ -919,9 +993,9 @@ ftype operators:
                            (lambda (id signed? start end)
                              `(,id ,(lambda ()
                                       (guard (c [#t 'invalid])
-                                        ($fptr-ref-bits type (ftd-bits-swap? ftd) signed? fptr 0 start end)))
+                                        ($fptr-ref-bits type (ftd-bits-eness ftd) signed? fptr 0 start end)))
                                    ,(lambda (v)
-                                      (#2%$fptr-set-bits! type (ftd-bits-swap? ftd) fptr 0
+                                      (#2%$fptr-set-bits! type (ftd-bits-eness ftd) fptr 0
                                         start end v))))
                            field))
                     (ftd-bits-field* ftd))))]
@@ -929,8 +1003,8 @@ ftype operators:
            (let ([type (filter-foreign-type (ftd-base-type ftd))])
              `(base
                 ,type
-                ,(lambda () (guard (c [#t 'invalid]) ($fptr-ref type (ftd-base-swap? ftd) fptr 0)))
-                ,(lambda (v) (#2%$fptr-set! (ftd-base-type ftd) type (ftd-base-swap? ftd) fptr 0 v))))]
+                ,(lambda () (guard (c [#t 'invalid]) ($fptr-ref type (ftd-base-eness ftd) fptr 0)))
+                ,(lambda (v) (#2%$fptr-set! (ftd-base-type ftd) type (ftd-base-eness ftd) fptr 0 v))))]
           [else ($oops '$unwrap-ftype-pointer "unhandled ftd ~s" ftd)]))))
   (set! $trans-ftype-sizeof
     (lambda (x)
@@ -941,16 +1015,33 @@ ftype operators:
            (let ([ftd (expand-ftype-name r #'ftype)])
              (when (ftd-function? ftd)
                ($oops 'ftype-sizeof "function ftypes have unknown size"))
-             (ftd-size ftd))]))))
+             ($ftd-size ftd))]))))
   (set! $ftd?
     (lambda (x)
       (ftd? x)))
+  (set! $ftd-size
+    (lambda (ftd)
+      (constant-case special-initial-field-alignment?
+        [(#f) (ftd-size ftd)]
+        [else
+         ;; PPC32 Mac OS: if the first field of a compound type is size 8,
+         ;; then size is rounded up to an alignment of 8. This doesn't apply
+         ;; if the compound type is inside another one and not at the start.
+         (let ([initial (let loop ([ftd ftd])
+                          (cond
+                           [(ftd-struct? ftd)
+                            (loop (caddr (car (ftd-struct-field* ftd))))]
+                           [(ftd-union? ftd)
+                            (apply max (map (lambda (f) (loop (cdr f))) (ftd-union-field* ftd)))]
+                           [(ftd-array? ftd)
+                            (loop (ftd-array-ftd ftd))]
+                           [else (ftd-size ftd)]))])
+           (if (fx= initial 8)
+               (fxlogand (fx+ (ftd-size ftd) 7) (fxlognot 7))
+               (ftd-size ftd)))])))
   (set! $ftd-as-box? ; represents `(& <ftype>)` from `$expand-fp-ftype`
     (lambda (x)
       (and (box? x) (ftd? (unbox x)))))
-  (set! $ftd-size
-    (lambda (x)
-      (ftd-size x)))
   (set! $ftd-alignment
     (lambda (x)
       (ftd-alignment x)))
@@ -959,6 +1050,14 @@ ftype operators:
       (or (ftd-struct? x)
           (ftd-union? x)
           (ftd-array? x))))
+  (set! $ftd-union?
+    (lambda (x)
+      (or (ftd-union? x)
+          (and (ftd-struct? x)
+               (ormap (lambda (f) ($ftd-union? (caddr f)))
+                      (ftd-struct-field* x)))
+          (and (ftd-array? x)
+               ($ftd-union? (ftd-array-ftd x))))))
   (set! $ftd-unsigned?
     (lambda (x)
       (and (ftd-base? x)
@@ -969,42 +1068,43 @@ ftype operators:
     (lambda (x)
       ;; Currently used for x86_64 and arm32 ABI: Returns a list of
       ;;  (list 'integer/'float size offset)
-      (let loop ([x x] [offset 0] [accum '()])
-        (cond
-         [(ftd-base? x)
-          (cons (list (case (ftd-base-type x)
-                        [(double double-float float single-float)
-                         'float]
-                        [else 'integer])
-                      (ftd-size x)
-                      offset)
-                accum)]
-         [(ftd-struct? x)
-          (let struct-loop ([field* (ftd-struct-field* x)] [accum accum])
-            (cond
-             [(null? field*) accum]
-             [else (let* ([fld (car field*)]
-                          [sub-ftd (caddr fld)]
-                          [sub-offset (cadr fld)])
-                     (struct-loop (cdr field*)
-                                  (loop sub-ftd (+ offset sub-offset) accum)))]))]
-         [(ftd-union? x)
-          (let union-loop ([field* (ftd-union-field* x)] [accum accum])
-            (cond
-             [(null? field*) accum]
-             [else (let* ([fld (car field*)]
-                          [sub-ftd (cdr fld)])
-                     (union-loop (cdr field*)
-                                 (loop sub-ftd offset accum)))]))]
-         [(ftd-array? x)
-          (let ([elem-ftd (ftd-array-ftd x)])
-            (let array-loop ([len (ftd-array-length x)] [offset offset] [accum accum])
+      (reverse
+       (let loop ([x x] [offset 0] [accum '()])
+         (cond
+           [(ftd-base? x)
+            (cons (list (case (ftd-base-type x)
+                          [(double double-float float single-float)
+                           'float]
+                          [else 'integer])
+                        (ftd-size x)
+                        offset)
+                  accum)]
+           [(ftd-struct? x)
+            (let struct-loop ([field* (ftd-struct-field* x)] [accum accum])
               (cond
-               [(fx= len 0) accum]
-               [else (array-loop (fx- len 1)
-                                 (+ offset (ftd-size elem-ftd))
-                                 (loop elem-ftd offset accum))])))]
-         [else (cons (list 'integer (ftd-size x) offset) accum)]))))
+                [(null? field*) accum]
+                [else (let* ([fld (car field*)]
+                             [sub-ftd (caddr fld)]
+                             [sub-offset (cadr fld)])
+                        (struct-loop (cdr field*)
+                                     (loop sub-ftd (+ offset sub-offset) accum)))]))]
+           [(ftd-union? x)
+            (let union-loop ([field* (ftd-union-field* x)] [accum accum])
+              (cond
+                [(null? field*) accum]
+                [else (let* ([fld (car field*)]
+                             [sub-ftd (cdr fld)])
+                        (union-loop (cdr field*)
+                                    (loop sub-ftd offset accum)))]))]
+           [(ftd-array? x)
+            (let ([elem-ftd (ftd-array-ftd x)])
+              (let array-loop ([len (ftd-array-length x)] [offset offset] [accum accum])
+                (cond
+                  [(fx= len 0) accum]
+                  [else (array-loop (fx- len 1)
+                                    (+ offset (ftd-size elem-ftd))
+                                    (loop elem-ftd offset accum))])))]
+           [else (cons (list 'integer (ftd-size x) offset) accum)])))))
   (set! $ftd-atomic-category
     (lambda (x)
       ;; Currently used for PowerPC32 ABI
@@ -1019,6 +1119,44 @@ ftype operators:
 	   'unsigned]
 	  [else 'integer])]
        [else 'integer])))
+  (set! $ftd-ffi-encode ;; for pb libffi binding
+    (lambda (x)
+      (cond
+        [(ftd-base? x)
+	 (case (ftd-base-type x)
+	   [(double double-float) (constant ffi-typerep-double)]
+	   [(float single-float) (constant ffi-typerep-float)]
+           [(integer-8) (constant ffi-typerep-sint8)]
+           [(unsigned-8) (constant ffi-typerep-uint8)]
+           [(integer-16 short) (constant ffi-typerep-sint16)]
+           [(unsigned-16 unsigned-short) (constant ffi-typerep-uint16)]
+           [(integer-32 int) (constant ffi-typerep-sint32)]
+           [(unsigned-32 unsigned-int) (constant ffi-typerep-uint32)]
+           [(integer-64) (constant ffi-typerep-sint64)]
+           [(unsigned-64) (constant ffi-typerep-uint64)]
+           [else (constant ffi-typerep-pointer)])]
+        [(ftd-struct? x)
+         (list->vector
+          (let struct-loop ([field* (ftd-struct-field* x)])
+            (cond
+              [(null? field*) '()]
+              [else (let* ([fld (car field*)]
+                           [sub-ftd (caddr fld)])
+                      (cons ($ftd-ffi-encode sub-ftd)
+                            (struct-loop (cdr field*))))])))]
+        [(ftd-union? x)
+         (let union-loop ([field* (ftd-union-field* x)])
+           (cond
+             [(null? field*) '()]
+             [else (let* ([fld (car field*)]
+                          [sub-ftd (cdr fld)])
+                     (cons ($ftd-ffi-encode sub-ftd)
+                           (union-loop (cdr field*))))]))]
+        [(ftd-array? x)
+         (let ([elem-ftd (ftd-array-ftd x)])
+           (cons ($ftd-ffi-encode elem-ftd)
+                 (ftd-array-length x)))]
+        [else (constant ffi-typerep-pointer)])))
   (set! $expand-fp-ftype ; for foreign-procedure, foreign-callable
     (lambda (who what r ftype)
       (indirect-ftd-pointer
@@ -1079,9 +1217,11 @@ ftype operators:
     (define trans-bitfield
       (lambda (ftd signed? offset start end do-base do-bits)
         (define (little-endian?)
-          (constant-case native-endianness
-            [(little) (not (ftd-bits-swap? ftd))]
-            [(big) (ftd-bits-swap? ftd)]))
+          (or (eq? (ftd-bits-eness ftd) 'little)
+              (and (eq? (constant native-endianness) 'little)
+                   (eq? (ftd-bits-eness ftd) 'native))
+              (and (eq? (constant native-endianness) 'big)
+                   (eq? (ftd-bits-eness ftd) 'swapped))))
         (let ([width (fx- end start)])
           (cond
             [(and (fx= width 8) (fx= (mod start 8) 0))
@@ -1091,19 +1231,19 @@ ftype operators:
                             (div start 8)
                             (fx- (ftd-size ftd) (div start 8) 1))))]
             [(and (fx= width 16) (fx= (mod start 16) 0))
-             (do-base (if signed? 'integer-16 'unsigned-16) (ftd-bits-swap? ftd)
+             (do-base (if signed? 'integer-16 'unsigned-16) (ftd-bits-eness ftd)
                #`(fx+ #,offset
                       #,(if (little-endian?)
                             (div start 8)
                             (fx- (ftd-size ftd) (div start 8) 2))))]
             [(and (fx= width 32) (fx= (mod start 32) 0))
-             (do-base (if signed? 'integer-32 'unsigned-32) (ftd-bits-swap? ftd)
+             (do-base (if signed? 'integer-32 'unsigned-32) (ftd-bits-eness ftd)
                #`(fx+ #,offset
                       #,(if (little-endian?)
                             (div start 8)
                             (fx- (ftd-size ftd) (div start 8) 4))))]
             [(and (fx= width 64) (fx= start 0))
-             (do-base (if signed? 'integer-64 'unsigned-64) (ftd-bits-swap? ftd) offset)]
+             (do-base (if signed? 'integer-64 'unsigned-64) (ftd-bits-eness ftd) offset)]
             [else
              (or (and (and (fx= (ftd-size ftd) 8) (fx= (constant ptr-bits) 32))
                       (cond
@@ -1175,12 +1315,19 @@ ftype operators:
                   #`(let ([offset #,(trans-idx ?idx ?idx ftd (make-index-info #'ftype-ref ?idx ftd #t))])
                       #,(let-values ([(fptr-expr offset ftd idx* bitfield)
                                       (ftype-access-code #'ftype-ref ftd a* fptr-expr #'offset)])
-                          (define (do-base type swap? offset)
-                            (with-syntax ([$fptr-ref-x (datum->syntax #'kwd
-                                                         (string->symbol
-                                                           (format "$fptr-ref-~:[~;swap-~]~a"
-                                                             swap? type)))])
-                              #`(#3%$fptr-ref-x #,fptr-expr #,offset)))
+                          (define (do-base type eness offset)
+                            (let ([eness (simplify-eness eness type)])
+                              (case eness
+                                [(native swapped)
+                                 (with-syntax ([$fptr-ref-x (datum->syntax #'kwd
+                                                              (string->symbol
+                                                               (format "$fptr-ref-~:[~;swap-~]~a"
+                                                                       (eq? eness 'swapped) type)))])
+                                   #`(#3%$fptr-ref-x #,fptr-expr #,offset))]
+                                [else
+                                 (with-syntax ([type (datum->syntax #'kwd type)]
+                                               [eness (datum->syntax #'kwd eness)])
+                                   #`(#3%$fptr-ref 'type 'eness #,fptr-expr #,offset))])))
                           (with-syntax ([((containing-ftd a-id a len) ...) idx*])
                             (with-syntax ([(info ...) (map (lambda (a containing-ftd) (make-index-info 'ftype-ref a containing-ftd #f)) #'(a ...) #'(containing-ftd ...))])
                               #`(let ([a-id a] ...)
@@ -1194,15 +1341,22 @@ ftype operators:
                                           (lambda (id signed? start end)
                                             (trans-bitfield ftd signed? offset start end do-base
                                               (lambda (size offset start end)
-                                                (with-syntax ([$fptr-ref-bits-x (datum->syntax #'*
-                                                                                  (string->symbol
-                                                                                    (format "$fptr-ref-~:[u~;i~]bits-~:[~;swap-~]~a"
-                                                                                      signed?
-                                                                                      (ftd-bits-swap? ftd)
-                                                                                      (unsigned-type size))))])
-                                                  #`(#3%$fptr-ref-bits-x #,fptr-expr #,offset #,start #,end)))))
+                                                (let ([eness (simplify-eness (ftd-bits-eness ftd) (unsigned-type size))])
+                                                  (case eness
+                                                    [(native swapped)
+                                                     (with-syntax ([$fptr-ref-bits-x (datum->syntax #'*
+                                                                                       (string->symbol
+                                                                                        (format "$fptr-ref-~:[u~;i~]bits-~:[~;swap-~]~a"
+                                                                                                signed?
+                                                                                                (eq? eness 'swapped)
+                                                                                                (unsigned-type size))))])
+                                                       #`(#3%$fptr-ref-bits-x #,fptr-expr #,offset #,start #,end))]
+                                                    [else
+                                                     (with-syntax ([type (datum->syntax #'kwd (unsigned-type size))]
+                                                                   [eness (datum->syntax #'* eness)])
+                                                       #`(#3%$fptr-ref-bits 'type 'eness '#,signed? #,fptr-expr #,offset #,start #,end))])))))
                                           bitfield)]
-                                      [(ftd-base? ftd) (do-base (filter-foreign-type (ftd-base-type ftd)) (ftd-base-swap? ftd) offset)]
+                                      [(ftd-base? ftd) (do-base (filter-foreign-type (ftd-base-type ftd)) (ftd-base-eness ftd) offset)]
                                       [(ftd-pointer? ftd) #`(#3%$fptr-fptr-ref #,fptr-expr #,offset '#,(ftd-pointer-ftd ftd))]
                                       [(ftd-function? ftd) 
                                        ($make-foreign-procedure 'make-ftype-pointer
@@ -1234,12 +1388,19 @@ ftype operators:
                       #,(let-values ([(fptr-expr offset ftd idx* bitfield)
                                       (ftype-access-code #'ftype-set! ftd a* fptr-expr #'offset)])
                           (define (do-base orig-type)
-                            (lambda (type swap? offset)
-                              (with-syntax ([$fptr-set-x! (datum->syntax #'kwd
-                                                            (string->symbol
-                                                              (format "$fptr-set-~:[~;swap-~]~a!"
-                                                                swap? type)))])
-                                #`($fptr-set-x! '#,(make-field-info orig-type val-expr) #,fptr-expr #,offset val))))
+                            (lambda (type eness offset)
+                              (let ([eness (simplify-eness eness type)])
+                                (case eness
+                                  [(native swapped)
+                                   (with-syntax ([$fptr-set-x! (datum->syntax #'kwd
+                                                                 (string->symbol
+                                                                  (format "$fptr-set-~:[~;swap-~]~a!"
+                                                                          (eq? eness 'swapped) type)))])
+                                     #`($fptr-set-x! '#,(make-field-info orig-type val-expr) #,fptr-expr #,offset val))]
+                                  [else
+                                   (with-syntax ([type (datum->syntax #'kwd type)]
+                                                 [eness (datum->syntax #'kwd eness)])
+                                     #`($fptr-set! '#,(make-field-info orig-type val-expr) 'type 'eness #,fptr-expr #,offset val))]))))
                           (with-syntax ([((containing-ftd a-id a len) ...) idx*])
                             (with-syntax ([(info ...) (map (lambda (a containing-ftd) (make-index-info 'ftype-set! a containing-ftd #f)) #'(a ...) #'(containing-ftd ...))])
                               #`(let ([a-id a] ...)
@@ -1253,16 +1414,23 @@ ftype operators:
                                           (lambda (id signed? start end)
                                             (trans-bitfield ftd signed? offset start end (do-base 'bit-field)
                                               (lambda (size offset start end)
-                                                (with-syntax ([$fptr-set-bits-x! (datum->syntax #'*
-                                                                                   (string->symbol
-                                                                                     (format "$fptr-set-bits-~:[~;swap-~]~a!"
-                                                                                       (ftd-bits-swap? ftd)
-                                                                                       (unsigned-type size))))])
-                                                  #`($fptr-set-bits-x! #,fptr-expr #,offset #,start #,end val)))))
+                                                (let ([eness (simplify-eness (ftd-bits-eness ftd) (unsigned-type size))])
+                                                  (case eness
+                                                    [(native swapped)
+                                                     (with-syntax ([$fptr-set-bits-x! (datum->syntax #'*
+                                                                                        (string->symbol
+                                                                                         (format "$fptr-set-bits-~:[~;swap-~]~a!"
+                                                                                           (eq? eness 'swapped)
+                                                                                           (unsigned-type size))))])
+                                                       #`($fptr-set-bits-x! #,fptr-expr #,offset #,start #,end val))]
+                                                    [else
+                                                     (with-syntax ([type (datum->syntax #'kwd (unsigned-type size))]
+                                                                   [eness (datum->syntax #'* eness)])
+                                                       #`($fptr-set-bits! 'type 'eness #,fptr-expr #,offset #,start #,end val))])))))
                                           bitfield)]
                                       [(ftd-base? ftd)
                                        (let ([orig-type (ftd-base-type ftd)])
-                                         ((do-base orig-type) (filter-foreign-type orig-type) (ftd-base-swap? ftd) offset))]
+                                         ((do-base orig-type) (filter-foreign-type orig-type) (ftd-base-eness ftd) offset))]
                                       [(ftd-pointer? ftd)
                                        #`(begin
                                            (unless #,(fx= (optimize-level) 3)
@@ -1305,8 +1473,8 @@ ftype operators:
                                                      [(64) '(unsigned-64 integer-64)]
                                                      [(32) '(unsigned-32 integer-32)]))
                                            (syntax-error q "locked operation on non-integer or non-word-size field unsupported"))
-                                         (when (ftd-base-swap? ftd)
-                                           (syntax-error q "locked operation on swapped field unsupported"))
+                                         (unless (eq? (ftd-base-eness ftd) 'native)
+                                           (syntax-error q "locked operation on non-native field unsupported"))
                                          #`(($primitive 3 #,prim) #,fptr-expr #,offset))]
                                       [else (syntax-error q "locked operation on non-base-type field unsupported")])))))))))))
         (syntax-case q ()
@@ -1331,7 +1499,7 @@ ftype operators:
                                      (constant-case ptr-bits
                                        [(64) '(unsigned-64 integer-64)]
                                        [(32) '(unsigned-32 integer-32)]))
-                                   (not (ftd-base-swap? ftd))))]
+                                   (eq? 'native (ftd-base-eness ftd))))]
                            [(ftd-struct? ftd)
                             (let ([ls (ftd-struct-field* ftd)])
                               (if (null? ls)
@@ -1379,16 +1547,20 @@ ftype operators:
 
   (set! $fptr-ref-integer-24
     (lambda (fptr offset)
-      (#3%$fptr-ref-integer-24 fptr offset)))
+      (multi-int foreign-ref integer-24
+                 (#3%$fptr-ref-integer-24 fptr offset))))
   (set! $fptr-ref-unsigned-24
     (lambda (fptr offset)
-      (#3%$fptr-ref-unsigned-24 fptr offset)))
+      (multi-int foreign-ref unsigned-24
+                 (#3%$fptr-ref-unsigned-24 fptr offset))))
   (set! $fptr-ref-swap-integer-24
     (lambda (fptr offset)
-      (#3%$fptr-ref-swap-integer-24 fptr offset)))
+      (multi-int $foreign-swap-ref integer-24
+                 (#3%$fptr-ref-swap-integer-24 fptr offset))))
   (set! $fptr-ref-swap-unsigned-24
     (lambda (fptr offset)
-      (#3%$fptr-ref-swap-unsigned-24 fptr offset)))
+      (multi-int $foreign-swap-ref unsigned-24
+                 (#3%$fptr-ref-swap-unsigned-24 fptr offset))))
 
   (set! $fptr-ref-integer-32
     (lambda (fptr offset)
@@ -1405,42 +1577,54 @@ ftype operators:
 
   (set! $fptr-ref-integer-40
     (lambda (fptr offset)
-      (#3%$fptr-ref-integer-40 fptr offset)))
+      (multi-int foreign-ref integer-40
+                 (#3%$fptr-ref-integer-40 fptr offset))))
   (set! $fptr-ref-unsigned-40
     (lambda (fptr offset)
-      (#3%$fptr-ref-unsigned-40 fptr offset)))
+      (multi-int foreign-ref unsigned-40
+                 (#3%$fptr-ref-unsigned-40 fptr offset))))
   (set! $fptr-ref-swap-integer-40
     (lambda (fptr offset)
-      (#3%$fptr-ref-swap-integer-40 fptr offset)))
+      (multi-int $foreign-swap-ref integer-40
+                 (#3%$fptr-ref-swap-integer-40 fptr offset))))
   (set! $fptr-ref-swap-unsigned-40
     (lambda (fptr offset)
-      (#3%$fptr-ref-swap-unsigned-40 fptr offset)))
+      (multi-int $foreign-swap-ref unsigned-40
+                 (#3%$fptr-ref-swap-unsigned-40 fptr offset))))
 
   (set! $fptr-ref-integer-48
     (lambda (fptr offset)
-      (#3%$fptr-ref-integer-48 fptr offset)))
+      (multi-int foreign-ref integer-48
+                 (#3%$fptr-ref-integer-48 fptr offset))))
   (set! $fptr-ref-unsigned-48
     (lambda (fptr offset)
-      (#3%$fptr-ref-unsigned-48 fptr offset)))
+      (multi-int foreign-ref unsigned-48
+                 (#3%$fptr-ref-unsigned-48 fptr offset))))
   (set! $fptr-ref-swap-integer-48
     (lambda (fptr offset)
-      (#3%$fptr-ref-swap-integer-48 fptr offset)))
+      (multi-int $foreign-swap-ref integer-48
+                 (#3%$fptr-ref-swap-integer-48 fptr offset))))
   (set! $fptr-ref-swap-unsigned-48
     (lambda (fptr offset)
-      (#3%$fptr-ref-swap-unsigned-48 fptr offset)))
+      (multi-int $foreign-swap-ref unsigned-48
+                 (#3%$fptr-ref-swap-unsigned-48 fptr offset))))
 
   (set! $fptr-ref-integer-56
     (lambda (fptr offset)
-      (#3%$fptr-ref-integer-56 fptr offset)))
+      (multi-int foreign-ref integer-56
+                 (#3%$fptr-ref-integer-56 fptr offset))))
   (set! $fptr-ref-unsigned-56
     (lambda (fptr offset)
-      (#3%$fptr-ref-unsigned-56 fptr offset)))
+      (multi-int foreign-ref unsigned-56
+                 (#3%$fptr-ref-unsigned-56 fptr offset))))
   (set! $fptr-ref-swap-integer-56
     (lambda (fptr offset)
-      (#3%$fptr-ref-swap-integer-56 fptr offset)))
+      (multi-int $foreign-swap-ref integer-56
+                 (#3%$fptr-ref-swap-integer-56 fptr offset))))
   (set! $fptr-ref-swap-unsigned-56
     (lambda (fptr offset)
-      (#3%$fptr-ref-swap-unsigned-56 fptr offset)))
+      (multi-int $foreign-swap-ref unsigned-56
+                 (#3%$fptr-ref-swap-unsigned-56 fptr offset))))
 
   (set! $fptr-ref-integer-64
     (lambda (fptr offset)
@@ -1465,7 +1649,7 @@ ftype operators:
         [(32) (let ([bv (make-bytevector 8)])
                 (bytevector-u64-set! bv 0
                   (foreign-ref 'unsigned-64 ($ftype-pointer-address fptr) offset)
-                  (if (eq? (constant native-endianness) 'big) 'little 'big))
+                  (swapped-endianness))
                 ($object-ref 'double-float bv (constant bytevector-data-disp)))])))
     
   (set! $fptr-ref-single-float
@@ -1478,7 +1662,7 @@ ftype operators:
         [(32) (let ([bv (make-bytevector 4)])
                 (bytevector-u32-set! bv 0
                   (foreign-ref 'unsigned-32 ($ftype-pointer-address fptr) offset)
-                  (if (eq? (constant native-endianness) 'big) 'little 'big))
+                  (swapped-endianness))
                 ($object-ref 'single-float bv (constant bytevector-data-disp)))])))
     
   (set! $fptr-ref-char
@@ -1507,7 +1691,7 @@ ftype operators:
       (#3%$fptr-ref-swap-fixnum fptr offset)))
 
   (set-who! $fptr-ref
-    (lambda (ty swap? fptr offset)
+    (lambda (ty eness fptr offset)
       (define-syntax proc
         (lambda (x)
           (syntax-case x (scheme-object)
@@ -1517,7 +1701,8 @@ ftype operators:
                  (datum->syntax #'*
                    (string->symbol
                      (format "$fptr-ref-~a" (datum type))))
-                 #`(if swap?
+                 #`(if (or (eq? eness 'swapped)
+                           (eq? eness (swapped-endianness)))
                        #,(datum->syntax #'*
                            (string->symbol
                              (format "$fptr-ref-swap-~a" (datum type))))
@@ -1566,19 +1751,23 @@ ftype operators:
     (set! $fptr-set-integer-24!
       (lambda (info fptr offset val)
         (unless ($integer-24? val) (invalid-value info val))
-        (#3%$fptr-set-integer-24! info fptr offset val)))
+        (multi-int foreign-set! integer-24
+                   (#3%$fptr-set-integer-24! info fptr offset val))))
     (set! $fptr-set-unsigned-24!
       (lambda (info fptr offset val)
         (unless ($integer-24? val) (invalid-value info val))
-        (#3%$fptr-set-unsigned-24! info fptr offset val)))
+        (multi-int foreign-set! unsigned-24
+                   (#3%$fptr-set-unsigned-24! info fptr offset val))))
     (set! $fptr-set-swap-integer-24!
       (lambda (info fptr offset val)
         (unless ($integer-24? val) (invalid-value info val))
-        (#3%$fptr-set-swap-integer-24! info fptr offset val)))
+        (multi-int $foreign-swap-set! integer-24
+                   (#3%$fptr-set-swap-integer-24! info fptr offset val))))
     (set! $fptr-set-swap-unsigned-24!
       (lambda (info fptr offset val)
         (unless ($integer-24? val) (invalid-value info val))
-        (#3%$fptr-set-swap-unsigned-24! info fptr offset val)))
+        (multi-int $foreign-swap-set! unsigned-24
+                   (#3%$fptr-set-swap-unsigned-24! info fptr offset val))))
 
     (set! $fptr-set-integer-32!
       (lambda (info fptr offset val)
@@ -1600,134 +1789,86 @@ ftype operators:
     (set! $fptr-set-integer-40!
       (lambda (info fptr offset val)
         (unless ($integer-40? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-integer-40! info fptr offset val)]
-          [(32) (foreign-set! 'integer-40 ($ftype-pointer-address fptr) offset val)])))
+        (multi-int/wide foreign-set! integer-40
+                         (#3%$fptr-set-integer-40! info fptr offset val))))
     (set! $fptr-set-unsigned-40!
       (lambda (info fptr offset val)
         (unless ($integer-40? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-unsigned-40! info fptr offset val)]
-          [(32) (foreign-set! 'unsigned-40 ($ftype-pointer-address fptr) offset val)])))
+        (multi-int/wide foreign-set! unsigned-40
+                         (#3%$fptr-set-unsigned-40! info fptr offset val))))
     (set! $fptr-set-swap-integer-40!
       (lambda (info fptr offset val)
         (unless ($integer-40? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-swap-integer-40! info fptr offset val)]
-          [(32) (let ([bv (make-bytevector 8)])
-                  ($object-set! 'integer-40 bv (constant bytevector-data-disp) val)
-                  (foreign-set! 'unsigned-40 ($ftype-pointer-address fptr) offset
-                    (bytevector-u40-ref bv 0
-                      (if (eq? (constant native-endianness) 'big) 'little 'big))))])))
+        (multi-int/wide $foreign-swap-set! integer-40
+                         (#3%$fptr-set-swap-integer-40! info fptr offset val))))
     (set! $fptr-set-swap-unsigned-40!
       (lambda (info fptr offset val)
         (unless ($integer-40? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-swap-unsigned-40! info fptr offset val)]
-          [(32) (let ([bv (make-bytevector 8)])
-                  ($object-set! 'unsigned-40 bv (constant bytevector-data-disp) val)
-                  (foreign-set! 'unsigned-40 ($ftype-pointer-address fptr) offset
-                    (bytevector-u40-ref bv 0
-                      (if (eq? (constant native-endianness) 'big) 'little 'big))))])))
+        (multi-int/wide $foreign-swap-set! unsigned-40
+                         (#3%$fptr-set-swap-unsigned-40! info fptr offset val))))
 
     (set! $fptr-set-integer-48!
       (lambda (info fptr offset val)
         (unless ($integer-48? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-integer-48! info fptr offset val)]
-          [(32) (foreign-set! 'integer-48 ($ftype-pointer-address fptr) offset val)])))
+        (multi-int/wide foreign-set! integer-48
+                         (#3%$fptr-set-integer-48! info fptr offset val))))
     (set! $fptr-set-unsigned-48!
       (lambda (info fptr offset val)
         (unless ($integer-48? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-unsigned-48! info fptr offset val)]
-          [(32) (foreign-set! 'unsigned-48 ($ftype-pointer-address fptr) offset val)])))
+        (multi-int/wide foreign-set! unsigned-48
+                         (#3%$fptr-set-unsigned-48! info fptr offset val))))
     (set! $fptr-set-swap-integer-48!
       (lambda (info fptr offset val)
         (unless ($integer-48? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-swap-integer-48! info fptr offset val)]
-          [(32) (let ([bv (make-bytevector 8)])
-                  ($object-set! 'integer-48 bv (constant bytevector-data-disp) val)
-                  (foreign-set! 'unsigned-48 ($ftype-pointer-address fptr) offset
-                    (bytevector-u48-ref bv 0
-                      (if (eq? (constant native-endianness) 'big) 'little 'big))))])))
+        (multi-int/wide $foreign-swap-set! integer-48
+                        (#3%$fptr-set-swap-integer-48! info fptr offset val))))
     (set! $fptr-set-swap-unsigned-48!
       (lambda (info fptr offset val)
         (unless ($integer-48? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-swap-unsigned-48! info fptr offset val)]
-          [(32) (let ([bv (make-bytevector 8)])
-                  ($object-set! 'unsigned-48 bv (constant bytevector-data-disp) val)
-                  (foreign-set! 'unsigned-48 ($ftype-pointer-address fptr) offset
-                    (bytevector-u48-ref bv 0
-                      (if (eq? (constant native-endianness) 'big) 'little 'big))))])))
-
+        (multi-int/wide $foreign-swap-set! unsigned-48
+                        (#3%$fptr-set-swap-unsigned-48! info fptr offset val))))
+    
     (set! $fptr-set-integer-56!
       (lambda (info fptr offset val)
         (unless ($integer-56? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-integer-56! info fptr offset val)]
-          [(32) (foreign-set! 'integer-56 ($ftype-pointer-address fptr) offset val)])))
+        (multi-int/wide foreign-set! integer-56
+                        (#3%$fptr-set-integer-56! info fptr offset val))))
     (set! $fptr-set-unsigned-56!
       (lambda (info fptr offset val)
         (unless ($integer-56? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-unsigned-56! info fptr offset val)]
-          [(32) (foreign-set! 'unsigned-56 ($ftype-pointer-address fptr) offset val)])))
+        (multi-int/wide foreign-set! unsigned-56
+                        (#3%$fptr-set-unsigned-56! info fptr offset val))))
     (set! $fptr-set-swap-integer-56!
       (lambda (info fptr offset val)
         (unless ($integer-56? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-swap-integer-56! info fptr offset val)]
-          [(32) (let ([bv (make-bytevector 8)])
-                  ($object-set! 'integer-56 bv (constant bytevector-data-disp) val)
-                  (foreign-set! 'unsigned-56 ($ftype-pointer-address fptr) offset
-                    (bytevector-u56-ref bv 0
-                      (if (eq? (constant native-endianness) 'big) 'little 'big))))])))
+        (multi-int/wide $foreign-swap-set! integer-56
+                        (#3%$fptr-set-swap-integer-56! info fptr offset val))))
     (set! $fptr-set-swap-unsigned-56!
       (lambda (info fptr offset val)
         (unless ($integer-56? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-swap-unsigned-56! info fptr offset val)]
-          [(32) (let ([bv (make-bytevector 8)])
-                  ($object-set! 'unsigned-56 bv (constant bytevector-data-disp) val)
-                  (foreign-set! 'unsigned-56 ($ftype-pointer-address fptr) offset
-                    (bytevector-u56-ref bv 0
-                      (if (eq? (constant native-endianness) 'big) 'little 'big))))])))
+        (multi-int/wide $foreign-swap-set! unsigned-56
+                        (#3%$fptr-set-swap-unsigned-56! info fptr offset val))))
 
     (set! $fptr-set-integer-64!
       (lambda (info fptr offset val)
         (unless ($integer-64? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-integer-64! info fptr offset val)]
-          [(32) (foreign-set! 'integer-64 ($ftype-pointer-address fptr) offset val)])))
+        (wide foreign-set! integer-64
+              (#3%$fptr-set-integer-64! info fptr offset val))))
     (set! $fptr-set-unsigned-64!
       (lambda (info fptr offset val)
         (unless ($integer-64? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-unsigned-64! info fptr offset val)]
-          [(32) (foreign-set! 'unsigned-64 ($ftype-pointer-address fptr) offset val)])))
+        (wide foreign-set! unsigned-64
+              (#3%$fptr-set-unsigned-64! info fptr offset val))))
     (set! $fptr-set-swap-integer-64!
       (lambda (info fptr offset val)
         (unless ($integer-64? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-swap-integer-64! info fptr offset val)]
-          [(32) (let ([bv (make-bytevector 8)])
-                  ($object-set! 'integer-64 bv (constant bytevector-data-disp) val)
-                  (foreign-set! 'unsigned-64 ($ftype-pointer-address fptr) offset
-                    (bytevector-u64-ref bv 0
-                      (if (eq? (constant native-endianness) 'big) 'little 'big))))])))
+        (wide $foreign-swap-set! integer-64
+              (#3%$fptr-set-swap-integer-64! info fptr offset val))))
     (set! $fptr-set-swap-unsigned-64!
       (lambda (info fptr offset val)
         (unless ($integer-64? val) (invalid-value info val))
-        (constant-case ptr-bits
-          [(64) (#3%$fptr-set-swap-unsigned-64! info fptr offset val)]
-          [(32) (let ([bv (make-bytevector 8)])
-                  ($object-set! 'unsigned-64 bv (constant bytevector-data-disp) val)
-                  (foreign-set! 'unsigned-64 ($ftype-pointer-address fptr) offset
-                    (bytevector-u64-ref bv 0
-                      (if (eq? (constant native-endianness) 'big) 'little 'big))))])))
+        (wide $foreign-swap-set! unsigned-64
+              (#3%$fptr-set-swap-unsigned-64! info fptr offset val))))
 
     (set! $fptr-set-double-float!
       (lambda (info fptr offset val)
@@ -1742,7 +1883,7 @@ ftype operators:
                   ($object-set! 'double-float bv (constant bytevector-data-disp) val)
                   (foreign-set! 'unsigned-64 ($ftype-pointer-address fptr) offset
                     (bytevector-u64-ref bv 0
-                      (if (eq? (constant native-endianness) 'big) 'little 'big))))])))
+                      (swapped-endianness))))])))
 
     (set! $fptr-set-single-float!
       (lambda (info fptr offset val)
@@ -1755,7 +1896,7 @@ ftype operators:
           ($object-set! 'single-float bv (constant bytevector-data-disp) val)
           (foreign-set! 'unsigned-32 ($ftype-pointer-address fptr) offset
             (bytevector-u32-ref bv 0
-              (if (eq? (constant native-endianness) 'big) 'little 'big))))))
+              (swapped-endianness))))))
 
     (set! $fptr-set-char!
       (lambda (info fptr offset val)
@@ -1789,7 +1930,7 @@ ftype operators:
     )
 
   (set-who! $fptr-set!
-    (lambda (orig-type ty swap? fptr offset val)
+    (lambda (orig-type ty eness fptr offset val)
       (define-syntax proc
         (lambda (x)
           (syntax-case x (scheme-object)
@@ -1800,7 +1941,8 @@ ftype operators:
                      #,(datum->syntax #'*
                          (string->symbol
                            (format "$fptr-set-~a!" (datum type)))))
-                 #`(if swap?
+                 #`(if (or (eq? eness 'swapped)
+                           (eq? eness (swapped-endianness)))
                        ($primitive 2
                          #,(datum->syntax #'*
                              (string->symbol
@@ -1894,7 +2036,7 @@ ftype operators:
     (set! $fptr-ref-ubits-unsigned-64 ($fptr-ref-ubits 64 #f)))
 
   (set-who! $fptr-ref-bits
-    (lambda (ty swap? signed? fptr offset start end)
+    (lambda (ty eness signed? fptr offset start end)
       (define-syntax proc
         (lambda (x)
           (syntax-case x ()
@@ -1907,7 +2049,8 @@ ftype operators:
                        #,(datum->syntax #'*
                            (string->symbol
                              (format "$fptr-ref-ubits-~a" (datum type)))))
-                 #`(if swap?
+                 #`(if (or (eq? eness 'swapped)
+                           (eq? eness (swapped-endianness)))
                        (if signed?
                            #,(datum->syntax #'*
                                (string->symbol
@@ -1925,7 +2068,11 @@ ftype operators:
         ((case ty
            [(unsigned-8) (proc unsigned-8)]
            [(unsigned-16) (proc unsigned-16)]
+           [(unsigned-24) (proc unsigned-24)]
            [(unsigned-32) (proc unsigned-32)]
+           [(unsigned-40) (proc unsigned-40)]
+           [(unsigned-48) (proc unsigned-48)]
+           [(unsigned-56) (proc unsigned-56)]
            [(unsigned-64) (proc unsigned-64)]
            [else ($oops who "unexpected type ~s" ty)])
          fptr offset start end)))
@@ -1994,7 +2141,7 @@ ftype operators:
     (set! $fptr-set-bits-unsigned-64! ($fptr-set-bits! 64 #f)))
 
   (set-who! $fptr-set-bits!
-    (lambda (ty swap? fptr offset start end val)
+    (lambda (ty eness fptr offset start end val)
       (define-syntax proc
         (lambda (x)
           (syntax-case x ()
@@ -2003,7 +2150,8 @@ ftype operators:
                  (datum->syntax #'*
                    (string->symbol
                      (format "$fptr-set-bits-~a!" (datum type))))
-                 #`(if swap?
+                 #`(if (or (eq? eness 'swapped)
+                           (eq? eness (swapped-endianness)))
                        ($primitive 2
                          #,(datum->syntax #'*
                              (string->symbol
@@ -2015,7 +2163,11 @@ ftype operators:
         ((case ty
            [(unsigned-8) (proc unsigned-8)]
            [(unsigned-16) (proc unsigned-16)]
+           [(unsigned-24) (proc unsigned-24)]
            [(unsigned-32) (proc unsigned-32)]
+           [(unsigned-40) (proc unsigned-40)]
+           [(unsigned-48) (proc unsigned-48)]
+           [(unsigned-56) (proc unsigned-56)]
            [(unsigned-64) (proc unsigned-64)]
            [else ($oops who "unexpected type ~s" ty)])
          fptr offset start end val)))

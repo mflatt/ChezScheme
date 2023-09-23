@@ -60,8 +60,14 @@ ptr S_ntdlerror(void) {
 }
 
 #ifdef FLUSHCACHE
-oops, no S_flushcache_max_gap or S_doflush
-#endif /* FLUSHCACHE */
+void S_doflush(uptr start, uptr end) {
+  FlushInstructionCache(GetCurrentProcess(), TO_VOIDP(start), end - start);
+}
+
+INT S_flushcache_max_gap(void) {
+  return 32;
+}
+#endif
 
 static void SplitRegistryKey(char *who, wchar_t *wholekey, HKEY *key, wchar_t **subkey, wchar_t **last) {
   wchar_t c, *s;
@@ -255,8 +261,8 @@ static ptr s_ErrorStringImp(DWORD dwMessageId, const char *lpcDefault) {
         } else {
             /* ...otherwise, use the error code in hexadecimal. */
             char buf[(sizeof(dwMessageId) * 2) + 3];
-            int n = snprintf(buf, sizeof(buf), "0x%x", dwMessageId);
-            if (n < sizeof(buf))
+            int n = snprintf(buf, sizeof(buf), "0x%lx", dwMessageId);
+            if ((unsigned)n < sizeof(buf))
                 return Sstring_utf8(buf, n);
             else
                 return Sstring("??");
@@ -406,7 +412,20 @@ int S_windows_rmdir(const char *pathname) {
 
 int S_windows_stat64(const char *pathname, struct STATBUF *buffer) {
   wchar_t wpathname[PATH_MAX];
-  if (MultiByteToWideChar(CP_UTF8,0,pathname,-1,wpathname,PATH_MAX) == 0)
+  int len = MultiByteToWideChar(CP_UTF8,0,pathname,-1,wpathname,PATH_MAX);
+
+# ifdef __MINGW32__
+  /* MinGW _wstat64 does not want path separators at the end, except for 
+     a drive: */
+  while ((len > 2)
+	 && ((wpathname[len-2] == '/')
+	     || (wpathname[len-2] == '\\'))
+	 && (wpathname[len-3] != ':')) {
+    wpathname[(--len)-1] = 0;
+  }
+# endif
+
+  if (len == 0)
     return _stat64(pathname, buffer);
   else
     return _wstat64(wpathname, buffer);
@@ -438,7 +457,7 @@ int S_windows_unlink(const char *pathname) {
   }
 }
 
-char *S_windows_getcwd(char *buffer, int maxlen) {
+char *S_windows_getcwd(char *buffer, UNUSED int maxlen) {
   wchar_t wbuffer[PATH_MAX];
   if (_wgetcwd(wbuffer, PATH_MAX) == NULL) return NULL;
   if (WideCharToMultiByte(CP_UTF8,0,wbuffer,-1,buffer,PATH_MAX,NULL,NULL) == 0) {

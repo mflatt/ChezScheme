@@ -16,7 +16,9 @@
 (module (Lsrc Lsrc? Ltype Ltype? unparse-Ltype unparse-Lsrc count-Lsrc
          lookup-primref primref? primref-name primref-level primref-flags primref-arity
          sorry! make-preinfo preinfo? preinfo-lambda? preinfo-sexpr preinfo-sexpr-set! preinfo-src
-         make-preinfo-lambda preinfo-lambda-name preinfo-lambda-name-set! preinfo-lambda-flags preinfo-lambda-libspec
+         make-preinfo-lambda preinfo-lambda-name preinfo-lambda-flags preinfo-lambda-libspec
+         make-preinfo-call preinfo-call? preinfo-call-flags preinfo-call-check?
+         preinfo-call-can-inline? preinfo-call-no-return? preinfo-call-single-valued?
          prelex? make-prelex prelex-name prelex-name-set! prelex-flags prelex-flags-set!
          prelex-source prelex-operand prelex-operand-set! prelex-uname make-prelex*
          target-fixnum? target-bignum?)
@@ -120,30 +122,7 @@
     (lambda (x)
       (and (integer? x) (exact? x))))
 
-  (meta-cond
-    [(= (constant fixnum-bits) (fixnum-width))
-     (define target-fixnum? fixnum?)
-     (define target-bignum? bignum?)]
-    [(< (constant fixnum-bits) (fixnum-width))
-     (define target-fixnum?
-       (lambda (x)
-         (and (fixnum? x)
-              (fx<= (constant most-negative-fixnum) x (constant most-positive-fixnum)))))
-     (define target-bignum?
-       (lambda (x)
-         (or (bignum? x)
-             (and (fixnum? x)
-                  (not (fx<= (constant most-negative-fixnum) x (constant most-positive-fixnum)))))))]
-    [else
-     (define target-fixnum?
-       (lambda (x)
-         (or (fixnum? x)
-             (and (bignum? x)
-                  (<= (constant most-negative-fixnum) x (constant most-positive-fixnum))))))
-     (define target-bignum?
-       (lambda (x)
-         (and (bignum? x)
-              (not (<= (constant most-negative-fixnum) x (constant most-positive-fixnum))))))])
+  (include "target-fixnum.ss")
 
   (define $prelex?
     (lambda (x)
@@ -155,7 +134,9 @@
 
   (define convention?
     (lambda (x)
-      (symbol? x)))
+      (or (symbol? x)
+          (and (pair? x)
+               (eq? 'varargs (car x))))))
 
   (define-record-type preinfo
     (nongenerative #{preinfo e23pkvo5btgapnzomqgegm-2})
@@ -168,10 +149,10 @@
           [(src sexpr) (new src sexpr)]))))
 
   (define-record-type preinfo-lambda
-    (nongenerative #{preinfo-lambda e23pkvo5btgapnzomqgegm-4})
+    (nongenerative #{preinfo-lambda hhv0qzgdqfvjgms8nm7y4bf9w-0})
     (parent preinfo)
     (sealed #t)
-    (fields libspec (mutable name) flags)
+    (fields libspec name flags)
     (protocol
       (lambda (pargs->new)
         (case-lambda
@@ -181,6 +162,31 @@
           [(src sexpr libspec) ((pargs->new src sexpr) libspec #f 0)]
           [(src sexpr libspec name) ((pargs->new src sexpr) libspec name 0)]
           [(src sexpr libspec name flags) ((pargs->new src sexpr) libspec name flags)]))))
+
+  (define-record-type preinfo-call
+    (nongenerative #{preinfo-call e23pkvo5btgapnzomqgegm-8})
+    (parent preinfo)
+    (sealed #t)
+    (fields flags)
+    (protocol
+      (lambda (pargs->new)
+        (case-lambda
+          [() ((pargs->new) (preinfo-call-mask))]
+          [(src) ((pargs->new src) (preinfo-call-mask))]
+          [(src sexpr) ((pargs->new src sexpr) (preinfo-call-mask))]
+          [(src sexpr flags) ((pargs->new src sexpr) flags)]))))
+
+  (define (preinfo-call-check? preinfo)
+    (not (all-set? (preinfo-call-mask unchecked) (preinfo-call-flags preinfo))))
+
+  (define (preinfo-call-can-inline? preinfo)
+    (not (all-set? (preinfo-call-mask no-inline) (preinfo-call-flags preinfo))))
+
+  (define (preinfo-call-no-return? preinfo)
+    (all-set? (preinfo-call-mask no-return) (preinfo-call-flags preinfo)))
+
+  (define (preinfo-call-single-valued? preinfo)
+    (all-set? (preinfo-call-mask single-valued) (preinfo-call-flags preinfo)))
 
   ; language of foreign types
   (define-language Ltype 
@@ -211,7 +217,7 @@
 
   ; source language used by the passes leading up to the compiler or interpreter
   (define-language Lsrc
-    (nongenerative-id #{Lsrc czsa1fcfzdeh493n-3})
+    (nongenerative-id #{Lsrc e9hk42fhc9m126ci6byqksp4h-0})
     (terminals
       (preinfo (preinfo))
       ($prelex (x))
@@ -227,7 +233,8 @@
       (convention (conv))
       (maybe-string (name))
       (symbol (sym type))
-      (primref (pr)))
+      (primref (pr))
+      (list (exts)))
     (Expr (e body rtd-expr)
       pr
       (moi)
@@ -247,7 +254,7 @@
       (record rtd rtd-expr e* ...)
       (record-ref rtd type index e)
       (record-set! rtd type index e1 e2)
-      (cte-optimization-loc box e)
+      (cte-optimization-loc box e exts)
       (foreign (conv* ...) name e (arg-type* ...) result-type)
       (fcallable (conv* ...) e (arg-type* ...) result-type)
       (profile src)                                         => (profile)

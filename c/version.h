@@ -14,30 +14,95 @@
  * limitations under the License.
  */
 
-#include "config.h"
-
-#if (machine_type == machine_type_arm32le || machine_type == machine_type_tarm32le || machine_type == machine_type_arm64le || machine_type == machine_type_tarm64le)
-#if (machine_type == machine_type_tarm32le || machine_type == machine_type_tarm64le)
-#define PTHREADS
+#ifndef EXPEDITOR_EXTERNAL_USE
+# include "config.h"
 #endif
+
+#if defined(scheme_feature_pthreads)
+# define PTHREADS
+#endif
+
+#ifdef WIN32
+# undef FORCEINLINE
+# ifndef __MINGW32__
+#  define FORCEINLINE static __forceinline
+# else
+#  define FORCEINLINE static __attribute__((__always_inline__)) inline
+# endif
+#else
+#define FORCEINLINE static inline
+#endif
+
+/*****************************************/
+/* Architectures                         */
+
+#if defined(__powerpc__) || defined(__POWERPC__) || defined(__sparc__)
+# if !(defined(__LITTLE_ENDIAN__) || defined(_LITTLE_ENDIAN))
+#  define PORTABLE_BYTECODE_BIGENDIAN
+#  define BIG_ENDIAN_IEEE_DOUBLE
+# endif
+# define FLUSHCACHE
+#endif
+
+#if defined(__arm__) || defined(__arm64__) || defined(__aarch64__) || defined(_M_ARM64) || defined(__riscv)
+# define FLUSHCACHE
+#endif
+
+#ifdef PORTABLE_BYTECODE
+# undef FLUSHCACHE
+# ifdef PORTABLE_BYTECODE_BIGENDIAN
+#  if fasl_endianness_is_little
+#   define PORTABLE_BYTECODE_SWAPENDIAN
+#  endif
+# else
+#  if fasl_endianness_is_big
+#   define PORTABLE_BYTECODE_SWAPENDIAN
+#  endif
+# endif
+#else
+# undef PORTABLE_BYTECODE_BIGENDIAN
+#endif
+
+/* For an architecture where a load or store of a 64-bit value needs
+   to be 8-byte aligned, define `LOAD_UNALIGNED_UPTR` and
+   `STORE_UNALIGNED_UPTR` to support a read that is 4-byte aligned. */
+#if defined(__sparc_v9__) || defined(__sparcv9)
+FORCEINLINE uptr load_unaligned_uptr(uptr *addr) {
+  return (((uptr)((unsigned *)addr)[0]) << 32) | ((unsigned *)addr)[1];
+}
+FORCEINLINE void store_unaligned_uptr(uptr *addr, uptr val) {
+  ((int *)addr)[0] = (val >> 32);
+  ((int *)addr)[1] = (val & (uptr)0xFFFFFFFF);
+}
+# define LOAD_UNALIGNED_UPTR(addr) load_unaligned_uptr((uptr *)(addr))
+# define STORE_UNALIGNED_UPTR(addr, v) store_unaligned_uptr((uptr *)(addr), v) 
+#endif
+
+/*****************************************/
+/* Operating systems                     */
+
+#if defined(__linux__) || defined(__GNU__) /* Hurd */
 #define NOBLOCK O_NONBLOCK
 #define LOAD_SHARED_OBJECT
 #define USE_MMAP
 #define MMAP_HEAP
 #define IEEE_DOUBLE
-#define LITTLE_ENDIAN_IEEE_DOUBLE
 #define LDEXP
 #define ARCHYPERBOLIC
 #define GETPAGESIZE() getpagesize()
 typedef char *memcpy_t;
 #define MAKE_NAN(x) { x = 0.0; x = x / x; }
-#define GETWD(x) getcwd((x),PATH_MAX)
+#ifndef __GNU__ /* Hurd: no PATH_MAX */
+/* n.b. don't test PATH_MAX directly: we have not yet included <limits.h>  */
+# define GETWD(x) getcwd((x),PATH_MAX)
+#endif
 typedef int tputsputcchar;
-#define LOCKF
+#ifndef __ANDROID__
+# define LOCKF
+#endif
 #define DIRMARKERP(c) ((c) == '/')
-#define FLUSHCACHE
 #ifndef DISABLE_X11
-#define LIBX11 "libX11.so"
+# define LIBX11 "libX11.so"
 #endif
 #define LSEEK lseek64
 #define OFF_T off64_t
@@ -49,89 +114,18 @@ typedef int tputsputcchar;
 #define NSECCTIME(sb) (sb).st_ctim.tv_nsec
 #define NSECMTIME(sb) (sb).st_mtim.tv_nsec
 #define ICONV_INBUF_TYPE char **
-#define UNUSED __attribute__((__unused__))
+#ifdef __ANDROID__
+# define NOFILE 256
+# define NO_USELOCALE
+#endif
 #endif
 
-#if (machine_type == machine_type_ppc32le || machine_type == machine_type_tppc32le || machine_type == machine_type_ppc64le || machine_type == machine_type_tppc64le)
-#if (machine_type == machine_type_tppc32le || machine_type == machine_type_tppc64le)
-#define PTHREADS
-#endif
+#if defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || defined(__DragonFly__)
 #define NOBLOCK O_NONBLOCK
 #define LOAD_SHARED_OBJECT
 #define USE_MMAP
 #define MMAP_HEAP
 #define IEEE_DOUBLE
-#define LDEXP
-#define ARCHYPERBOLIC
-#define GETPAGESIZE() getpagesize()
-typedef char *memcpy_t;
-#define MAKE_NAN(x) { x = 0.0; x = x / x; }
-#define GETWD(x) getcwd((x),PATH_MAX)
-typedef int tputsputcchar;
-#define LOCKF
-#define DIRMARKERP(c) ((c) == '/')
-#define FLUSHCACHE
-#ifndef DISABLE_X11
-#define LIBX11 "libX11.so"
-#endif
-#define LSEEK lseek64
-#define OFF_T off64_t
-#define _LARGEFILE64_SOURCE
-#define SECATIME(sb) (sb).st_atim.tv_sec
-#define SECCTIME(sb) (sb).st_ctim.tv_sec
-#define SECMTIME(sb) (sb).st_mtim.tv_sec
-#define NSECATIME(sb) (sb).st_atim.tv_nsec
-#define NSECCTIME(sb) (sb).st_ctim.tv_nsec
-#define NSECMTIME(sb) (sb).st_mtim.tv_nsec
-#define ICONV_INBUF_TYPE char **
-#define UNUSED __attribute__((__unused__))
-#endif
-
-#if (machine_type == machine_type_i3le || machine_type == machine_type_ti3le || machine_type == machine_type_a6le || machine_type == machine_type_ta6le)
-#if (machine_type == machine_type_ti3le || machine_type == machine_type_ta6le)
-#define PTHREADS
-#endif
-#define NOBLOCK O_NONBLOCK
-#define LOAD_SHARED_OBJECT
-#define USE_MMAP
-#define MMAP_HEAP
-#define IEEE_DOUBLE
-#define LITTLE_ENDIAN_IEEE_DOUBLE
-#define LDEXP
-#define ARCHYPERBOLIC
-#define GETPAGESIZE() getpagesize()
-typedef char *memcpy_t;
-#define MAKE_NAN(x) { x = 0.0; x = x / x; }
-#define GETWD(x) getcwd((x),PATH_MAX)
-typedef int tputsputcchar;
-#define LOCKF
-#define DIRMARKERP(c) ((c) == '/')
-#ifndef DISABLE_X11
-#define LIBX11 "libX11.so"
-#endif
-#define LSEEK lseek64
-#define OFF_T off64_t
-#define _LARGEFILE64_SOURCE
-#define SECATIME(sb) (sb).st_atim.tv_sec
-#define SECCTIME(sb) (sb).st_ctim.tv_sec
-#define SECMTIME(sb) (sb).st_mtim.tv_sec
-#define NSECATIME(sb) (sb).st_atim.tv_nsec
-#define NSECCTIME(sb) (sb).st_ctim.tv_nsec
-#define NSECMTIME(sb) (sb).st_mtim.tv_nsec
-#define ICONV_INBUF_TYPE char **
-#define UNUSED __attribute__((__unused__))
-#endif
-
-#if (machine_type == machine_type_i3fb || machine_type == machine_type_ti3fb || machine_type == machine_type_a6fb || machine_type == machine_type_ta6fb)
-#if (machine_type == machine_type_ti3fb || machine_type == machine_type_ta6fb)
-#define PTHREADS
-#endif
-#define NOBLOCK O_NONBLOCK
-#define LOAD_SHARED_OBJECT
-#define USE_MMAP
-#define MMAP_HEAP
-#define IEEE_DOUBLE
-#define LITTLE_ENDIAN_IEEE_DOUBLE
 #define LDEXP
 #define ARCHYPERBOLIC
 #define GETPAGESIZE() getpagesize()
@@ -151,21 +145,18 @@ typedef int tputsputcchar;
 #define NSECCTIME(sb) (sb).st_ctimespec.tv_nsec
 #define NSECMTIME(sb) (sb).st_mtimespec.tv_nsec
 #define ICONV_INBUF_TYPE char **
-#define UNUSED __attribute__((__unused__))
 #define USE_OSSP_UUID
 #endif
 
-#if (machine_type == machine_type_i3nb || machine_type == machine_type_ti3nb || machine_type == machine_type_a6nb || machine_type == machine_type_ta6nb)
-#if (machine_type == machine_type_ti3nb || machine_type == machine_type_ta6nb)
-#define NETBSD
-#define PTHREADS
+#if defined(__NetBSD__)
+#ifdef PTHREADS
+# define NETBSD
 #endif
 #define NOBLOCK O_NONBLOCK
 #define LOAD_SHARED_OBJECT
 #define USE_MMAP
 #define MMAP_HEAP
 #define IEEE_DOUBLE
-#define LITTLE_ENDIAN_IEEE_DOUBLE
 #define LDEXP
 #define ARCHYPERBOLIC
 #define GETPAGESIZE() getpagesize()
@@ -186,32 +177,40 @@ typedef int tputsputcchar;
 #define NSECCTIME(sb) (sb).st_ctimespec.tv_nsec
 #define NSECMTIME(sb) (sb).st_mtimespec.tv_nsec
 #define ICONV_INBUF_TYPE const char **
-#define UNUSED __attribute__((__unused__))
 #define USE_NETBSD_UUID
 #define USE_MBRTOWC_L
 #endif
 
-#if (machine_type == machine_type_i3nt || machine_type == machine_type_ti3nt || machine_type == machine_type_a6nt || machine_type == machine_type_ta6nt)
-#if (machine_type == machine_type_ti3nt || machine_type == machine_type_ta6nt)
-#define PTHREADS
-#endif
+#if defined(_MSC_VER) || defined(__MINGW32__)
 #define GETPAGESIZE() S_getpagesize()
 #define GETWD(x) GETCWD(x, _MAX_PATH)
 #define IEEE_DOUBLE
-#define LITTLE_ENDIAN_IEEE_DOUBLE
 #define LOAD_SHARED_OBJECT
 #define USE_VIRTUAL_ALLOC
 #define NAN_INCLUDE <math.h>
 #define MAKE_NAN(x) { x = sqrt(-1.0); }
+#define ARCHYPERBOLIC
 #ifndef PATH_MAX
 # define PATH_MAX _MAX_PATH
 #endif
 typedef char *memcpy_t;
 struct timespec;
+#ifdef __MINGW32__
+# if defined(__aarch64__)
+#  define HAND_CODED_SETJMP_SIZE 32
+# endif
+#else
+# if defined(_M_ARM64) && !defined(PORTABLE_BYTECODE)
+#  define HAND_CODED_SETJMP_SIZE 32
+# elif defined(_WIN64) && !defined(PORTABLE_BYTECODE)
+#  define HAND_CODED_SETJMP_SIZE 32
+# else
+#  define _setjmp setjmp
+#  define _longjmp longjmp
+# endif
+#endif
 #ifndef __MINGW32__
-# define _setjmp setjmp
-# define _longjmp longjmp
-# define ftruncate _chsize_s
+#define ftruncate _chsize_s
 #endif
 #define LOCK_SH 1
 #define LOCK_EX 2
@@ -248,19 +247,18 @@ struct timespec;
 #define NSECMTIME(sb) 0
 #define ICONV_INBUF_TYPE char **
 struct timespec;
-#define UNUSED
+#if defined(__MINGW32__) && (machine_type == machine_type_ti3nt || machine_type == machine_type_i3nt)
+#define time_t __time64_t
+#define GET_TIME _time64
+#endif
 #endif
 
-#if (machine_type == machine_type_i3ob || machine_type == machine_type_ti3ob || machine_type == machine_type_a6ob || machine_type == machine_type_ta6ob)
-#if (machine_type == machine_type_ti3ob || machine_type == machine_type_ta6ob)
-#define PTHREADS
-#endif
+#if defined(__OpenBSD__) && !defined(__Bitrig__)
 #define NOBLOCK O_NONBLOCK
 #define LOAD_SHARED_OBJECT
 #define USE_MMAP
 #define MMAP_HEAP
 #define IEEE_DOUBLE
-#define LITTLE_ENDIAN_IEEE_DOUBLE
 #define LDEXP
 #define ARCHYPERBOLIC
 #define GETPAGESIZE() getpagesize()
@@ -281,27 +279,32 @@ typedef int tputsputcchar;
 #define NSECCTIME(sb) (sb).st_ctimespec.tv_nsec
 #define NSECMTIME(sb) (sb).st_mtimespec.tv_nsec
 #define ICONV_INBUF_TYPE char **
-#define UNUSED __attribute__((__unused__))
 #define USE_OSSP_UUID
 #endif
 
-#if (machine_type == machine_type_i3osx || machine_type == machine_type_ti3osx || machine_type == machine_type_a6osx || machine_type == machine_type_ta6osx)
-#if (machine_type == machine_type_ti3osx || machine_type == machine_type_ta6osx)
-#define PTHREADS
-#endif
-#if (machine_type == machine_type_a6osx || machine_type == machine_type_ta6osx)
-#ifndef NO_ROSETTA_CHECK
-#define CHECK_FOR_ROSETTA
-extern int is_rosetta;
-#endif
-#endif
+#if defined(__APPLE__)
 #define MACOSX
 #define NOBLOCK O_NONBLOCK
 #define LOAD_SHARED_OBJECT
 #define USE_MMAP
 #define MMAP_HEAP
 #define IEEE_DOUBLE
-#define LITTLE_ENDIAN_IEEE_DOUBLE
+/* for both iPhone and iPhoneSimulator */
+#if defined(TARGET_OS_IPHONE)
+# define SYSTEM(s) ((void)s, -1)
+# define WRITE_XOR_EXECUTE_CODE
+#endif
+#if defined(__arm64__)
+# if !defined(WRITE_XOR_EXECUTE_CODE)
+#  define S_MAP_CODE MAP_JIT
+#  define S_ENABLE_CODE_WRITE(on) pthread_jit_write_protect_np(!(on))
+# endif
+# define CANNOT_READ_DIRECTLY_INTO_CODE
+# include <pthread.h>
+#elif defined(__x86_64__)
+/* needed to run under Rosetta2 on ARM Mac OS: */
+# define CANNOT_READ_DIRECTLY_INTO_CODE
+#endif
 #define LDEXP
 #define ARCHYPERBOLIC
 #define GETPAGESIZE() getpagesize()
@@ -312,7 +315,10 @@ typedef int tputsputcchar;
 #define LOCKF
 #define DIRMARKERP(c) ((c) == '/')
 #ifndef DISABLE_X11
-#define LIBX11 "/usr/X11R6/lib/libX11.dylib"
+# define DISABLE_X11
+#endif
+#ifndef DISABLE_X11
+# define LIBX11 "/usr/X11R6/lib/libX11.dylib"
 #endif
 #define _DARWIN_USE_64_BIT_INODE
 #define SECATIME(sb) (sb).st_atimespec.tv_sec
@@ -322,19 +328,14 @@ typedef int tputsputcchar;
 #define NSECCTIME(sb) (sb).st_ctimespec.tv_nsec
 #define NSECMTIME(sb) (sb).st_mtimespec.tv_nsec
 #define ICONV_INBUF_TYPE char **
-#define UNUSED __attribute__((__unused__))
 #endif
 
-#if (machine_type == machine_type_i3qnx || machine_type == machine_type_ti3qnx)
-#if (machine_type == machine_type_ti3qnx)
-#define PTHREADS
-#endif
+#if defined(__QNX__)
 #define NOBLOCK O_NONBLOCK
 #define LOAD_SHARED_OBJECT
 #define USE_MMAP
 #define MMAP_HEAP
 #define IEEE_DOUBLE
-#define LITTLE_ENDIAN_IEEE_DOUBLE
 #define LDEXP
 #define ARCHYPERBOLIC
 #define GETPAGESIZE() getpagesize()
@@ -355,23 +356,19 @@ typedef int tputsputcchar;
 #define NSECMTIME(sb) 0
 #define ICONV_INBUF_TYPE char **
 #define NOFILE 256
-#define UNUSED
 #endif
 
-#if (machine_type == machine_type_i3s2 || machine_type == machine_type_ti3s2 || machine_type == machine_type_a6s2 || machine_type == machine_type_ta6s2)
-#if (machine_type == machine_type_ti3s2 || machine_type == machine_type_ta6s2)
-#define PTHREADS
-#endif
+#if defined(sun)
 #define NOBLOCK O_NONBLOCK
 #define LOAD_SHARED_OBJECT
 #define USE_MMAP
 #define MMAP_HEAP
 #define IEEE_DOUBLE
-#define LITTLE_ENDIAN_IEEE_DOUBLE
 #define LDEXP
 #define ARCHYPERBOLIC
 #define LOG1P
 #define DEFINE_MATHERR
+#define NO_USELOCALE
 #define GETPAGESIZE() getpagesize()
 typedef char *memcpy_t;
 #define MAKE_NAN(x) { x = 0.0; x = x / x; }
@@ -390,10 +387,48 @@ typedef char tputsputcchar;
 #define NSECCTIME(sb) (sb).st_ctim.tv_nsec
 #define NSECMTIME(sb) (sb).st_mtim.tv_nsec
 #define ICONV_INBUF_TYPE const char **
-#define UNUSED __attribute__((__unused__))
 #endif
 
-/* defaults */
+#if defined(__EMSCRIPTEN__)
+#define USE_MALLOC
+#define GETPAGESIZE() 4096
+#define NOBLOCK O_NONBLOCK
+#define IEEE_DOUBLE
+#define LDEXP
+#define ARCHYPERBOLIC
+typedef char *memcpy_t;
+#define MAKE_NAN(x) { x = 0.0; x = x / x; }
+#define GETWD(x) getcwd((x),PATH_MAX)
+typedef int tputsputcchar;
+#define DIRMARKERP(c) ((c) == '/')
+#define LSEEK lseek64
+#define OFF_T off64_t
+#define _LARGEFILE64_SOURCE
+#define SECATIME(sb) (sb).st_atim.tv_sec
+#define SECCTIME(sb) (sb).st_ctim.tv_sec
+#define SECMTIME(sb) (sb).st_mtim.tv_sec
+#define NSECATIME(sb) (sb).st_atim.tv_nsec
+#define NSECCTIME(sb) (sb).st_ctim.tv_nsec
+#define NSECMTIME(sb) (sb).st_mtim.tv_nsec
+#define ICONV_INBUF_TYPE char **
+#define UNUSED_SUB_INDEX , UNUSED int sub_index
+#endif
+
+/*****************************************/
+/* Compilers                             */
+
+#if defined(__GNUC__)
+# define UNUSED __attribute__((__unused__))
+#else
+# define UNUSED
+#endif
+
+/*****************************************/
+/* Defaults and derived                  */
+
+#ifndef BIG_ENDIAN_IEEE_DOUBLE
+# define LITTLE_ENDIAN_IEEE_DOUBLE
+#endif
 
 #ifndef CHDIR
 # define CHDIR chdir
@@ -454,4 +489,61 @@ typedef char tputsputcchar;
 #endif
 #ifndef WRITE
 # define WRITE write
+#endif
+
+#ifdef PORTABLE_BYTECODE
+# undef WRITE_XOR_EXECUTE_CODE
+#endif
+
+#ifndef S_PROT_CODE
+# ifdef WRITE_XOR_EXECUTE_CODE
+#  define S_PROT_CODE (PROT_WRITE | PROT_READ)
+# else
+#  define S_PROT_CODE (PROT_READ | PROT_WRITE | PROT_EXEC)
+# endif
+#endif
+#ifndef S_MAP_CODE
+# define S_MAP_CODE 0
+#endif
+#ifndef S_ENABLE_CODE_WRITE
+# define S_ENABLE_CODE_WRITE(on) do { } while (0)
+#endif
+
+/* WX_UNUSED indicates that an argument is used only for
+   WRITE_XOR_EXECUTE_CODE mode */
+#ifndef WX_UNUSED
+# ifdef WRITE_XOR_EXECUTE_CODE
+#  define WX_UNUSED
+# else
+#  define WX_UNUSED UNUSED
+# endif
+#endif
+
+#ifdef PTHREADS
+# define NO_THREADS_UNUSED /* empty */
+#else
+# define NO_THREADS_UNUSED UNUSED
+#endif
+
+
+#ifndef UNUSED_SUB_INDEX
+# define UNUSED_SUB_INDEX /* empty */
+#endif
+
+#if defined(__has_feature)
+# if __has_feature(thread_sanitizer)
+#  define NO_THREAD_SANITIZE __attribute__((no_sanitize("thread")))
+#  define IMPLICIT_ATOMIC_AS_EXPLICIT
+# endif
+#endif
+#ifndef NO_THREAD_SANITIZE
+# define NO_THREAD_SANITIZE /* empty */
+#endif
+
+/* Use "/dev/urandom" everywhere except Windows */
+#define USE_DEV_URANDOM_UUID
+
+#ifndef LOAD_UNALIGNED_UPTR
+# define LOAD_UNALIGNED_UPTR(addr) (*(uptr*)(addr))
+# define STORE_UNALIGNED_UPTR(addr, val) (*(uptr*)(addr) = val)
 #endif

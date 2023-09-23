@@ -272,13 +272,17 @@
 
    (set! flabs
       (lambda (x)
-         (unless (flonum? x) (flargerr 'flabs x))
-         (#3%flabs x)))
+         (#2%flabs x)))
 
    (set! flround
       (lambda (x)
          (unless (flonum? x) (flargerr 'flround x))
          (#3%flround x)))
+
+   (set! flsingle
+         (lambda (x)
+           (unless (flonum? x) (flargerr 'flsingle x))
+           (#3%flsingle x)))
 
    (set! fllp
       (lambda (x)
@@ -318,13 +322,8 @@
          ($flonum-sign x)))
 
    (set-who! flonum->fixnum
-      (let ([flmnf (fixnum->flonum (most-negative-fixnum))]
-            [flmpf (fixnum->flonum (most-positive-fixnum))])
-         (lambda (x)
-            (unless (flonum? x) (flargerr who x))
-            (unless (fl<= flmnf x flmpf)
-               ($oops who "result for ~s would be outside of fixnum range" x))
-            (#3%flonum->fixnum x))))
+     (lambda (x)
+       (#2%flonum->fixnum x)))
 )
 
 (let ()
@@ -348,6 +347,14 @@
      (case-lambda
        [(x) (#2%r6rs:fx- x)]
        [(x y) (#2%r6rs:fx- x y)]))
+
+   (set-who! fx+/wraparound
+     (lambda (x1 x2)
+       (#2%fx+/wraparound x1 x2)))
+
+   (set-who! fx-/wraparound
+     (lambda (x1 x2)
+       (#2%fx-/wraparound x1 x2)))
 
    (set! fx1-
       (lambda (x)
@@ -403,6 +410,10 @@
                  (if (fixnum? n) n (fxanserr who x1 x2)))
                (fxargerr who x2))
            (fxargerr who x1))))
+
+   (set-who! fx*/wraparound
+     (lambda (x1 x2)
+       (#2%fx*/wraparound x1 x2)))
 
    (set! fxquotient
      (rec fxquotient
@@ -519,15 +530,19 @@
 
    (set! fxsll
       (lambda (x y)
-         (#2%fxsll x y)))
+        (#2%fxsll x y)))
 
-   (set! fxarithmetic-shift-left
-     (lambda (x y)
-       (#2%fxarithmetic-shift-left x y)))
+   (set-who! fxsll/wraparound
+     (lambda (x1 x2)
+       (#2%fxsll/wraparound x1 x2)))
 
    (set! fxsrl
       (lambda (x y)
          (#2%fxsrl x y)))
+
+   (set! fxarithmetic-shift-left
+     (lambda (x y)
+       (#2%fxarithmetic-shift-left x y)))
 
    (set! fxsra
       (lambda (x y)
@@ -580,6 +595,18 @@
          [(0) (#3%fxlogbit0 k n)]
          [(1) (#3%fxlogbit1 k n)]
          [else ($oops who "invalid bit value ~s" b)])))
+
+   (set! fxpopcount
+      (lambda (x)
+         (#2%fxpopcount x)))
+
+   (set! fxpopcount32
+      (lambda (x)
+         (#2%fxpopcount32 x)))
+
+   (set! fxpopcount16
+      (lambda (x)
+         (#2%fxpopcount16 x)))
 
    (set! fxeven?
       (lambda (x)
@@ -670,8 +697,7 @@
 
    (set! fixnum->flonum
       (lambda (x)
-         (unless (fixnum? x) (fxargerr 'fixnum->flonum x))
-         (#3%fixnum->flonum x)))
+         (#2%fixnum->flonum x)))
 
    (set-who! fxlength
      (lambda (x)

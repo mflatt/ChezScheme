@@ -14,10 +14,13 @@
  * limitations under the License.
  */
 
-#define GCENTRY S_gc_011
+#define GCENTRY S_gc_011_entry
 #define MAX_CG 0
 #define MIN_TG 1
 #define MAX_TG 1
-#define compute_target_generation(g) 1
-#define NO_LOCKED_OLDSPACE_OBJECTS
+#define NO_NEWSPACE_MARKS
 #include "gc.c"
+
+void S_gc_011(ptr tc) {
+  (void)S_gc_011_entry(tc, Sfalse);
+}

@@ -115,6 +115,24 @@ pair containing the last element and the terminating object.
 
 %----------------------------------------------------------------------------
 \entryheader
+\formdef{list-assuming-immutable?}{\categoryprocedure}{(list-assuming-immutable? \var{v})}
+\returns a boolean
+\listlibraries
+\endentryheader
+
+\noindent
+Like \scheme{list?}, but on the assumption that any pairs traversed while
+computing the result are never mutated further, the result is produced in amoritized
+constant time.
+
+\schemedisplay
+(list-assuming-immutable? '(a b c d)) ;=> #t
+(list-assuming-immutable? '(a b c . d)) ;=> #f
+\endschemedisplay
+
+
+%----------------------------------------------------------------------------
+\entryheader
 \formdef{list-copy}{\categoryprocedure}{(list-copy \var{list})}
 \returns a copy of \var{list}
 \listlibraries
@@ -416,6 +434,76 @@ ASCII code for the character.
     (- (char->integer c1) (char->integer c2))))
 \endschemedisplay
 
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{char-grapheme-step}{\categoryprocedure}{(char-grapheme-step \var{char} \var{state})}
+\returns two values: a boolean indicating whether a cluster terminated and a new state
+\listlibraries
+\endentryheader
+
+\noindent
+\var{char} must be a character, and \var{state} must be a fixnum.
+
+\scheme{char-grapheme-step} encodes a state machine for
+Unicode's grapheme specification on a sequence of code points.
+It accepts a character for the next code point in a sequence, and it
+returns two values: whether a (single) grapheme cluster has terminated
+since the most recently reported termination (or the start of the
+stream), and a new state to be used with
+\scheme{char-grapheme-step} and the next character.
+
+A \var{state} is represented by a fixnum. A value of \scheme{0} for
+\var{state} represents the initial state or a state where no
+characters are pending toward a new boundary. Thus, if a sequence of
+characters is exhausted and \var{state} is not \scheme{0}, then the
+end of the stream creates one last grapheme boundary.
+
+\scheme{char-grapheme-step} will produce a result for any
+fixnum \var{state}, but the meaning of a non-\scheme{0} \var{state} is
+specified only in that providing such a state produced by
+\scheme{char-grapheme-step} in another call to
+\scheme{char-grapheme-step} continues detecting
+grapheme boundaries in the sequence.
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{char-grapheme-break-property}{\categoryprocedure}{(char-grapheme-break-property \var{char})}
+\returns a symbol
+\listlibraries
+\endentryheader
+
+\noindent
+\scheme{char-grapheme-break-property} reports the grapheme-break
+property of \var{char}, one of \scheme{Other}, \scheme{CR},
+\scheme{LF}, \scheme{Control}, \scheme{Extend}, \scheme{ZWJ},
+\scheme{Regional_Indicator}, \scheme{Prepend}, \scheme{SpacingMark},
+\scheme{L}, \scheme{V}, \scheme{T}, \scheme{LV}, or \scheme{LVT}.
+This function is used in the implementation of
+\scheme{char-grapheme-step}.
+
+\schemedisplay
+(char-grapheme-break-property #\a)    ;=> Other
+(char-grapheme-break-property #\x300) ;=> Extend
+\endschemedisplay
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{char-extended-pictographic?}{\categoryprocedure}{(char-extended-pictographic? \var{char})}
+\returns a boolean
+\listlibraries
+\endentryheader
+
+\noindent
+\scheme{char-extended-pictographic?} reports whether \var{char} has
+the Unicode Extended\_Pictographic property. This function is used in
+the implementation of \scheme{char-grapheme-step}.
+
+\schemedisplay
+(char-extended-pictographic? #\a)   ;=> #f
+(char-extended-pictographic? #\xA9) ;=> #t
+\endschemedisplay
+
+
 \section{Strings}
 
 {\ChezScheme} extends the standard string syntax with two character
@@ -430,7 +518,8 @@ recently.
 \index{immutable strings}\index{mutable strings}%
 All strings are mutable by default, including constants.
 A program can create immutable strings via
-\index{\scheme{string->immutable-string}}\scheme{string->immutable-string}.
+\index{\scheme{string->immutable-string}}\scheme{string->immutable-string}
+or \index{\scheme{string-append-immutable}}\scheme{string-append-immutable}.
 Any attempt to modify an immutable string causes an exception to be raised.
 
 The length and indices of a string in {\ChezScheme} are always fixnums.
@@ -583,8 +672,73 @@ is immutable; otherwise, the result is an immutable string with the same content
 \endschemedisplay
 
 
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{string-append-immutable}{\categoryprocedure}{(string-append-immutable \var{string} \dots)}
+\returns an immutable string that appends the argument \var{string}s
+\listlibraries
+\endentryheader
+
+\noindent
+Like \scheme{string-append}, but produces an immutable string.
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{string-grapheme-span}{\categoryprocedure}{(string-grapheme-span \var{string} \var{start})}
+\formdef{string-grapheme-span}{\categoryprocedure}{(string-grapheme-span \var{string} \var{start} \var{end})}
+\returns the number of characters in a grapheme cluster at the given \var{start}
+\listlibraries
+\endentryheader
+
+\noindent
+\var{start} and \var{end} must indicate a valid range in the string as
+for \scheme{substring}, where the length of the string is used if
+\var{end} is not supplied.
+
+The result is the number of characters (i.e., code points) in the
+string that form a Unicode grapheme cluster starting at \var{start},
+assuming that \var{start} is the start of a grapheme cluster and
+extending no further than the character before \var{end}. The result
+is \scheme{0} if \var{start} equals \var{end}.
+
+\schemedisplay
+(string-grapheme-span (string #\a) 0)              ;=> 1
+(string-grapheme-span (string #\a #\x300) 0)       ;=> 2
+(string-grapheme-span (string #\a #\x300 #\a) 0)   ;=> 2
+(string-grapheme-span (string #\a #\x300 #\a) 0 1) ;=> 1
+\endschemedisplay
+
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{string-grapheme-count}{\categoryprocedure}{(string-grapheme-count \var{string})}
+\formdef{string-grapheme-count}{\categoryprocedure}{(string-grapheme-count \var{string} \var{start})}
+\formdef{string-grapheme-count}{\categoryprocedure}{(string-grapheme-count \var{string} \var{start} \var{end})}
+\returns the number of Unicode grapheme clusters (see below)
+\listlibraries
+\endentryheader
+
+\noindent
+\var{start} and \var{end} must indicate a valid range in the string as
+for \scheme{substring}, where \scheme{0} is used if \var{start} is not
+provided, and the length of the string is used if \var{end} is not
+supplied.
+
+The result is the number of Unicode grapheme clusters in the substring
+of \var{string} selected by \var{start} and \var{end}.
+
+\schemedisplay
+(string-grapheme-count (string #\a) 0)              ;=> 1
+(string-grapheme-count (string #\a #\x300) 0)       ;=> 1
+(string-grapheme-count (string #\a #\x300 #\a) 0)   ;=> 2
+(string-grapheme-count (string #\a #\x300 #\a) 0 1) ;=> 1
+\endschemedisplay
+
+
 \section{Vectors}
 
+\index{\scheme{#(} (vector prefix)}%
+\index{#( (vector prefix)@\scheme{#\var{n}(} (vector prefix)}%
 {\ChezScheme} extends the syntax of vectors to allow the length of the
 vector to be specified between the \scheme{#} and open parenthesis, e.g.,
 \scheme{#3(a b c)}.
@@ -732,7 +886,9 @@ R$^7$RS, as the latter states that vectors are self-evaluating.
 \index{fxvectors}%
 Fixnum-only vectors, or ``fxvectors,'' are like vectors but contain
 only fixnums.
-Fxvectors are written with the \scheme{#vfx} prefix in place of the
+\index{\scheme{#vfx(} (fxvector prefix)}%
+\index{#vfx( (fxvector prefix)@\scheme{#\var{n}vfx(} (fxvector prefix)}%
+ Fxvectors are written with the \scheme{#vfx} prefix in place of the
 \scheme{#} prefix for vectors, e.g., \scheme{#vfx(1 2 3)} or
 \scheme{#10vfx(2)}.
 The fxvector syntax is disabled in an input stream after \scheme{#!r6rs}
@@ -747,12 +903,6 @@ younger objects to support generational garbage collection.
 The storage management system also takes advantage of the fact that
 fxvectors contain no pointers to place them in an area of memory that
 does not have to be traced during collection.
-
-\index{immutable fxvectors}\index{mutable fxvectors}%
-All fxvectors are mutable by default, including constants.
-A program can create immutable fxvectors via
-\index{\scheme{fxvector->immutable-fxvector}}\scheme{fxvector->immutable-fxvector}.
-Any attempt to modify an immutable fxvector causes an exception to be raised.
 
 See also \scheme{vector-set-fixnum!} above.
 
@@ -846,7 +996,6 @@ the length of \var{fxvector}.
 \endentryheader
 
 \noindent
-\var{fxvector} must be mutable.
 \var{n} must be a nonnegative fixnum strictly less than
 the length of \var{fxvector}.
 \scheme{fxvector-set!} changes the \var{n}th element of \var{fxvector} to \var{fixnum}.
@@ -866,7 +1015,6 @@ the length of \var{fxvector}.
 \endentryheader
 
 \noindent
-\var{fxvector} must be mutable.
 \scheme{fxvector-fill!} replaces each element of \var{fxvector} with \var{fixnum}.
 
 \schemedisplay
@@ -929,39 +1077,204 @@ as \var{fxvector}.
   (eq? v (fxvector-copy v))) ;=> #f
 \endschemedisplay
 
+
+    
+\section{Flonum-Only Vectors\label{SECTFLVECTORS}}
+
+\index{flvectors}%
+Flonum-only vectors, or ``flvectors,'' are like vectors but contain
+only flonums.
+\index{\scheme{#vfl(} (flvector prefix)}%
+\index{#vfl( (flvector prefix)@\scheme{#\var{n}vfl(} (flvector prefix)}%
+ Flvectors are written with the \scheme{#vfl} prefix in place of the
+\scheme{#} prefix for vectors, e.g., \scheme{#vfl(1.0 2.0 3.0)} or
+\scheme{#10vfl(2.0)}.
+The flvector syntax is disabled in an input stream after \scheme{#!r6rs}
+has been seen by the reader, unless \scheme{#!chezscheme} has been seen
+more recently.
+
+The length and indices of an flvector are always fixnums.
+
+Updating an flvector is generally less expensive than updating a vector,
+since for vectors, the system records potential assignments from older to
+younger objects to support generational garbage collection.
+An flvector stores a flonum's representation directly, instead of a reference to a
+flonum, so flonum identity is fresh when it is extracted from an flvector.
+The storage management system also takes advantage of the fact that
+flvectors contain no pointers to place them in an area of memory that
+does not have to be traced during collection.
+
 %----------------------------------------------------------------------------
 \entryheader
-\formdef{mutable-fxvector?}{\categoryprocedure}{(mutable-fxvector? \var{obj})}
-\returns \scheme{#t} if \var{obj} is a mutable fxvector, \scheme{#f} otherwise
-\formdef{immutable-fxvector?}{\categoryprocedure}{(immutable-fxvector? \var{obj})}
-\returns \scheme{#t} if \var{obj} is an immutable fxvector, \scheme{#f} otherwise
+\formdef{flvector?}{\categoryprocedure}{(flvector? \var{obj})}
+\returns \scheme{#t} if \var{obj} is an flvector, \scheme{#f} otherwise
 \listlibraries
 \endentryheader
 
 \noskip\schemedisplay
-(mutable-fxvector? (fxvector 1 2 3)) ;=> #t
-(mutable-fxvector? (fxvector->immutable-fxvector (fxvector 1 2 3))) ;=> #f
-(immutable-fxvector? (fxvector 1 2 3)) ;=> #f
-(immutable-fxvector? (fxvector->immutable-fxvector (fxvector 1 2 3))) ;=> #t
-(immutable-fxvector? (cons 3 4)) ;=> #f
+(flvector? #vfl()) ;=> #t
+(flvector? #vfl(1.0 2.0 3.0)) ;=> #t
+(flvector? (flvector 1.0 2.0 3.0)) ;=> #t
+(flvector? '#(a b c)) ;=> #f
+(flvector? '(a b c)) ;=> #f
+(flvector? "abc") ;=> #f
 \endschemedisplay
 
 %----------------------------------------------------------------------------
 \entryheader
-\formdef{fxvector->immutable-fxvector}{\categoryprocedure}{(fxvector->immutable-fxvector \var{fxvector})}
-\returns either an immutable copy of \var{fxvector} or \var{fxvector} itself
+\formdef{flvector}{\categoryprocedure}{(flvector \var{flonum} \dots)}
+\returns an flvector of the flonums \scheme{\var{flonum} \dots}
+\listlibraries
+\endentryheader
+
+\noskip\schemedisplay
+(flvector) ;=> #vfl()
+(flvector 1.0 3.0 5.0) ;=> #vfl(1.0 3.0 5.0)
+\endschemedisplay
+
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{make-flvector}{\categoryprocedure}{(make-flvector \var{n})}
+\formdef{make-flvector}{\categoryprocedure}{(make-flvector \var{n} \var{flonum})}
+\returns an flvector of length \var{n}
 \listlibraries
 \endentryheader
 
 \noindent
-\index{immutable fxvectors}\index{mutable fxvectors}%
-The result is \var{fxvector} itself if \var{fxvector}
-is immutable; otherwise, the result is an immutable fxvector with the same content as \var{fxvector}.
+\var{n} must be a fixnum.
+If \var{flonum} is supplied, each element of the flvector is initialized
+to \var{flonum}; otherwise, the elements are unspecified.
 
 \schemedisplay
-(define v (fxvector->immutable-fxvector (fxvector 1 2 3)))
-(fxvector-set! v 0 0) ;=> \var{exception: not mutable}
+(make-flvector 0) ;=> #vfl()
+(make-flvector 0 7.0) ;=> #vfl()
+(make-flvector 5 7.0) ;=> #vfl(7.0 7.0 7.0 7.0 7.0)
 \endschemedisplay
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{flvector-length}{\categoryprocedure}{(flvector-length \var{flvector})}
+\returns the number of elements in \var{flvector}
+\listlibraries
+\endentryheader
+
+\schemedisplay
+(flvector-length #vfl()) ;=> 0
+(flvector-length #vfl(1.0 2.0 3.0)) ;=> 3
+(flvector-length #10vfl(1.0 2.0 3.0)) ;=> 10
+(flvector-length (flvector 1.0 2.0 3.0 4.0)) ;=> 4
+(flvector-length (make-flvector 300)) ;=> 300
+\endschemedisplay
+
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{flvector-ref}{\categoryprocedure}{(flvector-ref \var{flvector} \var{n})}
+\returns the \var{n}th element (zero-based) of \var{flvector}
+\listlibraries
+\endentryheader
+
+\noindent
+\var{n} must be a nonnegative fixnum strictly less than
+the length of \var{flvector}.
+
+\schemedisplay
+(flvector-ref #vfl(-1.0 2.0 4.0 7.0) 0) ;=> -1.0
+(flvector-ref #vfl(-1.0 2.0 4.0 7.0) 1) ;=> 2.0
+(flvector-ref #vfl(-1.0 2.0 4.0 7.0) 3) ;=> 7.0
+\endschemedisplay
+
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{flvector-set!}{\categoryprocedure}{(flvector-set! \var{flvector} \var{n} \var{flonum})}
+\returns unspecified
+\listlibraries
+\endentryheader
+
+\noindent
+\var{n} must be a nonnegative fixnum strictly less than
+the length of \var{flvector}.
+\scheme{flvector-set!} changes the \var{n}th element of \var{flvector} to \var{flonum}.
+
+\schemedisplay
+(let ([v (flvector 1.0 2.0 3.0 4.0 5.0)])
+  (flvector-set! v 2 (fx- (flvector-ref v 2)))
+  v) ;=> #vfl(1.0 2.0 -3.0 4.0 5.0)
+\endschemedisplay
+
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{flvector-fill!}{\categoryprocedure}{(flvector-fill! \var{flvector} \var{flonum})}
+\returns unspecified
+\listlibraries
+\endentryheader
+
+\noindent
+\scheme{flvector-fill!} replaces each element of \var{flvector} with \var{flonum}.
+
+\schemedisplay
+(let ([v (flvector 1.0 2.0 3.0)])
+  (flvector-fill! v 0.0)
+  v) ;=> #vfl(0.0 0.0 0.0)
+\endschemedisplay
+
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{flvector->list}{\categoryprocedure}{(flvector->list \var{flvector})}
+\returns a list of the elements of \var{flvector}
+\listlibraries
+\endentryheader
+
+\schemedisplay
+(flvector->list (flvector)) ;=> ()
+(flvector->list #vfl(7.0 5.0 2.0)) ;=> (7.0 5.0 2.0)
+
+(let ([v #vfl(1.0 2.0 3.0 4.0 5.0)])
+  (apply fl* (flvector->list v))) ;=> 120.0
+\endschemedisplay
+
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{list->flvector}{\categoryprocedure}{(list->flvector \var{list})}
+\returns an flvector of the elements of \var{list}
+\listlibraries
+\endentryheader
+
+\noindent
+\var{list} must consist entirely of flonums.
+
+\schemedisplay
+(list->flvector '()) ;=> #vfl()
+(list->flvector '(3.0 5.0 7.0)) ;=> #vfl(3.0 5.0 7.0)
+
+(let ([v #vfl(1.0 2.0 3.0 4.0 5.0)])
+  (let ([ls (flvector->list v)])
+    (list->flvector (map fx* ls ls)))) ;=> #vfl(1.0 4.0 9.0 16.0 25.0)
+\endschemedisplay
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{flvector-copy}{\categoryprocedure}{(flvector-copy \var{flvector})}
+\returns a copy of \var{flvector}
+\listlibraries
+\endnoskipentryheader
+
+\noindent
+\scheme{flvector-copy} creates a new flvector with the same length and contents
+as \var{flvector}.
+
+\schemedisplay
+(flvector-copy #vfl(3.0 4.0 5.0)) ;=> #vfl(3.0 4.0 5.0)
+
+(let ([v #vfl(3.0 4.0 5.0)])
+  (eq? v (flvector-copy v))) ;=> #f
+\endschemedisplay
+
 
     
 \section{Bytevectors\label{SECTBYTEVECTORS}}
@@ -1214,6 +1527,226 @@ parameter.
 Uncompresses a \var{bytevector} produced by
 \scheme{bytevector-compress} to a new bytevector with the same content
 as the original given to \scheme{bytevector-compress}.
+
+
+\section{Stencil Vectors}
+
+\index{stencil vectors}
+Stencil vectors are like vectors, but also have a \emph{mask}, accessible
+via \scheme{stencil-vector-mask}, which is a fixnum of no more than
+\scheme{(stencil-vector-mask-width)} bits.  The length of a stencil vector
+is exactly the same as the number of bits set in its mask.  In other
+words, the following expression is true for any stencil vector \scheme{sv}:
+
+\scheme{(fx= (stencil-vector-length sv) (fxpopcount (stencil-vector-mask sv)))}
+
+Since \scheme{(stencil-vector-mask-width)} can be no more than the number
+of bits in a fixnum, the maximum size of a stencil vector is limited.
+
+Other than the \scheme{stencil-vector} constructor, the mask is only
+relevant to the \\ \scheme{stencil-vector-update} and
+\scheme{stencil-vector-truncate!} procedures.
+
+A stencil vector provides a more compact representation than a vector
+with one element dedicated to the mask. It also provides more
+efficient functional update through the \scheme{stencil-vector-update}
+procedure. A stencil vector is useful, for example, to implement
+sparse nodes in a trie.
+
+\index{#vs( (stencil vector prefix)@\scheme{#\var{n}vs(} (stencil vector prefix)}%
+Stencil vectors are written with the prefix
+\scheme{#}, then a mask integer, then \scheme{vs}, and followed by a
+parenthesized sequence of elements. Note that the mask integer
+determines the length of the stencil vector, and it uses the same
+position as the length of a vector, but the mask is not optional.
+Also, the number of elements in the parenthesized sequence must match
+exactly the number of bits set in the mask.
+The stencil vector syntax is disabled in an input stream after
+\scheme{#!r6rs} has been seen by the reader, unless
+\scheme{#!chezscheme} has been seen more recently.
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{stencil-vector-mask-width}{\categoryprocedure}{(stencil-vector-mask-width)}
+\returns a fixnum: the number of bits in a stencil vector mask
+\listlibraries
+\endentryheader
+
+\noindent
+The result is always less than \scheme{(fixnum-width)}.
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{stencil-vector?}{\categoryprocedure}{(stencil-vector? \var{obj})}
+\returns \scheme{#t} if \var{obj} is a stencil vector, \scheme{#f} otherwise
+\listlibraries
+\endentryheader
+
+\noskip\schemedisplay
+(stencil-vector? (stencil-vector #b11 'x 'y)) ;=> #t
+(stencil-vector? '#3vs(x y)) ;=> #t
+(stencil-vector? '#2(x y)) ;=> #f
+\endschemedisplay
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{stencil-vector}{\categoryprocedure}{(stencil-vector \var{mask} \var{obj} \dots)}
+\returns a stencil vector with the given mask and content
+\listlibraries
+\endentryheader
+
+\noindent
+\var{mask} must be a nonnegative fixnum less than
+\scheme{(fxsll 1 (stencil-vector-mask-width))},
+and the number of supplied \var{obj}s must be the
+same as \scheme{(fxpopcount mask)}.
+
+\schemedisplay
+(stencil-vector #b11 'x 'y) ;=> #3vs(x y)
+(stencil-vector #b10101 'x 'y 'z) ;=> #21vs(x y z)
+\endschemedisplay
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{stencil-vector-mask}{\categoryprocedure}{(stencil-vector-mask \var{stencil-vector})}
+\returns the mask of \var{stencil-vector}
+\listlibraries
+\endentryheader
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{stencil-vector-length}{\categoryprocedure}{(stencil-vector-length \var{stencil-vector})}
+\returns the length of \var{stencil-vector}
+\listlibraries
+\endentryheader
+
+A stencil vector's length is determined by its mask.  (I.e., this is
+equivalent to \scheme{(fxpopcount (stencil-vector-mask \var{stencil-vector}))}.)
+
+\schemedisplay
+(stencil-vector-mask '#0vs()) ;= 0
+(stencil-vector-length '#0vs()) ;= 0
+(stencil-vector-mask '#21vs(x y z)) ;= 21
+(stencil-vector-length '#21vs(x y z)) ;= 3
+\endschemedisplay
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{stencil-vector-ref}{\categoryprocedure}{(stencil-vector-ref \var{stencil-vector} \var{n})}
+\returns the object at position \var{n} in \var{stencil-vector}
+\listlibraries
+\endentryheader
+
+\noindent
+\var{n} must be a nonnegative fixnum that is less than the length of \var{stencil-vector}.
+
+Stencil vector elements are accessed by position, unrelated to the
+stencil vector's mask (except insofar as the number of valid positions is
+determined by the mask).
+
+Conceptually, each stensil vector element corresponds to a bit in the
+stencil vector's mask (and vice-versa). To convert a (0-based) bit position \var{bit} to an
+index, where the lowest set bit corresponds to the first element of
+the stencil vector, use the following calculation:
+
+\scheme{(fxpopcount (fxand (stencil-vector-mask \var{stencil-vector}) (fx- (fxsll 1 \var{bit}) 1)))}
+
+\schemedisplay
+(stencil-vector-ref '#21vs(x y z) 0) ;= x
+(stencil-vector-ref '#21vs(x y z) 2) ;= z
+\endschemedisplay
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{stencil-vector-set!}{\categoryprocedure}{(stencil-vector-set! \var{stencil-vector} \var{n} \var{obj})}
+\returns unspecified
+\listlibraries
+\endentryheader
+
+\noindent
+\var{n} must be a nonnegative fixnum that is less than the length of \var{stencil-vector}.
+
+Installs \var{obj} at position \var{n} within \var{stencil-vector}.
+See \scheme{stencil-vector-ref} for more information about positions
+in stencil vectors.
+
+\schemedisplay
+(define sv (stencil-vector #b10101 'x 'y 'z))
+(stencil-vector-set! sv 1 'why)
+sv ;=> #21vs(x why z)
+\endschemedisplay
+
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{stencil-vector-update}{\categoryprocedure}{(stencil-vector-update \var{stencil-vector} \var{remove-bits} \var{add-bits} \var{obj} \dots)}
+\returns a new stencil vector adapted from \var{stencil-vector}
+\listlibraries
+\endentryheader
+
+\noindent
+\var{remove-bits} and \var{add-bits} must be nonnegative fixnums less
+than \\ \scheme{(fxsll 1 (stencil-vector-mask-width))}. Furthermore, all of
+the following must be true:
+
+\begin{itemize}
+
+ \item \var{remove-bits}
+       must be a subset of the bits in the mask of \var{stencil-vector}.
+       In other words,
+       \scheme{(logand (stencil-vector-mask \var{stencil-vector}) \var{remove-bits})}
+       must be equal to \var{remove-bits}.
+
+  \item \var{add-bits} must have a set of bits that do not overlap the
+        subtraction of \var{remove-bits} from the mask of
+        \var{stencil-vector}.  In other words
+        \schemedisplay
+        (logand
+          (logand (stencil-vector-mask \var{stencil-vector}) (lognot \var{remove-bits}))
+          \var{add-bits})
+        \endschemedisplay
+        must be \scheme{0}.
+        % \scheme{(logand (logand (stencil-vector-mask \var{stencil-vector}) (lognot \var{remove-bits})) \var{add-bits})}
+
+ \item The number of supplied \var{obj}s must match \scheme{(fxpopcount add-bits)}.
+
+\end{itemize}
+
+Returns a new stencil vector that has all of the elements of
+\var{stencil-vector}, except the ones identified by the bits in
+\var{remove-bits}. The new stencil vector also has the given \var{obj}s at
+positions determined by \var{add-bits}. Elements copied from \var{stencil-vector}
+to the new vector retain their relative positions corresponding to their
+bits in the \var{stencil-vector} mask. Individual bits in the mask, \var{remove-bits},
+and \var{add-bits} are mapped to element positions as described in the documentation
+of \scheme{stencil-vector-ref}. The mask of the new stencil vector is the mask of
+\var{stencil-vector} minus \var{remove-bits} plus \var{add-bits}.
+
+\schemedisplay
+(define st-vec (stencil-vector #b101 'a 'b))
+(stencil-vector-update st-vec #b0 #b10 'c) ;=> #7vs(a c b)
+(stencil-vector-update st-vec #b0 #b1000 'c) ;=> #13vs(a b c)
+st-vec ;=> #5vs(a b)
+(stencil-vector-update st-vec #b1 #b1 'c) ;=> #5vs(c b)
+(stencil-vector-update st-vec #b100 #b100 'c) ;=> #5vs(a c)
+(stencil-vector-update st-vec #b100 #b0) ;=> #1vs(a)
+\endschemedisplay
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{stencil-vector-truncate!}{\categoryprocedure}{(stencil-vector-truncate! \var{stencil-vector} \var{mask})}
+\returns unspecified
+\listlibraries
+\endentryheader
+
+\noindent
+\var{mask} must be a nonnegative fixnum that does not have more bits set
+than bits set in the current mask of \var{stencil-vector}.
+
+Changes the mask of \var{stencil-vector} to \var{mask}, discarding any
+elements of the vector beyond the first \scheme{(fxpopcount \var{mask})} elements.
+There is no requirement that \var{mask} has any bits in common with
+the current mask of \var{stencil-vector}.
 
 
 \section{Boxes\label{SECTBOXES}}
@@ -1509,7 +2042,7 @@ x                         ;=> #{g2 bcsfg5eq4e9b3h9o-c}
 
 Gensyms subsume the notion of \index{uninterned symbols}\emph{uninterned
 symbols} supported by earlier versions of {\ChezScheme}.
-Similarly, the predicate
+For most purposes, the predicate
 \index{uninterned-symbol?}\scheme{uninterned-symbol?} has been replaced
 by \scheme{gensym?}.
 
@@ -1566,7 +2099,7 @@ These parameters are not consulted until that time; setting them when
 %----------------------------------------------------------------------------
 \entryheader
 \formdef{gensym?}{\categoryprocedure}{(gensym? \var{obj})}
-\returns \scheme{#t} if \var{obj} is gensym, \scheme{#f} otherwise
+\returns \scheme{#t} if \var{obj} is a gensym, \scheme{#f} otherwise
 \listlibraries
 \endentryheader
 
@@ -1578,6 +2111,47 @@ These parameters are not consulted until that time; setting them when
 (gensym? (gensym)) ;=> #t
 (gensym? '#{g2 bcsfg5eq4e9b3h9o-c}) ;=> #t
 \endschemedisplay
+
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{string->uninterned-symbol}{\categoryprocedure}{(string->uninterned-symbol \var{str})}
+\returns a fresh uninterned symbol
+\listlibraries
+\endentryheader
+
+\var{str} must be a string.
+
+Returns an uninterned symbol that prints the same as a symbol
+constructed from \var{str}, but which is not \scheme{eq?} to any
+other symbol.
+
+When an uninterned symbol is converted by the fasl writer, the fasl
+reader will allocate a fresh uninterned symbol each time the fasl
+stream is read. Multiple occurrences of the same uninterned symbol in
+the fasl writer's argument will become multiple occurrences of the
+same new uninterned symbol in the fasl reader's result for the stream.
+
+\noskip\schemedisplay
+(string->uninterned-symbol "z") ;=> z
+(uninterned-symbol? (string->uninterned-symbol "z")) ;=> #t
+(symbol? (string->uninterned-symbol "z")) ;=> #t
+(gensym? (string->uninterned-symbol "z")) ;=> #f
+\endschemedisplay
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{uninterned-symbol?}{\categoryprocedure}{(uninterned-symbol? \var{obj})}
+\returns \scheme{#t} if \var{obj} is an uninterned symbol, \scheme{#f} otherwise
+\listlibraries
+\endentryheader
+
+\noskip\schemedisplay
+(uninterned-symbol? (string->symbol "z")) ;=> #f
+(uninterned-symbol? (gensym "z")) ;=> #f
+(uninterned-symbol? (string->uninterned-symbol "z")) ;=> #t
+\endschemedisplay
+
 
 
 %----------------------------------------------------------------------------
@@ -1837,7 +2411,7 @@ specialized to eq and symbol hashtables.
 \listlibraries
 \endentryheader
 
-\var{hashtable} must be a hashtable.
+\var{hashtable} must be a mutable hashtable.
 \var{key} and \var{default} may be any Scheme values.
 
 If no value is associated with \var{key} in \var{hashtable},
@@ -1865,6 +2439,35 @@ cell ;=> (#(a b c) . 3)
 
 %----------------------------------------------------------------------------
 \entryheader
+\formdef{hashtable-ref-cell}{\categoryprocedure}{(hashtable-ref-cell \var{hashtable} \var{key})}
+\returns a pair if \var{key} is in \var{hashtable}, \scheme{#f} otherwise
+\listlibraries
+\endentryheader
+
+\var{hashtable} must be a mutable hashtable.
+\var{key} may be any Scheme value.
+
+If \var{key} is associated with a value in \var{hashtable}, then \scheme{hashtable-ref-cell} returns a pair
+whose car is \var{key} and whose cdr is the associated value. Changing the cdr of
+this pair effectively updates the table to associate \var{key} with a new value.
+The \var{key} in the car field should not be changed.
+
+If \var{key} is not in \var{hashtable}, then \scheme{#f} is returned.
+
+\schemedisplay
+(define ht (make-eq-hashtable))
+(define v (vector 'a 'b 'c))
+(hashtable-ref-cell ht v) ;=> #f
+(hashtable-set! ht v 3)
+(define cell (hashtable-ref-cell ht v))
+cell ;=> ((#a b c) . 3)
+(hashtable-ref ht v 0) ;=> 3
+(set-cdr! cell 4)
+(hashtable-ref ht v 0) ;=> 4
+\endschemedisplay
+
+%----------------------------------------------------------------------------
+\entryheader
 \formdef{hashtable-keys}{\categoryprocedure}{(hashtable-keys \var{hashtable})}
 \formdef{hashtable-keys}{\categoryprocedure}{(hashtable-keys \var{hashtable} \var{size})}
 \returns a vector containing the keys in \var{hashtable}
@@ -1874,8 +2477,8 @@ cell ;=> (#(a b c) . 3)
 \noindent
 Identical to the Revised$^6$ Report counterpart, but allowing an optional
 \var{size} argument.
-If \var{size} is specified, then it must be an exact, nonnegative integer, and the
-result vector contains no more than \var{size} elements.
+If \var{size} is specified, then it must be an exact, nonnegative integer; the
+result vector will contain \scheme{(min \var{size} (hashtable-size \var{hashtable}))} elements.
 Different calls to \scheme{hashtable-keys}
 with a \var{size} less than \scheme{(hashtable-size \var{hashtable})}
 may return different subsets of \var{hashtable}'s keys.
@@ -1901,8 +2504,8 @@ may return different subsets of \var{hashtable}'s keys.
 Each value is the value of one of the keys in \var{hashtable}.
 Duplicate values are not removed.
 The values may appear in any order in the returned vector.
-If \var{size} is specified, then it must be an exact, nonnegative integer, and the
-result vector contains no more than \var{size} elements.
+If \var{size} is specified, then it must be an exact, nonnegative integer; the
+result vector will contain \scheme{(min \var{size} (hashtable-size \var{hashtable}))} elements.
 Different calls to \scheme{hashtable-values}
 with a \var{size} less than \scheme{(hashtable-size \var{hashtable})}
 may return different subsets of \var{hashtable}'s values.
@@ -1933,8 +2536,8 @@ not be created.
 \noindent
 Identical to the Revised$^6$ Report counterpart, but allowing an optional
 \var{size} argument.
-If \var{size} is specified, then it must be an exact, nonnegative integer, and the
-result vectors contain no more than \var{size} elements.
+If \var{size} is specified, then it must be an exact, nonnegative integer; the
+result vectors will each contain \scheme{(min \var{size} (hashtable-size \var{hashtable}))} elements.
 Different calls to \scheme{hashtable-entries}
 with a \var{size} less than \scheme{(hashtable-size \var{hashtable})}
 may return different subsets of \var{hashtable}'s entries.
@@ -1956,14 +2559,20 @@ may return different subsets of \var{hashtable}'s entries.
 \endentryheader
 
 \noindent
+\var{hashtable} must be a mutable hashtable.
+
 Each element of the result vector is the value of one of the cells in \var{hashtable}.
 The cells may appear in any order in the returned vector.
-If \var{size} is specified, then it must be an exact, nonnegative integer, and the
-result vector contains no more than \var{size} cells.
+If \var{size} is specified, then it must be an exact, nonnegative integer; the
+result vector will contain \scheme{(min \var{size} (hashtable-size \var{hashtable}))} elements.
 If \var{size} is not specified, then the result vector has \scheme{(hashtable-size \var{hashtable})} elements.
 Different calls to \scheme{hashtable-cells}
 with a \var{size} less than \scheme{(hashtable-size \var{hashtable})}
 may return different subsets of \var{hashtable}'s cells.
+
+Changing the cdr of a pair in the result vector effectively updates
+the table to associate car of the pair with a new value. The car of a
+pair in the result vector should not be changed.
 
 \schemedisplay
 (define ht (make-eqv-hashtable))
@@ -1980,12 +2589,14 @@ may return different subsets of \var{hashtable}'s cells.
 \formdef{make-weak-eq-hashtable}{\categoryprocedure}{(make-weak-eq-hashtable \var{size})}
 \formdef{make-weak-eqv-hashtable}{\categoryprocedure}{(make-weak-eqv-hashtable)}
 \formdef{make-weak-eqv-hashtable}{\categoryprocedure}{(make-weak-eqv-hashtable \var{size})}
-\returns a new weak eq hashtable
+\formdef{make-weak-hashtable}{\categoryprocedure}{(make-weak-hashtable \var{hash} \var{equiv?})}
+\formdef{make-weak-hashtable}{\categoryprocedure}{(make-weak-hashtable \var{hash} \var{equiv?} \var{size})}
+\returns a new weak hashtable
 \listlibraries
 \endentryheader
 
-These procedures are like the Revised$^6$ Report procedures \scheme{make-eq-hashtable}
-and \scheme{make-eqv-hashtable}
+Like the Revised$^6$ Report procedures \scheme{make-eq-hashtable},
+\scheme{make-eqv-hashtable}, and \scheme{make-hashtable},
 except the keys of the hashtable are held weakly, i.e., they are not
 protected from the garbage collector.
 Keys reclaimed by the garbage collector are removed from the table,
@@ -1996,9 +2607,9 @@ Values in the hashtable are referenced normally as long as the key is
 not reclaimed, since keys are paired values using weak pairs. Consequently,
 if a value in the hashtable refers to its own key, then
 garbage collection is prevented from reclaiming the key. See
-\scheme{make-ephemeron-eq-hashtable} and \scheme{make-ephemeron-eqv-hashtable}.
+\scheme{make-ephemeron-hashtable} and related functions.
 
-A copy of a weak eq or eqv hashtable created by \scheme{hashtable-copy} is
+A copy of a weak hashtable created by \scheme{hashtable-copy} is
 also weak.
 If the copy is immutable, inaccessible keys may still be dropped from the
 hashtable, even though the contents of the table is otherwise unchanging.
@@ -2017,16 +2628,19 @@ The effect of this can be observed via \scheme{hashtable-keys} and
 \formdef{make-ephemeron-eq-hashtable}{\categoryprocedure}{(make-ephemeron-eq-hashtable \var{size})}
 \formdef{make-ephemeron-eqv-hashtable}{\categoryprocedure}{(make-ephemeron-eqv-hashtable)}
 \formdef{make-ephemeron-eqv-hashtable}{\categoryprocedure}{(make-ephemeron-eqv-hashtable \var{size})}
-\returns a new ephemeron eq hashtable
+\formdef{make-ephemeron-hashtable}{\categoryprocedure}{(make-ephemeron-hashtable \var{hash} \var{equiv?})}
+\formdef{make-ephemeron-hashtable}{\categoryprocedure}{(make-ephemeron-hashtable \var{hash} \var{equiv?} \var{size})}
+\returns a new ephemeron hashtable
 \listlibraries
 \endentryheader
 
-These procedures are like \scheme{make-weak-eq-hashtable} and
-\scheme{make-weak-eqv-hashtable}, but a value in the hashtable can refer to a
+Like \scheme{make-weak-eq-hashtable},
+\scheme{make-weak-eqv-hashtable}, and \scheme{make-weak-hashtable},
+but a value in the hashtable can refer to a
 key in the hashtable (directly or indirectly) without preventing garbage collection from
 reclaiming the key, because keys are paired with values using ephemeron pairs.
 
-A copy of an ephemeron eq or eqv hashtable created by
+A copy of an ephemeron hashtable created by
 \scheme{hashtable-copy} is also an ephemeron table, and an inaccessible
 key can be dropped from an immutable ephemeron hashtable in the same
 way as for an immutable weak hashtable.
@@ -2040,7 +2654,7 @@ way as for an immutable weak hashtable.
 %----------------------------------------------------------------------------
 \entryheader
 \formdef{hashtable-weak?}{\categoryprocedure}{(hashtable-weak? \var{obj})}
-\returns \scheme{#t} if \var{obj} is a weak eq or eqv hashtable, \scheme{#f} otherwise
+\returns \scheme{#t} if \var{obj} is a weak hashtable, \scheme{#f} otherwise
 \listlibraries
 \endentryheader
 
@@ -2054,7 +2668,7 @@ way as for an immutable weak hashtable.
 %----------------------------------------------------------------------------
 \entryheader
 \formdef{hashtable-ephemeron?}{\categoryprocedure}{(hashtable-ephemeron? \var{obj})}
-\returns \scheme{#t} if \var{obj} is an ephemeron eq or eqv hashtable, \scheme{#f} otherwise
+\returns \scheme{#t} if \var{obj} is an ephemeron hashtable, \scheme{#f} otherwise
 \listlibraries
 \endentryheader
 
@@ -2220,7 +2834,7 @@ hash computations and hashtable lookups.
 \listlibraries
 \endentryheader
 
-\var{hashtable} must be an eq hashtable.
+\var{hashtable} must be a mutable eq hashtable.
 \var{key} and \var{default} may be any Scheme values.
 
 If no value is associated with \var{key} in \var{hashtable},
@@ -2237,6 +2851,54 @@ The \var{key} should not be changed.
 (define v (vector 'a 'b 'c))
 (define cell (eq-hashtable-cell ht v 3))
 cell ;=> (#(a b c) . 3)
+(eq-hashtable-ref ht v 0) ;=> 3
+(set-cdr! cell 4)
+(eq-hashtable-ref ht v 0) ;=> 4
+\endschemedisplay
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{eq-hashtable-try-atomic-cell}{\categoryprocedure}{(eq-hashtable-try-atomic-cell \var{hashtable} \var{key} \var{default})}
+\returns a pair or \scheme{#f} (see below)
+\listlibraries
+\endentryheader
+
+Like \scheme{eq-hashtable-cell}, but safe for use from multiple
+threads at the same time as long as only this function,
+\scheme{eq-hashtable-ref}, \scheme{eq-hashtable-ref-cell},
+and \scheme{eq-hashtable-contains?} are used on a
+particular hash table by any thread. To handle certain forms of
+contention, the result may be \scheme{#f}, in which case the operation
+might be retried. An even more significant constraint is that the hash
+table will not be resized interally as needed to provide constant-time
+behavior. Use \scheme{eq-hashtable-set!} or a similar operation from a
+single thread (e.g., during a collect-reqest handler) to allow the
+opportunity of resizing.
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{eq-hashtable-ref-cell}{\categoryprocedure}{(eq-hashtable-ref-cell \var{hashtable} \var{key})}
+\returns a pair if \var{key} is in \var{hashtable}, \scheme{#f} otherwise
+\listlibraries
+\endentryheader
+
+\var{hashtable} must be a mutable eq hashtable.
+\var{key} may be any Scheme value.
+
+If \var{key} is associated with a value in \var{hashtable}, then \scheme{eq-hashtable-ref-cell} returns a pair
+whose car is \var{key} and whose cdr is the associated value. Changing the cdr of
+this pair effectively updates the table to associate \var{key} with a new value.
+The \var{key} in the car field should not be changed.
+
+If \var{key} is not in \var{hashtable}, then \scheme{#f} is returned.
+
+\schemedisplay
+(define ht (make-eq-hashtable))
+(define v (vector 'a 'b 'c))
+(eq-hashtable-ref-cell ht v) ;=> #f
+(eq-hashtable-set! ht v 3)
+(define cell (eq-hashtable-ref-cell ht v))
+cell ;=> ((#a b c) . 3)
 (eq-hashtable-ref ht v 0) ;=> 3
 (set-cdr! cell 4)
 (eq-hashtable-ref ht v 0) ;=> 4
@@ -2275,7 +2937,8 @@ for \var{key} from \var{hashtable}.
 \endentryheader
 
 A symbol hashtable is a hashtable created with hash function \scheme{symbol-hash}
-and equivalence function \scheme{eq?}, \scheme{eqv?}, \scheme{equal?}, or \scheme{symbol=?}.
+and equivalence function \scheme{eq?}, \scheme{eqv?}, \scheme{equal?}, or
+\scheme{symbol=?}.
 
 \schemedisplay
 (symbol-hashtable? (make-hashtable symbol-hash eq?)) ;=> #t
@@ -2425,6 +3088,37 @@ The \var{key} should not be changed.
 (define ht (make-hashtable symbol-hash eq?))
 (define k 'a-key)
 (define cell (symbol-hashtable-cell ht k 3))
+cell ;=> (a-key . 3)
+(symbol-hashtable-ref ht k 0) ;=> 3
+(set-cdr! cell 4)
+(symbol-hashtable-ref ht k 0) ;=> 4
+\endschemedisplay
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{symbol-hashtable-ref-cell}{\categoryprocedure}{(symbol-hashtable-ref-cell \var{hashtable} \var{key})}
+\returns a pair if \var{key} is in \var{hashtable}, \scheme{#f} otherwise
+\listlibraries
+\endentryheader
+
+\var{hashtable} must be a mutable symbol hashtable.
+(A symbol hashtable is a hashtable created with hash function \scheme{symbol-hash}
+and equivalence function \scheme{eq?}, \scheme{eqv?}, \scheme{equal?}, or \scheme{symbol=?}.)
+\var{key} must be a symbol.
+
+If \var{key} is associated with a value in \var{hashtable}, then it returns a pair
+whose car is \var{key} and whose cdr is the associated value. Changing the cdr of
+this pair effectively updates the table to associate \var{key} with a new value.
+The \var{key} in the car field should not be changed.
+
+If \var{key} is not in \var{hashtable}, then \scheme{#f} is returned.
+
+\schemedisplay
+(define ht (make-hashtable symbol-hash eq?))
+(define k 'a-key)
+(symbol-hashtable-ref-cell ht k) ;=> #f
+(symbol-hashtable-set! ht k 3)
+(define cell (symbol-hashtable-ref-cell ht k))
 cell ;=> (a-key . 3)
 (symbol-hashtable-ref ht k 0) ;=> 3
 (set-cdr! cell 4)
@@ -3774,6 +4468,9 @@ is the ``pretty'' name of the gensym (see~\ref{desc:gensym}).
 \var{rtd} must be a record-type descriptor.
 The field names are symbols.
 
+See also the Revised$^6$ Report version of this prodecure (exported from
+the \scheme{(chezscheme)} library) which returns a vector.
+
 \schemedisplay
 (define-record triple ((immutable x1) (mutable x2) (immutable x3)))
 (record-type-field-names (type-descriptor triple)) ;=> (x1 x2 x3)
@@ -3834,6 +4531,20 @@ record-type descriptor \var{rtd} is equivalent to the following.
 
 %----------------------------------------------------------------------------
 \entryheader
+\formdef{record-instance?}{\categoryprocedure}{(record-instance? \var{obj} \var{rtd})}
+\returns \scheme{#t} if \var{obj} is a record of the given type, otherwise \scheme{#f}
+\listlibraries
+\endentryheader
+
+\noindent
+\var{obj} must be a record, and \var{rtd} must be a record-type descriptor.
+
+The result is the same as for a two-argument \scheme{record?} call,
+but \var{obj} is constrained to be a record. In unsafe mode,
+\scheme{record-instance?} might be faster than \scheme{record?}.
+
+%----------------------------------------------------------------------------
+\entryheader
 \formdef{record-type-descriptor}{\categoryprocedure}{(record-type-descriptor \var{rec})}
 \returns the record-type descriptor of \var{rec}
 \listlibraries
@@ -3860,6 +4571,42 @@ rtd ;=> #<record type frob>
 (record-type-descriptor x) ;=> #<record type frob>
 (eq? (record-type-descriptor x) rtd) ;=> \var{unspecified}
 \endschemedisplay
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{make-record-type-descriptor}{\categoryprocedure}{(make-record-type-descriptor \var{name} \var{parent} \var{uid} \var{s?} \var{o?} \var{fields})}
+\returns a record-type descriptor for a new record type
+\listlibraries
+\endentryheader
+
+\noindent
+Like the Revised$^6$ Report version of this procedure, but \var{fields}
+is also allowed to be a pair of non-negative integers, in which case the
+new record type has anonymous fields. The \scheme{car} of \var{fields}
+is a field count, and it is added to any fields present in
+\var{parent} to determine the record type's total number of fields.
+The \scheme{cdr} of \var{fields} must be an exact non-negative integer
+that is treated as a bit array; a \scheme{1} bit indicates the the
+corresponding field among new fields is mutable. The total number of
+fields in a record type must be a fixnum.
+
+If \var{parent} is a record type descriptor, it must also have
+anonymous fields. The resulting anonymous-field record type can only
+be the parent of a record type with anonymous fields.
+
+When a function like \scheme{record-type-field-names} is applied to an
+anonymous-field record type, the field names are all reported as
+\scheme{field}.
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{record-type-has-named-fields?}{\categoryprocedure}{(record-type-has-named-fields? \var{rtd})}
+\returns a boolean indicating whether \var{rtd} has named fields
+\listlibraries
+\endentryheader
+
+\noindent
+\var{rtd} must be a record-type descriptor.
 
 
 \section{Procedures}
@@ -3893,3 +4640,147 @@ encoding of all bits set is \scheme{-1}.
 (logbit? 2 (procedure-arity-mask pair?)) ;=> #f
 (logbit? 2 (procedure-arity-mask cons)) ;=> #t
 \endschemedisplay
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{make-wrapper-procedure}{\categoryprocedure}{(make-wrapper-procedure \var{proc} \var{arity-mask} \var{data})}
+\formdef{make-arity-wrapper-procedure}{\categoryprocedure}{(make-arity-wrapper-procedure \var{proc} \var{arity-mask} \var{data})}
+\returns a procedure that behaves like \var{proc}, but with the given \var{arity-mask}
+\listlibraries
+\endentryheader
+
+\noindent
+\var{proc} must be a procedure, and \var{arity-mask} must be an exact
+integer representing an arity mask in the sense of \scheme{procedure-arity-mask}.
+
+The resulting procedure behaves the same as \var{proc}, except that
+\scheme{procedure-arity-mask} on the result procedure returns
+\var{arity-mask}. When the result of \scheme{make-arity-wrapper-procedure}
+is called, the given arguments are compared to the given arity mask, and an error is reported
+if the argument count does not match. The result of \scheme{make-wrapper-procedure},
+in contrast, does not enforce the given arity mask.
+
+The \var{data} argument can be any value, and it can be retrieved from
+the result procedure with \scheme{wrapper-procedure-data}.
+
+\schemedisplay
+(define vector3 (make-wrapper-procedure vector 8 #f))
+(procedure-arity-mask vector) ; => -1
+(procedure-arity-mask vector3) ; => 8
+(vector3 1 2 3) ;=> #(1 2 3)
+(vector3 1 2) ;=> #(1 2)
+(define vector3/check (make-arity-wrapper-procedure vector 8 #f))
+(vector3/check 1 2 3) ;=>  #(1 2 3)
+(vector3/check 1 2) ;=> \var{exception}
+\endschemedisplay
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{wrapper-procedure?}{\categoryprocedure}{(wrapper-procedure? \var{obj})}
+\returns \scheme{#t} if \var{obj} is a wrapper procedure, \scheme{#f} otherwise
+\listlibraries
+\endentryheader
+
+\noindent
+Determines whether \var{obj} is a wrapper procedure produced by either
+\scheme{make-wrapper-procedure} or \scheme{make-arity-wrapper-procedure}.
+
+\schemedisplay
+(wrapper-procedure? vector) ; => #f
+(define vector3 (make-wrapper-procedure vector 8 #f))
+(wrapper-procedure? vector3) ; => #t
+\endschemedisplay
+
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{wrapper-procedure-procedure}{\categoryprocedure}{(wrapper-procedure-procedure \var{w-proc})}
+\returns the procedure wrapped by the wrapper procedure \var{proc}
+\listlibraries
+\endentryheader
+
+\noindent
+\var{w-proc} must be a wrapper procedure produced by either
+\scheme{make-wrapper-procedure} or \scheme{make-arity-wrapper-procedure}.
+
+
+\schemedisplay
+(define vector3 (make-wrapper-procedure vector 8 'my-data))
+(wrapper-procedure-procedure vector3) ; => #<procedure vector>
+\endschemedisplay
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{wrapper-procedure-data}{\categoryprocedure}{(wrapper-procedure-data \var{w-proc})}
+\returns the data stored with the wrapper procedure \var{proc}
+\listlibraries
+\endentryheader
+
+\noindent
+\var{w-proc} must be a wrapper procedure produced by either
+\scheme{make-wrapper-procedure} or \scheme{make-arity-wrapper-procedure}.
+
+
+\schemedisplay
+(define vector3 (make-wrapper-procedure vector 8 'my-data))
+(wrapper-procedure-data vector3) ; => 'my-data
+\endschemedisplay
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{set-wrapper-procedure-data!}{\categoryprocedure}{(set-wrapper-procedure-data! \var{w-proc} \var{data})}
+\returns unspecified
+\listlibraries
+\endentryheader
+
+\noindent
+\var{w-proc} must be a wrapper procedure produced by either
+\scheme{make-wrapper-procedure} or \scheme{make-arity-wrapper-procedure}.
+
+Changes the data stored in \var{w-proc} to \var{data}.
+
+\schemedisplay
+(define vector3 (make-wrapper-procedure vector 8 'my-data))
+(wrapper-procedure-data vector3) ; => 'my-data
+(set-wrapper-procedure-data! vector3 'my-new-data)
+(wrapper-procedure-data vector3) ; => 'my-new-data
+\endschemedisplay
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{set-wrapper-procedure-procedure!}{\categoryprocedure}{(set-wrapper-procedure-procedure! \var{w-proc} \var{proc})}
+\returns unspecified
+\listlibraries
+\endentryheader
+
+\noindent
+\var{w-proc} must be a wrapper procedure produced by either
+\scheme{make-wrapper-procedure} or
+\scheme{make-arity-wrapper-procedure}, and \var{proc} must be
+a procedure.
+
+Changes \var{w-proc} so that it behaves the same as \var{proc}, leaving the
+results of \\ \scheme{(procedure-arity-mask \var{w-proc})} and
+\scheme{(wrapper-procedure-data \var{w-proc})} unchanged.
+
+
+\schemedisplay
+(define vector3 (make-wrapper-procedure vector 8 'my-data))
+(vector3 1 2 3) ; => #(1 2 3)
+(set-wrapper-procedure-procedure! vector3 list)
+(vector3 1 2 3) ; => (1 2 3)
+\endschemedisplay
+
+%----------------------------------------------------------------------------
+\entryheader
+\formdef{procedure-known-single-valued?}{\categoryprocedure}{(procedure-known-single-valued? \var{proc})}
+\returns a boolean indicating whether \var{proc} is known to always produce a single value
+\listlibraries
+\endentryheader
+
+\noindent
+Returns an approximate classification of \var{proc} as always having a
+single result value or not. The result may be \scheme{#f} for a procedure
+that always returns a single value, but with an implementation that was too
+complex for the compiler to prove that fact. The result is \scheme{#t} only
+for a procedure that always produces a single result value.

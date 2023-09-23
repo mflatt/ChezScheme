@@ -15,7 +15,8 @@
 
 ;;; sections 6-1 and 6-2:
 
-(define prettytest.ss (format "~a/prettytest.ss" *mats-dir*))
+(define prettytest.ss (find-source "prettytest.ss"))
+(define build-area-testfile.ss (path-build-normal (current-directory) "testfile.ss"))
 
 (mat current-input-port
    (port? (current-input-port))
@@ -776,6 +777,20 @@
                          (or (< i 0)
                              (and (fx= (fxvector-ref x i) (fxvector-ref y i))
                                   (f (1- i))))))]
+                [(flvector? x)
+                 (and (flvector? y)
+                      (= (flvector-length x) (flvector-length y))
+                      (let f ([i (- (flvector-length x) 1)])
+                         (or (< i 0)
+                             (and (fl= (flvector-ref x i) (flvector-ref y i))
+                                  (f (1- i))))))]
+                [(stencil-vector? x)
+                 (and (stencil-vector? y)
+                      (fx= (stencil-vector-mask x) (stencil-vector-mask y))
+                      (let f ([i (- (stencil-vector-length x) 1)])
+                         (or (< i 0)
+                             (and (equal? (stencil-vector-ref x i) (stencil-vector-ref y i))
+                                  (f (1- i))))))]
                 [(bytevector? x)
                  (and (bytevector? y)
                       (bytevector=? x y))]
@@ -987,7 +1002,84 @@
           (weak-pair? (cddr ls))
           (weak-pair? (cdddr ls)))))
     '(#t #f #t #t #f #t))
+
+  (error? (fasl-write 'any (let-values ([(o get) (open-bytevector-output-port)]) o) '#()))
+  (error? (fasl-write 'any (let-values ([(o get) (open-bytevector-output-port)]) o) 10))
+  (error? (fasl-read (open-bytevector-input-port #vu8()) 'load #f))
+  (error? (fasl-read (open-bytevector-input-port #vu8()) 'load 10))
+  
+  (let-values ([(o get) (open-bytevector-output-port)])
+    (fasl-write '(apple (banana cream pie) (vector coconut banana cream)) o (lambda (v)
+                                                                              (or (eq? v 'banana)
+                                                                                  (eq? v 'coconut))))
+    (equal? '(apple (B cream pie) (vector C B cream))
+            (fasl-read (open-bytevector-input-port (get)) 'load '#(B C))))
+
+  (error?
+   (let-values ([(o get) (open-bytevector-output-port)])
+     (fasl-write '(apple banana cream pie) o (lambda (v) (eq? v 'banana)))
+     ;; missing externals vector:
+     (fasl-read (open-bytevector-input-port (get)))))
+
+  (error?
+   (let-values ([(o get) (open-bytevector-output-port)])
+     (fasl-write '(apple banana cream pie) o (lambda (v) (or (eq? v 'banana)
+                                                             (eq? v 'pie))))
+     ;; too-small externals vector:
+     (fasl-read (open-bytevector-input-port (get)) 'load '#(A))))
+
+  ;; check sharing of numbers that may or may not be bignums
+  (andmap (lambda (v)
+            (let-values ([(o get) (open-bytevector-output-port)])
+              (fasl-write (list v v) o)
+              (let ([l (fasl-read (open-bytevector-input-port (get)))])
+                (eq? (car l) (cadr l)))))
+          (list 0 -1 1
+                (expt 2 29) (expt 2 30) (expt 2 31) (expt 2 32)
+                (expt 2 59) (expt 2 60) (expt 2 61) (expt 2 62) (expt 2 63) (expt 2 64)
+                (expt 2 80)))
+
 )
+
+(mat fasl-depth
+  (begin
+    (define fasl-deep-N 100000)
+    (define (check v)
+      (let-values ([(o get) (open-bytevector-output-port)])
+        (fasl-write v o)
+        (equal? v (fasl-read (open-bytevector-input-port (get))))))
+    (define (check-mk mk)
+      (check (let loop ([n fasl-deep-N])
+               (if (zero? n)
+                   'done
+                   (mk (loop (sub1 n)))))))
+    (define-record-type other
+      (fields val))
+    (record-type-equal-procedure (record-type-descriptor other)
+                                 (lambda (a b eql?)
+                                   (eql? (other-val a) (other-val b))))
+    #t)
+
+  (check-mk vector)
+  (check-mk box)
+  (check-mk list)
+  (check-mk (lambda (v) (cons 'x v)))
+  (check-mk make-other)
+
+  ;; Generate a chain of code records:
+  (let-values ([(o get) (open-bytevector-output-port)])
+    (compile-to-port
+     (list
+      `(lambda ()
+         ,(let loop ([n fasl-deep-N])
+            (if (zero? n)
+                ''end
+                `(if (stop?)
+                     'stop
+                     ,(loop (sub1 n)))))))
+     o)
+    (fasl-read (open-bytevector-input-port (get)))
+    #t))
 
 (mat clear-output-port ; test interactively
    (procedure? clear-output-port)
@@ -1021,31 +1113,43 @@
  )
 
 (mat cp1in-verify-format-warnings
-   (warning? (parameterize ([#%$suppress-primitive-inlining #f])
+   (warning? (parameterize ([#%$suppress-primitive-inlining #f]
+                            [current-eval compile])
                (eval '(lambda () (import scheme) (format "~a~~~s" 5)))))
-   (warning? (parameterize ([#%$suppress-primitive-inlining #f])
+   (warning? (parameterize ([#%$suppress-primitive-inlining #f]
+                            [current-eval compile])
                (eval '(lambda () (import scheme) (format "~a~a~a~s" 1 2 3 4 5 6)))))
-   (warning? (parameterize ([#%$suppress-primitive-inlining #f])
+   (warning? (parameterize ([#%$suppress-primitive-inlining #f]
+                            [current-eval compile])
                (eval '(mat/cf (lambda () (import scheme) (format "~a~~~s" 5))))))
-   (warning? (parameterize ([#%$suppress-primitive-inlining #f])
+   (warning? (parameterize ([#%$suppress-primitive-inlining #f]
+                            [current-eval compile])
                (eval '(mat/cf (lambda () (import scheme) (format "~a~a~a~s" 1 2 3 4 5 6))))))
 
-   (warning? (parameterize ([#%$suppress-primitive-inlining #f])
+   (warning? (parameterize ([#%$suppress-primitive-inlining #f]
+                            [current-eval compile])
                (eval '(lambda () (import scheme) (printf "abc~s")))))
-   (warning? (parameterize ([#%$suppress-primitive-inlining #f])
+   (warning? (parameterize ([#%$suppress-primitive-inlining #f]
+                            [current-eval compile])
                (eval '(lambda () (import scheme) (printf "~%~abc~adef~ag~s~~~%" 1 2 3 4 5)))))
-   (warning? (parameterize ([#%$suppress-primitive-inlining #f])
+   (warning? (parameterize ([#%$suppress-primitive-inlining #f]
+                            [current-eval compile])
                (eval '(mat/cf (lambda () (import scheme) (printf "abc~s"))))))
-   (warning? (parameterize ([#%$suppress-primitive-inlining #f])
+   (warning? (parameterize ([#%$suppress-primitive-inlining #f]
+                            [current-eval compile])
                (eval '(mat/cf (lambda () (import scheme) (printf "~%~abc~adef~ag~s~~~%" 1 2 3 4 5))))))
 
-   (warning? (parameterize ([#%$suppress-primitive-inlining #f])
+   (warning? (parameterize ([#%$suppress-primitive-inlining #f]
+                            [current-eval compile])
                (eval '(lambda (p) (import scheme) (fprintf p "abc~s")))))
-   (warning? (parameterize ([#%$suppress-primitive-inlining #f])
+   (warning? (parameterize ([#%$suppress-primitive-inlining #f]
+                            [current-eval compile])
                (eval '(lambda (p) (import scheme) (fprintf p "~%~abc~adef~ag~s~~~%" 1 2 3 4 5)))))
-   (warning? (parameterize ([#%$suppress-primitive-inlining #f])
+   (warning? (parameterize ([#%$suppress-primitive-inlining #f]
+                            [current-eval compile])
                (eval '(mat/cf (lambda (p) (import scheme) (fprintf p "abc~s"))))))
-   (warning? (parameterize ([#%$suppress-primitive-inlining #f])
+   (warning? (parameterize ([#%$suppress-primitive-inlining #f]
+                            [current-eval compile])
                (eval '(mat/cf (lambda (p) (import scheme) (fprintf p "~%~abc~adef~ag~s~~~%" 1 2 3 4 5))))))
 )
 
@@ -1081,29 +1185,33 @@
                  (set-cdr! x x)
                  x))))
    (equal? (parameterize ([print-vector-length #f])
-              (format "~s ~s" '#5(1 2 3) '#8vfx(5 7 9 8 8 9 -1)))
-           "#(1 2 3 3 3) #vfx(5 7 9 8 8 9 -1 -1)")
+              (format "~s ~s ~s ~s" '#5(1 "b" 3) '#8vfx(5 7 9 8 8 9 -1) '#2vfl(5.0 7.0) '#5vs("x" y)))
+           "#(1 \"b\" 3 3 3) #vfx(5 7 9 8 8 9 -1 -1) #vfl(5.0 7.0) #5vs(\"x\" y)")
    (equal? (parameterize ([print-vector-length #t])
-              (format "~s ~s" '#(1 2 3 3 3) '#vfx(5 7 9 8 8 9 -1 -1)))
-           "#5(1 2 3) #8vfx(5 7 9 8 8 9 -1)")
+              (format "~s ~s ~s ~s" '#(1 "b" 3 3 3) '#vfx(5 7 9 8 8 9 -1 -1) '#2vfl(5.0 7.0) '#5vs("x" y)))
+           "#5(1 \"b\" 3) #8vfx(5 7 9 8 8 9 -1) #2vfl(5.0 7.0) #5vs(\"x\" y)")
    (equal? (parameterize ([print-vector-length #f])
-              (format "~a ~a" '#5(1 2 3) '#8vfx(5 7 9 8 8 9 -1)))
-           "#(1 2 3 3 3) #vfx(5 7 9 8 8 9 -1 -1)")
+              (format "~a ~a ~a ~a" '#5(1 "b" 3) '#8vfx(5 7 9 8 8 9 -1) '#2vfl(5.0 7.0) '#5vs("x" y)))
+           "#(1 b 3 3 3) #vfx(5 7 9 8 8 9 -1 -1) #vfl(5.0 7.0) #5vs(x y)")
    (equal? (parameterize ([print-vector-length #t])
-              (format "~a ~a" '#(1 2 3 3 3) '#vfx(5 7 9 8 8 9 -1 -1)))
-           "#(1 2 3 3 3) #vfx(5 7 9 8 8 9 -1 -1)")
+              (format "~a ~a ~a ~a" '#(1 "b" 3 3 3) '#vfx(5 7 9 8 8 9 -1 -1) '#2vfl(5.0 7.0) '#5vs("x" y)))
+           "#(1 b 3 3 3) #vfx(5 7 9 8 8 9 -1 -1) #vfl(5.0 7.0) #5vs(x y)")
    (equal? (parameterize ([print-vector-length #f])
              (with-output-to-string
                (lambda ()
                  (pretty-print '#5(1 2 3))
-                 (pretty-print '#8vfx(5 7 9 8 8 9 -1)))))
-           "#(1 2 3 3 3)\n#vfx(5 7 9 8 8 9 -1 -1)\n")
+                 (pretty-print '#8vfx(5 7 9 8 8 9 -1))
+                 (pretty-print '#2vfl(5.0 7.0))
+                 (pretty-print '#5vs(x y)))))
+           "#(1 2 3 3 3)\n#vfx(5 7 9 8 8 9 -1 -1)\n#vfl(5.0 7.0)\n#5vs(x y)\n")
    (equal? (parameterize ([print-vector-length #t])
              (with-output-to-string
                (lambda ()
                  (pretty-print '#(1 2 3 3 3))
-                 (pretty-print '#vfx(5 7 9 8 8 9 -1 -1)))))
-           "#5(1 2 3)\n#8vfx(5 7 9 8 8 9 -1)\n")
+                 (pretty-print '#vfx(5 7 9 8 8 9 -1 -1))
+                 (pretty-print '#2vfl(5.0 7.0))
+                 (pretty-print '#5vs(x y)))))
+           "#5(1 2 3)\n#8vfx(5 7 9 8 8 9 -1)\n#2vfl(5.0 7.0)\n#5vs(x y)\n")
    (equal? (parameterize ([print-extended-identifiers #f])
              (with-output-to-string
                (lambda ()
@@ -1773,8 +1881,15 @@
   "; Test error \"invalid syntax #~v,'0dv~s\"\n\n(list #073vf())\n"
   "; Test error \"invalid syntax #v~s\"\n\n(list #vfx[])\n"
   "; Test error \"invalid syntax #~v,'0dv~s\"\n\n(list #073vfx[])\n"
+  "; Test error \"invalid syntax #v~s\"\n\n(list #vfl[])\n"
+  "; Test error \"invalid syntax #~v,'0dv~s\"\n\n(list #073vfl[])\n"
+  "; Test error \"invalid syntax #v~s\"\n\n(list #vs[])\n"
+  "; Test error \"invalid syntax #~v,'0dv~s\"\n\n(list #073vs[])\n"
   "; Test error \"invalid vector length\"\n\n(vector-length #999999999999999999999999999999(a b c))\n\n"
   "; Test error \"invalid fxvector length\"\n\n(fxvector-length #999999999999999999999999999999vfx(1 2 3))\n\n"
+  "; Test error \"invalid flvector length\"\n\n(fxvector-length #999999999999999999999999999999vfl(1.0 2.0 3.0))\n\n"
+  "; Test error \"invalid stencil vector mask\"\n\n(fxvector-length #999999999999999999999999999999vst())\n\n"
+  "; Test error \"invalid stencil vector mask\"\n\n(fxvector-length #18446744073709551615vst())\n\n"
   "; Test error \"invalid bytevector length\"\n\n(bytevector-length #999999999999999999999999999999vu8(1 2 3))\n\n"
   "; Test error \"mark #~s= missing\"\n\n'(what about this?) ; separate top-level S-expression, so ok.\n\n(begin\n  (reverse '(a b . #77#))\n  (cons 1 2))"
   "; Test error \"more than one item found after dot (.)\"\n\n(define foo\n  (lambda (able baker . charlie delta epsilon)\n    'wow))\n\n"
@@ -1787,7 +1902,12 @@
   "; Test error \"too many vector elements supplied\"\n\n(pretty-print '#3(one two three four five six seven))\n"
   "; Test error \"non-fixnum found in fxvector\"\n\n(pretty-print '#vfx(1 2.0 3 4))\n"
   "; Test error \"non-fixnum found in fxvector\"\n\n(pretty-print '#3vfx(1 2.0 3 4))\n"
+  "; Test error \"too many flvector elements supplied\"\n\n(pretty-print '#3vfl(1.0 2.0 3.0 4.0))\n"
+  "; Test error \"non-flonum found in flvector\"\n\n(pretty-print '#vfl(1.0 2 3.0 4.0))\n"
+  "; Test error \"non-flonum found in flvector\"\n\n(pretty-print '#3vfl(1.0 2 3.0 4.0))\n"
   "; Test error \"too many fxvector elements supplied\"\n\n(pretty-print '#3vfx(1 2 3 4))\n"
+  "; Test error \"too many stencil vector elements supplied\"\n\n(pretty-print '#3vs(one two three))\n"
+  "; Test error \"not enough stencil vector elements supplied\"\n\n(pretty-print '#3vs(one))\n"
   "; Test error \"invalid value 2.0 found in bytevector\"\n\n(pretty-print '#vu8(1 2.0 3 4))\n"
   "; Test error \"invalid value -1 found in bytevector\"\n\n(pretty-print '#3vu8(1 -1 3 4))\n"
   "; Test error \"invalid value #f found in bytevector\"\n\n#vu8(1 2 #f\n"
@@ -1852,6 +1972,10 @@
   "; Test error \"unexpected end-of-file reading #~v,'0dv syntax\"\n\"would this be cool?\" #01vf"
   "; Test error \"unexpected end-of-file reading #v syntax\"\n\"would this be cool?\" #vfx"
   "; Test error \"unexpected end-of-file reading #~v,'0dv syntax\"\n\"would this be cool?\" #01vfx"
+  "; Test error \"unexpected end-of-file reading #v syntax\"\n\"would this be cool?\" #vfl"
+  "; Test error \"unexpected end-of-file reading #~v,'0dv syntax\"\n\"would this be cool?\" #01vfl"
+  "; Test error \"unexpected end-of-file reading #v syntax\"\n\"would this be cool?\" #vs"
+  "; Test error \"unexpected end-of-file reading #~v,'0dv syntax\"\n\"would this be cool?\" #01vs"
   "; Test error \"unexpected end-of-file reading list\" (before first element) \n\n  (\n\n   "
   "; Test error \"unexpected end-of-file reading list\"\n\n(lambda (x y z\n  (cond\n    [(< x 1) y]\n    [else z]))\n\n"
   "; Test error \"unexpected end-of-file reading list\" (after dot)\n\n(car '(a b . \n\n"
@@ -1889,6 +2013,10 @@
   "; Test error \"unexpected end-of-file reading vector\"\n\n  (define v '#35(a b \n"
   "; Test error \"unexpected end-of-file reading fxvector\"\n\n  (define v '#vfx(0 1 \n"
   "; Test error \"unexpected end-of-file reading fxvector\"\n\n  (define v '#35vfx(0 1 \n"
+  "; Test error \"unexpected end-of-file reading flvector\"\n\n  (define v '#vfl(0.0 1.0 \n"
+  "; Test error \"unexpected end-of-file reading flvector\"\n\n  (define v '#35vfl(0.0 1.0 \n"
+  "; Test error \"unexpected end-of-file reading stencil vector\"\n\n  (define v '#3vs(0 1 \n"
+  "; Test error \"unexpected end-of-file reading stencil vector\"\n\n  (define v '#3vs(0 1 \n"
   "; Test error \"unexpected end-of-file reading bytevector\"\n\n  (define v '#vu8(0 1 \n"
   "; Test error \"unexpected end-of-file reading bytevector\"\n\n  (define v '#35vu8(0 1 \n"
   "; Test error \"unrecognized record name ~s\"\n#[zsunekunvliwndwalv 1 2 3 4]"
@@ -1919,7 +2047,10 @@
   "; Test error \"#!bwp syntax not allowed in #!r6rs mode\"\n\n#!r6rs #!bwp\n"
   "; Test error \"#vfx(...) fxvector syntax not allowed in #!r6rs mode\"\n\n#!r6rs '#vfx(1 2 3)\n"
   "; Test error \"#<n>vfx(...) fxvector syntax not allowed in #!r6rs mode\"\n\n#!r6rs '#3vfx(1 2 3)\n"
+  "; Test error \"#vfl(...) fxvector syntax not allowed in #!r6rs mode\"\n\n#!r6rs '#vfl(1.0 2.0 3.0)\n"
+  "; Test error \"#<n>vfl(...) fxvector syntax not allowed in #!r6rs mode\"\n\n#!r6rs '#3vfl(1.0 2.0 3.0)\n"
   "; Test error \"#<n>vu8(...) fxvector syntax not allowed in #!r6rs mode\"\n\n#!r6rs '#3vu8(1 2 3)\n"
+  "; Test error \"#<n>vs(...) stencil vector syntax not allowed in #!r6rs mode\"\n\n#!r6rs '#7vs(1 2 3)\n"
   "; Test error \"octal string-character syntax not allowed in #!r6rs mode\"\n\n#!r6rs \"a\\010b\"\n"
   "; Test error \"back-slash symbol escape syntax not allowed in #!r6rs mode\"\n\n#!r6rs ab\\ cd\n"
   "; Test error \"|...| symbol escape syntax not allowed in #!r6rs mode\"\n\n#!r6rs |ab  cd|\n"
@@ -2541,9 +2672,13 @@
     (close-output-port p)
     #t)
   (begin
+    (define make-sure-this-symbol-stays '#{%foo %bar})
     (load "testfile.ss")
     #t)
   (record? (cadr $$rats) (type-descriptor #{%foo %bar}))
+  (begin
+    (define make-sure-this-symbol-stays #f)
+    #t)
   (let ([r (cadr $$rats)])
     (eq? (%foo-x r) (car $$rats))
     (equal? (%foo-y r) '(d e)))
@@ -2661,7 +2796,7 @@
   (equal?
     (parameterize ([source-directories '("." "../examples")])
       (with-source-path 'test "fatfib.ss" list))
-    '("../examples/fatfib.ss"))
+    (list (format "../examples~afatfib.ss" (directory-separator))))
   (equal?
     (parameterize ([source-directories '("." "../examples")])
       (with-source-path 'test "./fatfib.ss" list))
@@ -2675,13 +2810,13 @@
     (call-with-values
       (lambda () (((inspect/object fatfib) 'code) 'source-path))
       list)
-    '("../examples/fatfib.ss" 16 4))
+    (list (format "../examples~afatfib.ss" (directory-separator)) 16 4))
   (equal? 
     (parameterize ([source-directories '("." "../examples")])
       (call-with-values
         (lambda () (((inspect/object fatfib) 'code) 'source-path))
         list))
-    '("../examples/fatfib.ss" 16 4))
+    (list (format "../examples~afatfib.ss" (directory-separator)) 16 4))
   (begin
     (load "../examples/fatfib.ss" compile)
     (procedure? fatfib))
@@ -2713,7 +2848,7 @@
       (call-with-values
         (lambda () (((inspect/object fatfib) 'code) 'source-path))
         list))
-    (list (format "~a/examples/fatfib.ss" (parameterize ([cd ".."]) (cd))) 16 4))
+    (list (format "~a~aexamples/fatfib.ss" (parameterize ([cd ".."]) (cd)) (directory-separator)) 16 4))
   (equal?
     (parameterize ([cd ".."] [source-directories '("examples")])
       (call-with-values
@@ -2968,6 +3103,10 @@
   )
 
 (mat filesystem-operations2 (parameters [current-directory *mats-dir*])
+  (begin
+    ;; we expct this to be newer than "mat.ss":
+    (close-port (open-output-file build-area-testfile.ss 'truncate))
+    #t)
   (if (or (windows?) (embedded?))
       (fixnum? (get-mode "mat.ss"))
       (let ([m (get-mode "mat.ss")])
@@ -2983,9 +3122,9 @@
   (and (eqv? (get-mode "../mats") (get-mode "../mats/"))
        (eqv? (get-mode "../mats") (get-mode "../mats/.")))
   ; access times are unreliable on contemporary file systems
-  (time? (file-access-time "../../mats/mat.ss"))
-  (time<=? (file-change-time "mat.ss") (file-change-time "mat.so"))
-  (time<=? (file-modification-time "mat.ss") (file-modification-time "mat.so"))
+  (time? (file-access-time "mat.ss"))
+  (time<=? (file-change-time "mat.ss") (file-change-time build-area-testfile.ss))
+  (time<=? (file-modification-time "mat.ss") (file-modification-time build-area-testfile.ss))
   (equal?
     (list (time? (file-access-time "../mats"))
           (time? (file-change-time "../mats"))
@@ -3012,12 +3151,16 @@
       (and (time? (file-access-time "\\\\?\\c:\\"))
            (time? (file-change-time "\\\\?\\c:\\"))
            (time? (file-modification-time "\\\\?\\c:\\"))))
+  ;; We don't create links anymore, so these don't work as-is:
+  #;
   (or (windows?) (embedded?)
-      (time=? (file-access-time "Makefile") (file-access-time (format "Mf-~a" (machine-type)))))
+      (time=? (file-access-time "Makefile") (file-access-time "Mf-unix")))
+  #;
   (or (windows?) (embedded?)
-      (time=? (file-change-time "Makefile") (file-change-time (format "Mf-~a" (machine-type)))))
+      (time=? (file-change-time "Makefile") (file-change-time "Mf-unix")))
+  #;
   (or (windows?) (embedded?)
-      (time=? (file-modification-time "Makefile") (file-modification-time (format "Mf-~a" (machine-type)))))
+      (time=? (file-modification-time "Makefile") (file-modification-time "Mf-unix")))
 )
 
 (mat unicode-filesystem-operations

@@ -131,7 +131,7 @@
  ; because curses requires initscr(), which clears the screen, discarding
  ; the current context.  this is a shell, not a full-screen user interface.
 
-  (define init-term (foreign-procedure "(cs)ee_init_term" () boolean))
+  (define init-term (foreign-procedure "(cs)ee_init_term" (iptr iptr) boolean))
   (define $ee-read-char (foreign-procedure "(cs)ee_read_char" (boolean) scheme-object))
   (define $ee-write-char (foreign-procedure "(cs)ee_write_char" (wchar_t) void))
   (define ee-flush (foreign-procedure "(cs)ee_flush" () void))
@@ -165,7 +165,7 @@
   (define (screen-cols) cols)
 
   (define (init-screen)
-    (and (init-term)
+    (and (init-term -1 -1)
          (begin
            (set! cursor-col 0)
            (set! the-unread-char #f)
@@ -1430,7 +1430,7 @@
                 [(atomic box dot insert mark quote) (loop stack)]
                 [(lbrack record-brack)
                  (loop (cons (cons 'rbrack end) stack))]
-                [(lparen vfxnparen vfxparen vnparen vparen vu8nparen vu8paren)
+                [(lparen vfxnparen vfxparen vflnparen vflparen vnparen vparen vu8nparen vu8paren vsparen vsnparen)
                  (loop (cons (cons 'rparen end) stack))]
                 [(rbrack rparen)
                  (if (= end (string-length s))
@@ -1469,7 +1469,7 @@
                 [(atomic box dot insert mark quote) (loop stack)]
                 [(lbrack record-brack)
                  (loop (cons 'rbrack stack))]
-                [(lparen vfxnparen vfxparen vnparen vparen vu8nparen vu8paren)
+                [(lparen vfxnparen vfxparen vflnparen vflparen vnparen vparen vu8nparen vu8paren vsparen vsnparen)
                  (loop (cons 'rparen stack))]
                 [(rbrack rparen)
                  (if (fx= (length stack) 1)
@@ -1510,7 +1510,7 @@
                (if (and (not (null? stack)) (eq? (caar stack) 'qubx))
                    (loop (cons (cons 'rbrack (cdar stack)) (cdr stack)) #f)
                    (loop (cons (cons 'rbrack start) stack) #f))]
-              [(lparen vfxnparen vfxparen vnparen vparen vu8nparen vu8paren)
+              [(lparen vfxnparen vfxparen vflnparen vflparen vnparen vparen vu8nparen vu8paren vsparen vsnparen)
                (if (and (not (null? stack)) (eq? (caar stack) 'qubx))
                    (loop (cons (cons 'rparen (cdar stack)) (cdr stack)) #f)
                    (loop (cons (cons 'rparen start) stack) #f))]
@@ -1560,7 +1560,8 @@
                    (loop stack #f ignore?)]
                   [(eof fasl) #f]
                   [(lbrack record-brack) (loop (cons 'rbrack stack) #f ignore?)]
-                  [(lparen vfxnparen vfxparen vnparen vparen vu8nparen vu8paren)
+                  [(lparen vfxnparen vfxparen vflnparen vflparen vflnparen vflparen vnparen vparen
+                           vu8nparen vu8paren vsparen vsnparen)
                    (loop (cons 'rparen stack) #f ignore?)]
                   [(rbrack rparen)
                    (and (not (null? stack))

@@ -104,6 +104,25 @@
 
 (define enable-cross-library-optimization ($make-thread-parameter #t (lambda (x) (and x #t))))
 
+(define enable-arithmetic-left-associative ($make-thread-parameter #f (lambda (x) (and x #t))))
+
+(define enable-unsafe-application ($make-thread-parameter #f (lambda (x) (and x #t))))
+
+(define enable-unsafe-variable-reference ($make-thread-parameter #f (lambda (x) (and x #t))))
+
+(define-who current-generate-id
+  ($make-thread-parameter
+   (lambda (sym)
+     (unless (symbol? sym) ($oops 'default-generate-id "~s is not a symbol" sym))
+     (gensym (symbol->string sym)))
+   (lambda (p)
+     (unless (procedure? p) ($oops who "~s is not a procedure" p))
+     p)))
+
+(define enable-type-recovery ($make-thread-parameter #t (lambda (x) (and x #t))))
+
+(define enable-error-source-expression ($make-thread-parameter #t (lambda (x) (and x #t))))
+
 (define machine-type
   (lambda ()
     (constant machine-type-name)))
@@ -151,6 +170,7 @@
   compile-whole-library
   compile-whole-program
   ($dynamic-closure-counts compile)
+  ($lift-closures compile)
   ($loop-unroll-limit compile)
   make-boot-file
   ($make-boot-file make-boot-file)
@@ -214,6 +234,7 @@
 (package-stubs compiler-support
   $cp0
   $cpvalid
+  $cptypes
   $cpletrec
   $cpcheck)
 (package-stubs syntax-support
@@ -247,6 +268,17 @@
     [(x env-spec records?) ((current-expand) x env-spec records?)]
     [(x env-spec records? compiling-a-file) ((current-expand) x env-spec records? compiling-a-file)]
     [(x env-spec records? compiling-a-file outfn) ((current-expand) x env-spec records? compiling-a-file outfn)]))
+
+(define-who eval-syntax-expanders-when
+   ($make-thread-parameter '(compile load eval)
+      (lambda (x)
+         (unless (let check ([x x] [l '(compile load eval visit revisit)])
+                    (or (null? x)
+                        (and (pair? x)
+                             (memq (car x) l)
+                             (check (cdr x) (remq (car x) l)))))
+            ($oops who "invalid eval-when list ~s" x))
+         x)))
 
 (define $compiler-is-loaded? #f)
 )

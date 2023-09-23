@@ -23,10 +23,14 @@
 #include <ctype.h>
 #include <math.h>
 
+#if defined(__GNU__) /* Hurd */
+#include <sys/resource.h>
+#endif
+
 /* locally defined functions */
 static INT s_errno(void);
-static iptr s_addr_in_heap(uptr x);
-static iptr s_ptr_in_heap(ptr x);
+static IBOOL s_addr_in_heap(uptr x);
+static IBOOL s_ptr_in_heap(ptr x);
 static ptr s_generation(ptr x);
 static iptr s_fxmul(iptr x, iptr y);
 static iptr s_fxdiv(iptr x, iptr y);
@@ -35,6 +39,14 @@ static ptr s_fltofx(ptr x);
 static ptr s_weak_pairp(ptr p);
 static ptr s_ephemeron_cons(ptr car, ptr cdr);
 static ptr s_ephemeron_pairp(ptr p);
+static ptr s_box_immobile(ptr p);
+static ptr s_make_immobile_vector(uptr len, ptr fill);
+static ptr s_make_immobile_bytevector(uptr len);
+static ptr s_make_reference_bytevector(uptr len);
+static ptr s_make_immobile_reference_bytevector(uptr len);
+static ptr s_reference_bytevectorp(ptr p);
+static ptr s_reference_star_address_object(ptr p);
+static ptr s_bytevector_reference_star_ref(ptr p, uptr offset);
 static ptr s_oblist(void);
 static ptr s_bigoddp(ptr n);
 static ptr s_float(ptr x);
@@ -50,7 +62,9 @@ static void s_showalloc(IBOOL show_dump, const char *outfn);
 static ptr s_system(const char *s);
 static ptr s_process(char *s, IBOOL stderrp);
 static I32 s_chdir(const char *inpath);
+#if defined(GETWD) || defined(__GNU__) /* Hurd */
 static char *s_getwd(void);
+#endif
 static ptr s_set_code_byte(ptr p, ptr n, ptr x);
 static ptr s_set_code_word(ptr p, ptr n, ptr x);
 static ptr s_set_code_long(ptr p, ptr n, ptr x);
@@ -85,15 +99,19 @@ static IBOOL s_fd_regularp(INT fd);
 static void s_nanosleep(ptr sec, ptr nsec);
 static ptr s_set_collect_trip_bytes(ptr n);
 static void c_exit(I32 status);
-static ptr s_get_reloc(ptr co);
+static ptr s_get_reloc(ptr co, IBOOL with_offsets);
 #ifdef PTHREADS
 static s_thread_rv_t s_backdoor_thread_start(void *p);
 static iptr s_backdoor_thread(ptr p);
 static ptr s_threads(void);
-static void s_mutex_acquire(scheme_mutex_t *m);
-static ptr s_mutex_acquire_noblock(scheme_mutex_t *m);
-static void s_condition_broadcast(s_thread_cond_t *c);
-static void s_condition_signal(s_thread_cond_t *c);
+static void s_mutex_acquire(ptr m);
+static ptr s_mutex_acquire_noblock(ptr m);
+static void s_mutex_release(ptr m);
+static void s_condition_broadcast(ptr c);
+static void s_condition_signal(ptr c);
+static void s_condition_free(ptr c);
+static IBOOL s_condition_wait(ptr c, ptr m, ptr t);
+static void s_thread_preserve_ownership(ptr tc);
 #endif
 static void s_byte_copy(ptr src, iptr srcoff, ptr dst, iptr dstoff, iptr cnt);
 static void s_ptr_copy(ptr src, iptr srcoff, ptr dst, iptr dstoff, iptr cnt);
@@ -115,15 +133,25 @@ static ptr s_iconv_to_string(uptr cd, ptr in, uptr i, uptr iend, ptr out, uptr o
 static ptr s_multibytetowidechar(unsigned cp, ptr inbv);
 static ptr s_widechartomultibyte(unsigned cp, ptr inbv);
 #endif
+#ifdef PORTABLE_BYTECODE
+static ptr s_separatorchar();
+#endif
+
 static ptr s_profile_counters(void);
 static ptr s_profile_release_counters(void);
+
+#ifdef WIN32
+# define WIN32_UNUSED UNUSED
+#else
+# define WIN32_UNUSED
+#endif
 
 #define require(test,who,msg,arg) if (!(test)) S_error1(who, msg, arg)
 
 ptr S_strerror(INT errnum) {
   ptr p; char *msg;
 
-  tc_mutex_acquire()
+  tc_mutex_acquire();
 #ifdef WIN32
   msg = Swide_to_utf8(_wcserror(errnum));
   if (msg == NULL)
@@ -135,7 +163,7 @@ ptr S_strerror(INT errnum) {
 #else
   p = (msg = strerror(errnum)) == NULL ? Sfalse : Sstring_utf8(msg, -1);
 #endif
-  tc_mutex_release()
+  tc_mutex_release();
   return p;
 }
 
@@ -143,11 +171,11 @@ static INT s_errno(void) {
   return errno;
 }
 
-static iptr s_addr_in_heap(uptr x) {
+static IBOOL s_addr_in_heap(uptr x) {
   return MaybeSegInfo(addr_get_segment(x)) != NULL;
 }
 
-static iptr s_ptr_in_heap(ptr x) {
+static IBOOL s_ptr_in_heap(ptr x) {
   return MaybeSegInfo(ptr_get_segment(x)) != NULL;
 }
 
@@ -176,24 +204,97 @@ static ptr s_fltofx(ptr x) {
 
 static ptr s_weak_pairp(ptr p) {
   seginfo *si;
-  return Spairp(p) && (si = MaybeSegInfo(ptr_get_segment(p))) != NULL && (si->space & ~space_locked) == space_weakpair ? Strue : Sfalse;
+  return Spairp(p) && (si = MaybeSegInfo(ptr_get_segment(p))) != NULL && si->space == space_weakpair ? Strue : Sfalse;
 }
 
 static ptr s_ephemeron_cons(ptr car, ptr cdr) {
   ptr p;
 
-  tc_mutex_acquire()
-  p = S_cons_in(space_ephemeron, 0, car, cdr);
-  tc_mutex_release()
+  p = S_ephemeron_cons_in(0, car, cdr);
+
   return p;
 }
 
 static ptr s_ephemeron_pairp(ptr p) {
   seginfo *si;
-  return Spairp(p) && (si = MaybeSegInfo(ptr_get_segment(p))) != NULL && (si->space & ~space_locked) == space_ephemeron ? Strue : Sfalse;
+  return Spairp(p) && (si = MaybeSegInfo(ptr_get_segment(p))) != NULL && si->space == space_ephemeron ? Strue : Sfalse;
 }
 
-static ptr s_oblist(void) {
+static ptr s_box_immobile(ptr p) {
+  ptr b = S_box2(p, 1);
+  S_immobilize_object(b);
+  return b;
+}
+
+static ptr s_make_immobile_bytevector(uptr len) {
+  ptr b = S_bytevector2(get_thread_context(), len, space_immobile_data);
+  S_immobilize_object(b);
+  return b;
+}
+
+static ptr s_make_immobile_vector(uptr len, ptr fill) {
+  ptr tc = get_thread_context();
+  ptr v;
+  uptr i;
+
+  v = S_vector_in(tc, space_immobile_impure, 0, len);
+
+  S_immobilize_object(v);
+  
+  for (i = 0; i < len; i++)
+    INITVECTIT(v, i) = fill;
+
+  if (!(len & 0x1)) {
+    /* pad, since we're not going to copy on a GC */
+    INITVECTIT(v, len) = FIX(0);
+  }
+
+  return v;
+}
+
+static ptr s_make_reference_bytevector(uptr len) {
+  ptr b = S_bytevector2(get_thread_context(), len, space_reference_array);
+
+  /* In case of a dirty sweep at the current allocation site, we need
+     to clear any padding bytes, either internal or for alignment */
+  len = (len + ptr_bytes - 1) >> log2_ptr_bytes;
+#ifdef bytevector_pad_disp
+  *(ptr *)TO_VOIDP((uptr)b+bytevector_pad_disp) = FIX(0);
+  if (len & 1) len++;
+#else
+  if (!(len & 1)) len++;
+#endif
+
+  memset(&BVIT(b, 0), 0, len << log2_ptr_bytes);
+
+  return b;
+}
+
+static ptr s_make_immobile_reference_bytevector(uptr len) { 
+  ptr b = s_make_reference_bytevector(len);
+  S_immobilize_object(b);
+  return b;  
+}
+
+static ptr s_reference_bytevectorp(ptr p) {
+  seginfo *si;
+  return (si = MaybeSegInfo(ptr_get_segment(p))) != NULL && si->space == space_reference_array ? Strue : Sfalse;
+}
+
+static ptr s_reference_star_address_object(ptr p) {
+  if (p == (ptr)0)
+    return Sfalse;
+  else if (MaybeSegInfo(addr_get_segment(p)))
+    return (ptr)((uptr)p - reference_disp);
+  else
+    return Sunsigned((uptr)p);
+}
+
+static ptr s_bytevector_reference_star_ref(ptr p, uptr offset) {
+  return s_reference_star_address_object(*(ptr *)&BVIT(p, offset));
+}
+
+static ptr s_oblist() {
   ptr ls = Snil;
   iptr idx = S_G.oblist_length;
   bucket *b;
@@ -221,7 +322,7 @@ static ptr s_decode_float(ptr x) {
 }
 
 #define FMTBUFSIZE 120
-#define CHUNKADDRLT(x, y) (((chunkinfo *)(Scar(x)))->addr < ((chunkinfo *)(Scar(y)))->addr)
+#define CHUNKADDRLT(x, y) (((chunkinfo *)TO_VOIDP(Scar(x)))->addr < ((chunkinfo *)TO_VOIDP(Scar(y)))->addr)
 mkmergesort(sort_chunks, merge_chunks, ptr, Snil, CHUNKADDRLT, INITCDR)
 
 static ptr sorted_chunk_list(void) {
@@ -229,13 +330,26 @@ static ptr sorted_chunk_list(void) {
 
   for (i = PARTIAL_CHUNK_POOLS; i >= -1; i -= 1) {
     for (chunk = (i == -1) ? S_chunks_full : S_chunks[i]; chunk != NULL; chunk = chunk->next) {
-      ls = Scons(chunk, ls);
+      ls = Scons(TO_PTR(chunk), ls);
+      n += 1;
+    }
+    for (chunk = (i == -1) ? S_code_chunks_full : S_code_chunks[i]; chunk != NULL; chunk = chunk->next) {
+      ls = Scons(TO_PTR(chunk), ls);
       n += 1;
     }
   }
 
   return sort_chunks(ls, n);
 }
+
+#ifdef __MINGW32__
+# include <inttypes.h>
+# define PHtx "%" PRIxPTR
+# define Ptd "%" PRIdPTR
+#else
+# define PHtx "%#tx"
+# define Ptd "%td"
+#endif
 
 #ifdef segment_t2_bits
 static void s_show_info(FILE *out) {
@@ -259,9 +373,9 @@ static void s_show_info(FILE *out) {
       }
     }
   }
-  addrwidth = snprintf(fmtbuf, FMTBUFSIZE, "%#tx", (ptrdiff_t)max_addr);
+  addrwidth = snprintf(fmtbuf, FMTBUFSIZE, ""PHtx"", (ptrdiff_t)max_addr);
   if (addrwidth < (INT)strlen(addrtitle)) addrwidth = (INT)strlen(addrtitle);
-  byteswidth = snprintf(fmtbuf, FMTBUFSIZE, "%#tx", (ptrdiff_t)(sizeof(t1table) > sizeof(t2table) ? sizeof(t1table) : sizeof(t2table)));
+  byteswidth = snprintf(fmtbuf, FMTBUFSIZE, ""PHtx"", (ptrdiff_t)(sizeof(t1table) > sizeof(t2table) ? sizeof(t1table) : sizeof(t2table)));
   snprintf(fmtbuf, FMTBUFSIZE, "%%s  %%-%ds  %%-%ds\n\n", addrwidth, byteswidth);
   fprintf(out, fmtbuf, "level", addrtitle, "bytes");
   snprintf(fmtbuf, FMTBUFSIZE, "%%-5d  %%#0%dtx  %%#0%dtx\n", addrwidth, byteswidth);
@@ -284,11 +398,11 @@ static void s_show_info(FILE *out) {
       if ((void *)t1t > max_addr) max_addr = (void *)t1t;
     }
   }
-  addrwidth = 1 + snprintf(fmtbuf, FMTBUFSIZE, "%#tx", (ptrdiff_t)max_addr);
+  addrwidth = 1 + snprintf(fmtbuf, FMTBUFSIZE, ""PHtx"", (ptrdiff_t)max_addr);
   if (addrwidth < (INT)strlen(addrtitle) + 1) addrwidth = (INT)strlen(addrtitle) + 1;
   snprintf(fmtbuf, FMTBUFSIZE, "%%s %%-%ds %%s\n\n", addrwidth);
   fprintf(out, fmtbuf, "level", addrtitle, "bytes");
-  snprintf(fmtbuf, FMTBUFSIZE, "%%-5d %%#0%dtx %%#tx\n", (ptrdiff_t)addrwidth);
+  snprintf(fmtbuf, FMTBUFSIZE, "%%-5d %%#0%dtx %"PHtx"\n", (ptrdiff_t)addrwidth);
   for (i2 = 0; i2 < SEGMENT_T2_SIZE; i2 += 1) {
     t1table *t1t = S_segment_info[i2];
     if (t1t != NULL) {
@@ -310,19 +424,19 @@ static void s_show_chunks(FILE *out, ptr sorted_chunks) {
   ptr ls;
 
   for (ls = sorted_chunks; ls != Snil; ls = Scdr(ls)) {
-    chunk = Scar(ls);
+    chunk = TO_VOIDP(Scar(ls));
     max_addr = chunk->addr;
     if (chunk->segs > max_segs) max_segs = chunk->segs;
     if ((void *)chunk > max_header_addr) max_header_addr = (void *)chunk;
   }
 
-  addrwidth = (INT)snprintf(fmtbuf, FMTBUFSIZE, "%#tx", (ptrdiff_t)max_addr);
+  addrwidth = (INT)snprintf(fmtbuf, FMTBUFSIZE, ""PHtx"", (ptrdiff_t)max_addr);
   if (addrwidth < (INT)strlen(addrtitle)) addrwidth = (INT)strlen(addrtitle);
-  byteswidth = (INT)snprintf(fmtbuf, FMTBUFSIZE, "%#tx", (ptrdiff_t)(max_segs * bytes_per_segment));
+  byteswidth = (INT)snprintf(fmtbuf, FMTBUFSIZE, ""PHtx"", (ptrdiff_t)(max_segs * bytes_per_segment));
   if (byteswidth < (INT)strlen(bytestitle)) byteswidth = (INT)strlen(bytestitle);
-  headerbyteswidth = (INT)snprintf(fmtbuf, FMTBUFSIZE, "%#tx", (ptrdiff_t)(sizeof(chunkinfo) + sizeof(seginfo) * max_segs));
-  headeraddrwidth = (INT)snprintf(fmtbuf, FMTBUFSIZE, "%#tx", (ptrdiff_t)max_header_addr);
-  segswidth = (INT)snprintf(fmtbuf, FMTBUFSIZE, "%td", (ptrdiff_t)max_segs);
+  headerbyteswidth = (INT)snprintf(fmtbuf, FMTBUFSIZE, ""PHtx"", (ptrdiff_t)(sizeof(chunkinfo) + sizeof(seginfo) * max_segs));
+  headeraddrwidth = (INT)snprintf(fmtbuf, FMTBUFSIZE, ""PHtx"", (ptrdiff_t)max_header_addr);
+  segswidth = (INT)snprintf(fmtbuf, FMTBUFSIZE, ""Ptd"", (ptrdiff_t)max_segs);
   headerwidth = headerbyteswidth + headeraddrwidth + 13;
 
   snprintf(fmtbuf, FMTBUFSIZE, "%%-%ds %%-%ds %%-%ds %%s\n\n", addrwidth, byteswidth, headerwidth);
@@ -330,7 +444,7 @@ static void s_show_chunks(FILE *out, ptr sorted_chunks) {
   snprintf(fmtbuf, FMTBUFSIZE, "%%#0%dtx %%#0%dtx (+ %%#0%dtx bytes @ %%#0%dtx) %%%dtd of %%%dtd\n",
       addrwidth, byteswidth, headerbyteswidth, headeraddrwidth, segswidth, segswidth);
   for (ls = sorted_chunks; ls != Snil; ls = Scdr(ls)) {
-    chunk = Scar(ls);
+    chunk = TO_VOIDP(Scar(ls));
     fprintf(out, fmtbuf, (ptrdiff_t)chunk->addr, (ptrdiff_t)chunk->bytes,
         (ptrdiff_t)(sizeof(chunkinfo) + sizeof(seginfo) * chunk->segs),
         (ptrdiff_t)chunk, (ptrdiff_t)chunk->nused_segs, (ptrdiff_t)chunk->segs);
@@ -351,8 +465,10 @@ static void s_showalloc(IBOOL show_dump, const char *outfn) {
   static char spacechar[space_total+1] = { alloc_space_chars, '?', 't' };
   chunkinfo *chunk; seginfo *si; ISPC s; IGEN g;
   ptr sorted_chunks;
+  ptr tc = get_thread_context();
 
-  tc_mutex_acquire()
+  tc_mutex_acquire();
+  alloc_mutex_acquire();
 
   if (outfn == NULL) {
     out = stderr;
@@ -367,10 +483,10 @@ static void s_showalloc(IBOOL show_dump, const char *outfn) {
     if (out == NULL) {
       ptr msg = S_strerror(errno);
       if (msg != Sfalse) {
-        tc_mutex_release()
+        tc_mutex_release();
         S_error2("fopen", "open of ~s failed: ~a", Sstring_utf8(outfn, -1), msg);
       } else {
-        tc_mutex_release()
+        tc_mutex_release();
         S_error1("fopen", "open of ~s failed", Sstring_utf8(outfn, -1));
       }
     }
@@ -384,8 +500,8 @@ static void s_showalloc(IBOOL show_dump, const char *outfn) {
       /* add in bytes previously recorded */
       bytes[g][s] += S_G.bytes_of_space[g][s];
       /* add in bytes in active segments */
-      if (S_G.next_loc[g][s] != FIX(0))
-        bytes[g][s] += (char *)S_G.next_loc[g][s] - (char *)S_G.base_loc[g][s];
+      if (THREAD_GC(tc)->next_loc[g][s] != FIX(0))
+        bytes[g][s] += (uptr)THREAD_GC(tc)->next_loc[g][s] - (uptr)THREAD_GC(tc)->base_loc[g][s];
     }
   }
 
@@ -410,7 +526,7 @@ static void s_showalloc(IBOOL show_dump, const char *outfn) {
 
   for (g = 0; g <= generation_total; INCRGEN(g)) {
     if (count[g][space_total] != 0) {
-      int n = 1 + snprintf(fmtbuf, FMTBUFSIZE, "%td", (ptrdiff_t)count[g][space_total]);
+      int n = 1 + snprintf(fmtbuf, FMTBUFSIZE, ""Ptd"", (ptrdiff_t)count[g][space_total]);
       column_size[g] = n < 8 ? 8 : n;
     }
   }
@@ -468,8 +584,8 @@ static void s_showalloc(IBOOL show_dump, const char *outfn) {
     }
   }
 
-  fprintf(out, "segment size = %#tx bytes.  percentages show the portion actually occupied.\n", (ptrdiff_t)bytes_per_segment);
-  fprintf(out, "%td segments are presently reserved for future allocation or collection.\n", (ptrdiff_t)S_G.number_of_empty_segments);
+  fprintf(out, "segment size = "PHtx" bytes.  percentages show the portion actually occupied.\n", (ptrdiff_t)bytes_per_segment);
+  fprintf(out, ""Ptd" segments are presently reserved for future allocation or collection.\n", (ptrdiff_t)S_G.number_of_empty_segments);
 
   fprintf(out, "\nMemory chunks obtained and not returned to the O/S:\n\n");
   sorted_chunks = sorted_chunk_list();
@@ -492,12 +608,12 @@ static void s_showalloc(IBOOL show_dump, const char *outfn) {
 
     for (ls = sorted_chunks; ls != Snil; ls = Scdr(ls)) {
       iptr last_seg;
-      chunk = Scar(ls);
+      chunk = TO_VOIDP(Scar(ls));
       last_seg = chunk->base + chunk->segs;
       if (last_seg > max_seg) max_seg = last_seg;
     }
 
-    segwidth = snprintf(fmtbuf, FMTBUFSIZE, "%#tx ", (ptrdiff_t)max_seg);
+    segwidth = snprintf(fmtbuf, FMTBUFSIZE, ""PHtx" ", (ptrdiff_t)max_seg);
     segsperline = (99 - segwidth) & ~0xf;
     
     snprintf(fmtbuf, FMTBUFSIZE, "  %%-%ds", segwidth);
@@ -505,9 +621,9 @@ static void s_showalloc(IBOOL show_dump, const char *outfn) {
 
     fprintf(out, "\nMap of occupied segments:\n");
     for (ls = sorted_chunks; ls != Snil; ls = Scdr(ls)) {
-      seginfo *si; ISPC real_s;
+      seginfo *si;
 
-      chunk = Scar(ls);
+      chunk = TO_VOIDP(Scar(ls));
 
       if (chunk->base != next_base && segsprinted != 0) {
         for (;;) {
@@ -525,7 +641,7 @@ static void s_showalloc(IBOOL show_dump, const char *outfn) {
       }
 
       if (chunk->base > next_base && next_base != 0) {
-        fprintf(out, "\n-------- skipping %td segments --------", (ptrdiff_t)(chunk->base - next_base));
+        fprintf(out, "\n-------- skipping "Ptd" segments --------", (ptrdiff_t)(chunk->base - next_base));
       }
 
       for (i = 0; i < chunk->segs; i += 1) {
@@ -542,11 +658,9 @@ static void s_showalloc(IBOOL show_dump, const char *outfn) {
         }
 
         si = &chunk->sis[i];
-        real_s = si->space;
-        s = real_s & ~(space_locked | space_old);
+        s = si->space;
         if (s < 0 || s > max_space) s = space_bogus;
-        spaceline[segwidth+segsprinted] =
-          real_s & (space_locked | space_old) ? toupper(spacechar[s]) : spacechar[s];
+        spaceline[segwidth+segsprinted] = spacechar[s];
 
         g = si->generation;
         genline[segwidth+segsprinted] =
@@ -579,7 +693,8 @@ static void s_showalloc(IBOOL show_dump, const char *outfn) {
     fclose(out);
   }
 
-  tc_mutex_release()
+  alloc_mutex_release();
+  tc_mutex_release();
 }
 
 #include <signal.h>
@@ -770,7 +885,18 @@ static ptr s_process(char *s, IBOOL stderrp) {
         CLOSE(0); if (dup(tofds[0]) != 0) _exit(1);
         CLOSE(1); if (dup(fromfds[1]) != 1) _exit(1);
         CLOSE(2); if (dup(stderrp ? errfds[1] : 1) != 2) _exit(1);
+#ifndef __GNU__ /* Hurd */
         {INT i; for (i = 3; i < NOFILE; i++) (void)CLOSE(i);}
+#else /* __GNU__ Hurd: no NOFILE */
+        {
+          INT i;
+          struct rlimit rlim;
+          getrlimit(RLIMIT_NOFILE, &rlim);
+          for (i = 3; i < rlim.rlim_cur; i++) {
+            (void)CLOSE(i);
+          }
+        }
+#endif /* __GNU__ Hurd */
         execl("/bin/sh", "/bin/sh", "-c", s, NULL);
         _exit(1) /* only if execl fails */;
         /*NOTREACHED*/
@@ -814,46 +940,82 @@ static I32 s_chdir(const char *inpath) {
 
 #ifdef GETWD
 static char *s_getwd() {
-  return GETWD((char *)&BVIT(S_bytevector(PATH_MAX), 0));
+  return GETWD(TO_VOIDP(&BVIT(S_bytevector(PATH_MAX), 0)));
+}
+#elif defined(__GNU__) /* Hurd: no PATH_MAX */
+static char *s_getwd() {
+  char *path;
+  size_t len;
+  ptr bv;
+  path = getcwd(NULL, 0);
+  if (NULL == path) {
+    return NULL;
+  } else {
+    len = strlen(path);
+    bv = S_bytevector(len);
+    memcpy(TO_VOIDP(&BVIT(bv, 0)), path, len);
+    free(path);
+    return TO_VOIDP(&BVIT(bv, 0));
+  }
 }
 #endif /* GETWD */
 
 static ptr s_set_code_byte(ptr p, ptr n, ptr x) {
     I8 *a;
+    ptr tc = get_thread_context();
 
-    a = (I8 *)((uptr)p + UNFIX(n));
+    a = (I8 *)TO_VOIDP((uptr)p + UNFIX(n));
+    S_thread_start_code_write(tc, 0, 0, TO_VOIDP(a), sizeof(I8));
     *a = (I8)UNFIX(x);
+    S_thread_end_code_write(tc, 0, 0, TO_VOIDP(a), sizeof(I8));
+
     return Svoid;
 }
 
 static ptr s_set_code_word(ptr p, ptr n, ptr x) {
     I16 *a;
+    ptr tc = get_thread_context();
 
-    a = (I16 *)((uptr)p + UNFIX(n));
+    a = (I16 *)TO_VOIDP((uptr)p + UNFIX(n));
+    S_thread_start_code_write(tc, 0, 0, TO_VOIDP(a), sizeof(I16));
     *a = (I16)UNFIX(x);
+    S_thread_end_code_write(tc, 0, 0, TO_VOIDP(a), sizeof(I16));
+
     return Svoid;
 }
 
 static ptr s_set_code_long(ptr p, ptr n, ptr x) {
     I32 *a;
+    ptr tc = get_thread_context();
 
-    a = (I32 *)((uptr)p + UNFIX(n));
+    a = (I32 *)TO_VOIDP((uptr)p + UNFIX(n));
+    S_thread_start_code_write(tc, 0, 0, TO_VOIDP(a), sizeof(I32));
     *a = (I32)(Sfixnump(x) ? UNFIX(x) : Sinteger_value(x));
+    S_thread_end_code_write(tc, 0, 0, TO_VOIDP(a), sizeof(I32));
+
     return Svoid;
 }
 
 static void s_set_code_long2(ptr p, ptr n, ptr h, ptr l) {
     I32 *a;
+    ptr tc = get_thread_context();
 
-    a = (I32 *)((uptr)p + UNFIX(n));
+    a = (I32 *)TO_VOIDP((uptr)p + UNFIX(n));
+    S_thread_start_code_write(tc, 0, 0, TO_VOIDP(a), sizeof(I32));
     *a = (I32)((UNFIX(h) << 16) + UNFIX(l));
+    S_thread_end_code_write(tc, 0, 0, TO_VOIDP(a), sizeof(I32));
 }
 
 static ptr s_set_code_quad(ptr p, ptr n, ptr x) {
-    I64 *a;
+  I64 *a, val;
+    ptr tc = get_thread_context();
 
-    a = (I64 *)((uptr)p + UNFIX(n));
-    *a = Sfixnump(x) ? UNFIX(x) : S_int64_value("\\#set-code-quad!", x);
+    a = (I64 *)TO_VOIDP((uptr)p + UNFIX(n));
+    S_thread_start_code_write(tc, 0, 0, TO_VOIDP(a), sizeof(I64));
+    val = Sfixnump(x) ? UNFIX(x) : S_int64_value("\\#set-code-quad!", x);
+    memcpy(a, &val, sizeof(I64));
+    S_thread_end_code_write(tc, 0, 0, TO_VOIDP(a), sizeof(I64));
+
     return Svoid;
 }
 
@@ -861,23 +1023,23 @@ static ptr s_set_reloc(ptr p, ptr n, ptr e) {
     iptr *a;
 
     a = (iptr *)(&RELOCIT(CODERELOC(p), UNFIX(n)));
-    *a = Sfixnump(e) ? UNFIX(e) : Sinteger_value(e);
+    STORE_UNALIGNED_UPTR(a, (uptr)(Sfixnump(e) ? UNFIX(e) : Sinteger_value(e)));
+
     return e;
 }
 
-static ptr s_flush_instruction_cache(void) {
-    tc_mutex_acquire()
+static ptr s_flush_instruction_cache() {
     S_flush_instruction_cache(get_thread_context());
-    tc_mutex_release()
     return Svoid;
 }
 
 static ptr s_make_code(iptr flags, iptr free, ptr name, ptr arity_mark, iptr n, ptr info, ptr pinfos) {
     ptr co;
+    ptr tc = get_thread_context();
 
-    tc_mutex_acquire()
-    co = S_code(get_thread_context(), type_code | (flags << code_flags_offset), n);
-    tc_mutex_release()
+    S_thread_start_code_write(tc, 0, 0, NULL, 0);
+
+    co = S_code(tc, type_code | (flags << code_flags_offset), n);
     CODEFREE(co) = free;
     CODENAME(co) = name;
     CODEARITYMASK(co) = arity_mark;
@@ -886,12 +1048,19 @@ static ptr s_make_code(iptr flags, iptr free, ptr name, ptr arity_mark, iptr n, 
     if (pinfos != Snil) {
       S_G.profile_counters = Scons(S_weak_cons(co, pinfos), S_G.profile_counters);
     }
+
+    S_thread_end_code_write(tc, 0, 0, NULL, 0);
+
     return co;
 }
 
 static ptr s_make_reloc_table(ptr codeobj, ptr n) {
+    ptr tc = get_thread_context();
+
+    S_thread_start_code_write(tc, 0, 0, TO_VOIDP(&CODERELOC(codeobj)), sizeof(ptr));
     CODERELOC(codeobj) = S_relocation_table(UNFIX(n));
     RELOCCODE(CODERELOC(codeobj)) = codeobj;
+    S_thread_end_code_write(tc, 0, 0, TO_VOIDP(&CODERELOC(codeobj)), sizeof(ptr));
     return Svoid;
 }
 
@@ -961,7 +1130,28 @@ static ptr s_strings_to_gensym(ptr pname_str, ptr uname_str) {
                    pname_str, uname_str);
 }
 
-static ptr s_mkdir(const char *inpath, INT mode) {
+ptr S_uninterned(ptr x) {
+  ptr sym;
+  static uptr hc;
+
+  require(Sstringp(x),"string->uninterned-symbol","~s is not a string",x);
+  if (!(STRTYPE(x) & string_immutable_flag))
+    x = S_mkstring(&STRIT(x, 0), Sstring_length(x));
+
+  sym = S_symbol(Scons(x, Sfalse));
+
+  /* Wraparound on `hc++` is ok. It's technically illegal with
+     threads, since multiple thread might increment `hc` at the same
+     time; we don't care if we miss an increment sometimes, and we
+     assume compilers won't take this as a license for arbitrarily bad
+     behavior: */
+  hc++;
+  INITSYMHASH(sym) = FIX(hc);
+
+  return sym;
+}
+
+static ptr s_mkdir(const char *inpath, WIN32_UNUSED INT mode) {
   INT status; ptr res; char *path;
 
   path = S_malloc_pathname(inpath);
@@ -1041,7 +1231,7 @@ static ptr s_getmod(const char *inpath, IBOOL followp) {
   return res;
 }
 
-static ptr s_path_atime(const char *inpath, IBOOL followp) {
+static ptr s_path_atime(const char *inpath, WIN32_UNUSED IBOOL followp) {
 #ifdef WIN32
   ptr res;
   wchar_t *wpath;
@@ -1081,7 +1271,7 @@ static ptr s_path_atime(const char *inpath, IBOOL followp) {
 #endif /* WIN32 */
 }
 
-static ptr s_path_ctime(const char *inpath, IBOOL followp) {
+static ptr s_path_ctime(const char *inpath, WIN32_UNUSED IBOOL followp) {
 #ifdef WIN32
   ptr res;
   wchar_t *wpath;
@@ -1121,7 +1311,7 @@ static ptr s_path_ctime(const char *inpath, IBOOL followp) {
 #endif /* WIN32 */
 }
 
-static ptr s_path_mtime(const char *inpath, IBOOL followp) {
+static ptr s_path_mtime(const char *inpath, WIN32_UNUSED IBOOL followp) {
 #ifdef WIN32
   ptr res;
   wchar_t *wpath;
@@ -1231,8 +1421,8 @@ static ptr s_set_collect_trip_bytes(ptr n) {
     return Svoid;
 }
 
-static void c_exit(UNUSED I32 status) {
-    S_abnormal_exit();
+static void c_exit(I32 status) {
+    exit(status);
 }
 
 static double s_mod(double x, double y) { return fmod(x, y); }
@@ -1240,6 +1430,8 @@ static double s_mod(double x, double y) { return fmod(x, y); }
 static double s_exp(double x) { return exp(x); }
 
 static double s_log(double x) { return log(x); }
+
+static double s_log2(double x, double y) { return log(x) / log(y); }
 
 #if (machine_type == machine_type_i3fb || machine_type == machine_type_ti3fb)
 #include <ieeefp.h>
@@ -1265,11 +1457,26 @@ static double s_pow(double x, double y) { return powl(x, y); }
 static double s_pow(double x, double y) { return pow(x, y); }
 #endif /* i3fb/ti3fb */
 
+#ifdef __MINGW32__
+/* cos() and sin() do not handle large values nicely,
+   so use fmod() to get reasonably close */
+# define INTO_SINCOS_RANGE(x) (((x > 1e9) || (x < -1e9)) \
+			       ? fmod(x, 2*atan2(0.0, -1.0)) \
+			       : x)
+/* asinh() and atanh() sometimes get zero sign wrong */
+# define CHECK_ASINTAN_ZERO(x, e) ((x == 0.0) \
+                                   ? (signbit(x) ? -0.0 : 0.0)  \
+                                   : e)
+#else
+# define INTO_SINCOS_RANGE(x) x
+# define CHECK_ASINTAN_ZERO(x, e) e
+#endif
+
 static double s_sqrt(double x) { return sqrt(x); }
 
-static double s_sin(double x) { return sin(x); }
+static double s_sin(double x) { return sin(INTO_SINCOS_RANGE(x)); }
 
-static double s_cos(double x) { return cos(x); }
+static double s_cos(double x) { return cos(INTO_SINCOS_RANGE(x)); }
 
 static double s_tan(double x) { return tan(x); }
 
@@ -1291,14 +1498,18 @@ static double s_floor(double x) { return floor(x); }
 
 static double s_ceil(double x) { return ceil(x); }
 
+static double s_round(double x) { return rint(x); }
+
+static double s_trunc(double x) { return trunc(x); }
+
 static double s_hypot(double x, double y) { return HYPOT(x, y); }
 
 #ifdef ARCHYPERBOLIC
-static double s_asinh(double x) { return asinh(x); }
+static double s_asinh(double x) { return CHECK_ASINTAN_ZERO(x, asinh(x)); }
 
-static double s_acosh(double x){ return acosh(x); }
+static double s_acosh(double x) { return acosh(x); }
 
-static double s_atanh(double x) { return atanh(x); }
+static double s_atanh(double x) { return CHECK_ASINTAN_ZERO(x, atanh(x)); }
 #endif /* ARCHHYPERBOLIC */
 
 #ifdef LOG1P
@@ -1348,32 +1559,38 @@ static void s_putenv(char *name, char *value) {
 
 #ifdef PTHREADS
 /* backdoor thread is for testing thread creation by Sactivate_thread */
-#define display(s) { const char *S = (s); if (WRITE(1, S, (unsigned int)strlen(S))) {} }
-static s_thread_rv_t s_backdoor_thread_start(void *p) {
-  display("backdoor thread started\n")
+#define display(s) do { const char *S = (s); if (WRITE(1, S, (unsigned int)strlen(S))) {} } while(0)
+static s_thread_rv_t s_backdoor_thread_start(void *p_in) {
+  ptr p = TO_PTR(p_in);
+  display("backdoor thread started\n");
   (void) Sactivate_thread();
-  display("thread activated\n")
-  Scall0((ptr)p);
+  display("thread activated\n");
+  Scall0(Sboxp(p) ? Sunbox(p) : p);
   (void) Sdeactivate_thread();
-  display("thread deactivated\n")
+  display("thread deactivated\n");
   (void) Sactivate_thread();
-  display("thread reactivated\n")
-  Scall0((ptr)p);
+  display("thread reactivated\n");
+  Scall0(Sboxp(p) ? Sunbox(p) : p);
   Sdestroy_thread();
-  display("thread destroyed\n")
+  display("thread destroyed\n");
   s_thread_return;
 }
 
 static iptr s_backdoor_thread(ptr p) {
   display("creating thread\n");
-  return s_thread_create(s_backdoor_thread_start, (void *)p);
+  return s_thread_create(s_backdoor_thread_start, TO_VOIDP(p));
 }
 
-static ptr s_threads(void) {
-  return S_threads;
+static ptr s_threads() {
+  ptr ts;
+  tc_mutex_acquire();
+  ts = S_threads;
+  tc_mutex_release();
+  return ts;
 }
 
-static void s_mutex_acquire(scheme_mutex_t *m) {
+static void s_mutex_acquire(ptr m_p) {
+  scheme_mutex_t *m = TO_VOIDP(m_p);
   ptr tc = get_thread_context();
 
   if (m == &S_tc_mutex) {
@@ -1392,17 +1609,46 @@ static void s_mutex_acquire(scheme_mutex_t *m) {
   }
 }
 
-static ptr s_mutex_acquire_noblock(scheme_mutex_t *m) {
+static ptr s_mutex_acquire_noblock(ptr m_p) {
+  scheme_mutex_t *m = TO_VOIDP(m_p);
   return S_mutex_tryacquire(m) == 0 ? Strue : Sfalse;
 }
 
-static void s_condition_broadcast(s_thread_cond_t *c) {
+static void s_mutex_release(ptr m) {
+  S_mutex_release(TO_VOIDP(m));
+}
+
+static IBOOL s_mutex_is_owner(ptr m) {
+  return S_mutex_is_owner(TO_VOIDP(m));
+}
+
+static void s_condition_broadcast(ptr c_p) {
+  s_thread_cond_t *c = TO_VOIDP(c_p);
   s_thread_cond_broadcast(c);
 }
 
-static void s_condition_signal(s_thread_cond_t *c) {
+static void s_condition_signal(ptr c_p) {
+  s_thread_cond_t *c = TO_VOIDP(c_p);
   s_thread_cond_signal(c);
 }
+
+static void s_condition_free(ptr c) {
+  S_condition_free(TO_VOIDP(c));
+}
+
+static IBOOL s_condition_wait(ptr c, ptr m, ptr t) {
+  return S_condition_wait(TO_VOIDP(c), TO_VOIDP(m), t);
+}
+
+
+/* called with tc mutex held */
+static void s_thread_preserve_ownership(ptr tc) {
+  if (!THREAD_GC(tc)->preserve_ownership) {
+    THREAD_GC(tc)->preserve_ownership = 1;
+    S_num_preserve_ownership_threads++;
+  }
+}
+
 #endif
 
 static ptr s_profile_counters(void) {
@@ -1433,20 +1679,37 @@ static ptr s_profile_release_counters(void) {
 void S_dump_tc(ptr tc) {
   INT i;
 
-  printf("AC0=%p AC1=%p SFP=%p CP=%p\n", AC0(tc), AC1(tc), SFP(tc), CP(tc));
-  printf("ESP=%p AP=%p EAP=%p\n", ESP(tc), AP(tc), EAP(tc));
-  printf("TRAP=%p XP=%p YP=%p REAL_EAP=%p\n", TRAP(tc), XP(tc), YP(tc), REAL_EAP(tc));
-  printf("CCHAIN=%p RANDOMSEED=%ld SCHEMESTACK=%p STACKCACHE=%p\n", CCHAIN(tc), (long)RANDOMSEED(tc), SCHEMESTACK(tc), STACKCACHE(tc));
-  printf("STACKLINK=%p SCHEMESTACKSIZE=%ld WINDERS=%p U=%p\n", STACKLINK(tc), (long)SCHEMESTACKSIZE(tc), WINDERS(tc), U(tc));
-  printf("V=%p W=%p X=%p Y=%p\n", V(tc), W(tc), X(tc), Y(tc));
-  printf("SOMETHING=%p KBDPEND=%p SIGPEND=%p TIMERTICKS=%p\n", SOMETHINGPENDING(tc), KEYBOARDINTERRUPTPENDING(tc), SIGNALINTERRUPTPENDING(tc), TIMERTICKS(tc));
-  printf("DISABLECOUNT=%p PARAMETERS=%p\n", DISABLECOUNT(tc), PARAMETERS(tc));
+  printf("AC0=%p AC1=%p SFP=%p CP=%p\n", TO_VOIDP(AC0(tc)), TO_VOIDP(AC1(tc)), TO_VOIDP(SFP(tc)), TO_VOIDP(CP(tc)));
+  printf("ESP=%p AP=%p EAP=%p\n", TO_VOIDP(ESP(tc)), TO_VOIDP(AP(tc)), TO_VOIDP(EAP(tc)));
+  printf("TRAP=%p XP=%p YP=%p REAL_EAP=%p\n", TO_VOIDP(TRAP(tc)), TO_VOIDP(XP(tc)), TO_VOIDP(YP(tc)), TO_VOIDP(REAL_EAP(tc)));
+  printf("CCHAIN=%p RANDOMSEED=%ld SCHEMESTACK=%p STACKCACHE=%p\n", TO_VOIDP(CCHAIN(tc)), (long)RANDOMSEED(tc),
+         TO_VOIDP(SCHEMESTACK(tc)), TO_VOIDP(STACKCACHE(tc)));
+  printf("STACKLINK=%p SCHEMESTACKSIZE=%ld WINDERS=%p U=%p\n", TO_VOIDP(STACKLINK(tc)), (long)SCHEMESTACKSIZE(tc), TO_VOIDP(WINDERS(tc)), TO_VOIDP(U(tc)));
+  printf("V=%p W=%p X=%p Y=%p\n", TO_VOIDP(V(tc)), TO_VOIDP(W(tc)), TO_VOIDP(X(tc)), TO_VOIDP(Y(tc)));
+  printf("SOMETHING=%p KBDPEND=%p SIGPEND=%p TIMERTICKS=%p\n", TO_VOIDP(SOMETHINGPENDING(tc)), TO_VOIDP(KEYBOARDINTERRUPTPENDING(tc)),
+         TO_VOIDP(SIGNALINTERRUPTPENDING(tc)), TO_VOIDP(TIMERTICKS(tc)));
+  printf("DISABLECOUNT=%p PARAMETERS=%p\n", TO_VOIDP(DISABLECOUNT(tc)), TO_VOIDP(PARAMETERS(tc)));
   for (i = 0 ; i < virtual_register_count ; i += 1) {
-    printf("VIRTREG[%d]=%p", i, VIRTREG(tc, i));
+    printf("VIRTREG[%d]=%p", i, TO_VOIDP(VIRTREG(tc, i)));
     if ((i & 0x11) == 0x11 || i == virtual_register_count - 1) printf("\n");
   }
   fflush(stdout);
 }
+
+static IBOOL s_native_little_endian() {
+#define big 0
+#define little 1
+#ifdef PORTABLE_BYTECODE
+# ifdef PORTABLE_BYTECODE_BIGENDIAN
+#  define unknown big
+# else
+#  define unknown little
+# endif
+#endif
+  return native_endianness == little;
+}
+
+#define proc2ptr(x) TO_PTR(x)
 
 void S_prim5_init(void) {
     if (!S_boot_time) return;
@@ -1458,13 +1721,15 @@ void S_prim5_init(void) {
     Sforeign_symbol("(cs)backdoor_thread", (void *)s_backdoor_thread);
     Sforeign_symbol("(cs)threads", (void *)s_threads);
     Sforeign_symbol("(cs)mutex_acquire", (void *)s_mutex_acquire);
-    Sforeign_symbol("(cs)mutex_release", (void *)S_mutex_release);
+    Sforeign_symbol("(cs)mutex_release", (void *)s_mutex_release);
     Sforeign_symbol("(cs)mutex_acquire_noblock", (void *)s_mutex_acquire_noblock);
+    Sforeign_symbol("(cs)mutex_is_owner", (void *)s_mutex_is_owner);
     Sforeign_symbol("(cs)make_condition", (void *)S_make_condition);
-    Sforeign_symbol("(cs)condition_free", (void *)S_condition_free);
+    Sforeign_symbol("(cs)condition_free", (void *)s_condition_free);
     Sforeign_symbol("(cs)condition_broadcast", (void *)s_condition_broadcast);
     Sforeign_symbol("(cs)condition_signal", (void *)s_condition_signal);
-    Sforeign_symbol("(cs)condition_wait", (void *)S_condition_wait);
+    Sforeign_symbol("(cs)condition_wait", (void *)s_condition_wait);
+    Sforeign_symbol("(cs)thread_preserve_ownership", (void *)s_thread_preserve_ownership);
 #endif
     Sforeign_symbol("(cs)s_addr_in_heap", (void *)s_addr_in_heap);
     Sforeign_symbol("(cs)s_ptr_in_heap", (void *)s_ptr_in_heap);
@@ -1474,6 +1739,14 @@ void S_prim5_init(void) {
     Sforeign_symbol("(cs)s_weak_pairp", (void *)s_weak_pairp);
     Sforeign_symbol("(cs)s_ephemeron_cons", (void *)s_ephemeron_cons);
     Sforeign_symbol("(cs)s_ephemeron_pairp", (void *)s_ephemeron_pairp);
+    Sforeign_symbol("(cs)box_immobile", (void *)s_box_immobile);
+    Sforeign_symbol("(cs)make_immobile_vector", (void *)s_make_immobile_vector);
+    Sforeign_symbol("(cs)make_immobile_bytevector", (void *)s_make_immobile_bytevector);
+    Sforeign_symbol("(cs)s_make_reference_bytevector", (void *)s_make_reference_bytevector);
+    Sforeign_symbol("(cs)s_make_immobile_reference_bytevector", (void *)s_make_immobile_reference_bytevector);
+    Sforeign_symbol("(cs)s_reference_bytevectorp", (void *)s_reference_bytevectorp);
+    Sforeign_symbol("(cs)s_reference_star_address_object", (void *)s_reference_star_address_object);
+    Sforeign_symbol("(cs)s_bytevector_reference_star_ref", (void *)s_bytevector_reference_star_ref);
     Sforeign_symbol("(cs)continuation_depth", (void *)S_continuation_depth);
     Sforeign_symbol("(cs)single_continuation", (void *)S_single_continuation);
     Sforeign_symbol("(cs)c_exit", (void *)c_exit);
@@ -1496,6 +1769,9 @@ void S_prim5_init(void) {
     Sforeign_symbol("(cs)s_intern3", (void *)s_intern3);
     Sforeign_symbol("(cs)s_strings_to_gensym", (void *)s_strings_to_gensym);
     Sforeign_symbol("(cs)s_intern_gensym", (void *)S_intern_gensym);
+    Sforeign_symbol("(cs)s_uninterned", (void *)S_uninterned);
+    Sforeign_symbol("(cs)symbol_hash32", (void *)S_symbol_hash32);
+    Sforeign_symbol("(cs)symbol_hash64", (void *)S_symbol_hash64);
     Sforeign_symbol("(cs)cputime", (void *)S_cputime);
     Sforeign_symbol("(cs)realtime", (void *)S_realtime);
     Sforeign_symbol("(cs)clock_gettime", (void *)S_clock_gettime);
@@ -1524,6 +1800,7 @@ void S_prim5_init(void) {
     Sforeign_symbol("(cs)getpid", (void *)s_getpid);
     Sforeign_symbol("(cs)fasl_read", (void *)S_fasl_read);
     Sforeign_symbol("(cs)bv_fasl_read", (void *)S_bv_fasl_read);
+    Sforeign_symbol("(cs)vfasl_to", (void *)S_vfasl_to);
     Sforeign_symbol("(cs)s_decode_float", (void *)s_decode_float);
 
     Sforeign_symbol("(cs)new_open_input_fd", (void *)S_new_open_input_fd);
@@ -1549,6 +1826,10 @@ void S_prim5_init(void) {
     Sforeign_symbol("(cs)bytevector_compress", (void*)S_bytevector_compress);
     Sforeign_symbol("(cs)bytevector_uncompress", (void*)S_bytevector_uncompress);
 
+    Sforeign_symbol("(cs)phantom_bytevector_adjust", (void*)S_phantom_bytevector_adjust);
+
+    Sforeign_symbol("(cs)native_little_endian", (void *)s_native_little_endian);
+
     Sforeign_symbol("(cs)logand", (void *)S_logand);
     Sforeign_symbol("(cs)logbitp", (void *)S_logbitp);
     Sforeign_symbol("(cs)logbit0", (void *)S_logbit0);
@@ -1567,11 +1848,16 @@ void S_prim5_init(void) {
     Sforeign_symbol("(cs)s_big_positive_bit_field", (void *)S_big_positive_bit_field);
     Sforeign_symbol("(cs)s_big_eq", (void *)S_big_eq);
     Sforeign_symbol("(cs)s_big_lt", (void *)S_big_lt);
+    Sforeign_symbol("(cs)s_big_trailing_zero_bits", (void *)S_big_trailing_zero_bits);
     Sforeign_symbol("(cs)s_bigoddp", (void *)s_bigoddp);
     Sforeign_symbol("(cs)s_div", (void *)S_div);
     Sforeign_symbol("(cs)s_float", (void *)s_float);
     Sforeign_symbol("(cs)s_flrandom", (void *)s_flrandom);
     Sforeign_symbol("(cs)s_fxrandom", (void *)s_fxrandom);
+    Sforeign_symbol("(cs)s_random_state_next_integer", (void *)S_random_state_next_integer);
+    Sforeign_symbol("(cs)s_random_state_next_double", (void *)S_random_state_next_double);
+    Sforeign_symbol("(cs)s_random_state_init", (void *)S_random_state_init);
+    Sforeign_symbol("(cs)s_random_state_check", (void *)S_random_state_check);
     Sforeign_symbol("(cs)s_integer_length", (void *)S_integer_length);
     Sforeign_symbol("(cs)s_big_first_bit_set", (void *)S_big_first_bit_set);
     Sforeign_symbol("(cs)s_make_code", (void *)s_make_code);
@@ -1580,9 +1866,10 @@ void S_prim5_init(void) {
     Sforeign_symbol("(cs)s_set_random_seed", (void *)s_set_random_seed);
     Sforeign_symbol("(cs)ss_trunc", (void *)S_trunc);
     Sforeign_symbol("(cs)ss_trunc_rem", (void *)s_trunc_rem);
+    Sforeign_symbol("(cs)s_rational", (void *)S_rational);
     Sforeign_symbol("(cs)sub", (void *)S_sub);
     Sforeign_symbol("(cs)rem", (void *)S_rem);
-#ifdef GETWD
+#if defined(GETWD) || defined(__GNU__) /* Hurd */
     Sforeign_symbol("(cs)s_getwd", (void *)s_getwd);
 #endif
     Sforeign_symbol("(cs)s_chdir", (void *)s_chdir);
@@ -1652,14 +1939,40 @@ void S_prim5_init(void) {
     Sforeign_symbol("(cs)s_multibytetowidechar", (void *)s_multibytetowidechar);
     Sforeign_symbol("(cs)s_widechartomultibyte", (void *)s_widechartomultibyte);
 #endif
+#ifdef PORTABLE_BYTECODE
+    Sforeign_symbol("(cs)s_separatorchar", (void *)s_separatorchar);
+#endif
     Sforeign_symbol("(cs)s_profile_counters", (void *)s_profile_counters);
     Sforeign_symbol("(cs)s_profile_release_counters", (void *)s_profile_release_counters);
+
+    S_install_c_entry(CENTRY_flfloor, proc2ptr(s_floor));
+    S_install_c_entry(CENTRY_flceiling, proc2ptr(s_ceil));
+    S_install_c_entry(CENTRY_flround, proc2ptr(s_round));
+    S_install_c_entry(CENTRY_fltruncate, proc2ptr(s_trunc));
+    S_install_c_entry(CENTRY_flsin, proc2ptr(s_sin));
+    S_install_c_entry(CENTRY_flcos, proc2ptr(s_cos));
+    S_install_c_entry(CENTRY_fltan, proc2ptr(s_tan));
+    S_install_c_entry(CENTRY_flasin, proc2ptr(s_asin));
+    S_install_c_entry(CENTRY_flacos, proc2ptr(s_acos));
+    S_install_c_entry(CENTRY_flatan, proc2ptr(s_atan));
+    S_install_c_entry(CENTRY_flatan2, proc2ptr(s_atan2));
+    S_install_c_entry(CENTRY_flexp, proc2ptr(s_exp));
+    S_install_c_entry(CENTRY_fllog, proc2ptr(s_log));
+    S_install_c_entry(CENTRY_fllog2, proc2ptr(s_log2));
+    S_install_c_entry(CENTRY_flexpt, proc2ptr(s_pow));
+    S_install_c_entry(CENTRY_flsqrt, proc2ptr(s_sqrt));
+
+    S_check_c_entry_vector();
 }
 
-static ptr s_get_reloc(ptr co) {
+static ptr s_get_reloc(ptr co, IBOOL with_offsets) {
   ptr t, ls; uptr a, m, n;
 
   require(Scodep(co),"s_get_reloc","~s is not a code object",co);
+
+  if (s_generation(co) == FIX(static_generation))
+    return Snil;
+
   ls = Snil;
   t = CODERELOC(co);
   m = RELOCSIZE(t);
@@ -1678,13 +1991,17 @@ static ptr s_get_reloc(ptr co) {
     a += code_off;
     obj = S_get_code_obj(RELOC_TYPE(entry), co, a, item_off);
     if (!Sfixnump(obj)) {
-      ptr x;
-      for (x = ls; ; x = Scdr(x)) {
-        if (x == Snil) {
-          ls = Scons(obj,ls);
-          break;
-        } else if (Scar(x) == obj)
-          break;
+      if (with_offsets) {
+        ls = Scons(Scons(obj, FIX(a-code_data_disp)), ls);
+      } else {
+        ptr x;
+        for (x = ls; ; x = Scdr(x)) {
+          if (x == Snil) {
+            ls = Scons(obj,ls);
+            break;
+          } else if (Scar(x) == obj)
+            break;
+        }
       }
     }
   }
@@ -1692,8 +2009,8 @@ static ptr s_get_reloc(ptr co) {
 }
 
 static void s_byte_copy(ptr src, iptr srcoff, ptr dst, iptr dstoff, iptr cnt) {
-  void *srcaddr = (void *)((iptr)src + srcoff);
-  void *dstaddr = (void *)((iptr)dst + dstoff);
+  void *srcaddr = TO_VOIDP((iptr)src + srcoff);
+  void *dstaddr = TO_VOIDP((iptr)dst + dstoff);
   if (dst != src)
      memcpy(dstaddr, srcaddr, cnt);
   else
@@ -1701,8 +2018,8 @@ static void s_byte_copy(ptr src, iptr srcoff, ptr dst, iptr dstoff, iptr cnt) {
 }
 
 static void s_ptr_copy(ptr src, iptr srcoff, ptr dst, iptr dstoff, iptr cnt) {
-  void *srcaddr = (void *)((iptr)src + srcoff);
-  void *dstaddr = (void *)((iptr)dst + dstoff);
+  void *srcaddr = TO_VOIDP((iptr)src + srcoff);
+  void *dstaddr = TO_VOIDP((iptr)dst + dstoff);
   cnt = cnt << log2_ptr_bytes;
   if (dst != src)
      memcpy(dstaddr, srcaddr, cnt);
@@ -1851,19 +2168,26 @@ static uptr s_malloc(iptr n) {
     else
       S_error("foreign-alloc", "malloc failed");
   }
-  return (uptr)p;
+  return (uptr)TO_PTR(p);
 }
 
 static void s_free(uptr addr) {
-  free((void *)addr);
+  free(TO_VOIDP(addr));
 }
 
 #ifdef FEATURE_ICONV
-#ifdef WIN32
+#ifdef DISABLE_ICONV
+# define iconv_t int
+#define ICONV_OPEN(to, from) (use_sink(to), use_sink(from), -1)
+#define ICONV(cd, in, inb, out, outb) (use_sinki(cd), use_sink(in), use_sink(inb), use_sink(out), use_sink(outb), -1)
+#define ICONV_CLOSE(cd) (use_sinki(cd), -1)
+static void use_sink(UNUSED const void *p) { }
+static void use_sinki(UNUSED int i) { }
+#elif defined(WIN32)
 typedef void *iconv_t;
-typedef __declspec(dllimport) iconv_t (*iconv_open_ft)(const char *tocode, const char *fromcode);
-typedef __declspec(dllimport) size_t (*iconv_ft)(iconv_t cd, char **inbuf, size_t *inbytesleft, char **outbuf, size_t *outbytesleft);
-typedef __declspec(dllimport) int (*iconv_close_ft)(iconv_t cd);
+typedef iconv_t (*iconv_open_ft)(const char *tocode, const char *fromcode);
+typedef size_t (*iconv_ft)(iconv_t cd, char **inbuf, size_t *inbytesleft, char **outbuf, size_t *outbytesleft);
+typedef int (*iconv_close_ft)(iconv_t cd);
 
 static iconv_open_ft iconv_open_f = (iconv_open_ft)0;
 static iconv_ft iconv_f = (iconv_ft)0;
@@ -1892,7 +2216,7 @@ static ptr s_iconv_trouble(HMODULE h, const char *what) {
   FreeLibrary(h);
   n = strlen(what) + strlen(dll) + 17;
   msg = (char *)malloc(n);
-  sprintf_s(msg, n, "cannot find %s in %s", what, dll);
+  sprintf(msg, "cannot find %s in %s", what, dll);
   free(dll);
   r = Sstring_utf8(msg, -1);
   free(msg);
@@ -1912,14 +2236,14 @@ static ptr s_iconv_open(const char *tocode, const char *fromcode) {
     if (h == NULL) h = LoadLibraryW(L".\\libiconv.dll");
     if (h == NULL) h = LoadLibraryW(L".\\libiconv-2.dll");
     if (h == NULL) return Sstring("cannot load iconv.dll, libiconv.dll, or libiconv-2.dll");
-    if ((iconv_open_f = (iconv_open_ft)GetProcAddress(h, "iconv_open")) == NULL &&
-        (iconv_open_f = (iconv_open_ft)GetProcAddress(h, "libiconv_open")) == NULL)
+    if ((iconv_open_f = (void *)GetProcAddress(h, "iconv_open")) == NULL &&
+        (iconv_open_f = (void *)GetProcAddress(h, "libiconv_open")) == NULL)
       return s_iconv_trouble(h, "iconv_open or libiconv_open");
-    if ((iconv_f = (iconv_ft)GetProcAddress(h, "iconv")) == NULL &&
-        (iconv_f = (iconv_ft)GetProcAddress(h, "libiconv")) == NULL)
+    if ((iconv_f = (void *)GetProcAddress(h, "iconv")) == NULL &&
+        (iconv_f = (void *)GetProcAddress(h, "libiconv")) == NULL)
       return s_iconv_trouble(h, "iconv or libiconv");
-    if ((iconv_close_f = (iconv_close_ft)GetProcAddress(h, "iconv_close")) == NULL &&
-        (iconv_close_f = (iconv_close_ft)GetProcAddress(h, "libiconv_close")) == NULL)
+    if ((iconv_close_f = (void *)GetProcAddress(h, "iconv_close")) == NULL &&
+        (iconv_close_f = (void *)GetProcAddress(h, "libiconv_close")) == NULL)
       return s_iconv_trouble(h, "iconv_close or libiconv_close");
     iconv_is_loaded = 1;
   }
@@ -1943,7 +2267,7 @@ static ptr s_iconv_from_string(uptr cd, ptr in, uptr i, uptr iend, ptr out, uptr
   size_t inbytesleft, outbytesleft;
   uptr inmax, k, new_i, new_o;
 
-  outbuf = (char *)&BVIT(out, o);
+  outbuf = TO_VOIDP(&BVIT(out, o));
   outbytesleft = oend - o;
 
   inmax = iend - i;
@@ -1979,7 +2303,7 @@ static ptr s_iconv_to_string(uptr cd, ptr in, uptr i, uptr iend, ptr out, uptr o
   size_t inbytesleft, outbytesleft;
   uptr outmax, k, new_i, new_o;
   
-  inbuf = (char *)&BVIT(in, i);
+  inbuf = TO_VOIDP(&BVIT(in, i));
   inbytesleft = iend - i;
 
   outmax = oend - o;
@@ -2015,15 +2339,15 @@ static ptr s_multibytetowidechar(unsigned cp, ptr inbv) {
   inbytes = Sbytevector_length(inbv);
 
 #if (ptr_bits > int_bits)
-  if ((int)inbytes != inbytes) S_error1("multibyte->string", "input size ~s is beyond MultiByteToWideChar's limit", Sinteger(inbytes));
+  if ((uptr)(int)inbytes != inbytes) S_error1("multibyte->string", "input size ~s is beyond MultiByteToWideChar's limit", Sinteger(inbytes));
 #endif
 
-  if ((outwords = MultiByteToWideChar(cp, 0, &BVIT(inbv,0), (int)inbytes, NULL, 0)) == 0)
+  if ((outwords = MultiByteToWideChar(cp, 0, (char *)&BVIT(inbv,0), (int)inbytes, NULL, 0)) == 0)
     S_error1("multibyte->string", "conversion failed: ~a", S_LastErrorString());
 
   outbv = S_bytevector(outwords * 2);
 
-  if (MultiByteToWideChar(cp, 0, &BVIT(inbv,0), (int)inbytes, (wchar_t *)&BVIT(outbv, 0), outwords) == 0)
+  if (MultiByteToWideChar(cp, 0, (char *)&BVIT(inbv,0), (int)inbytes, (wchar_t *)&BVIT(outbv, 0), outwords) == 0)
     S_error1("multibyte->string", "conversion failed: ~a", S_LastErrorString());
   
   return outbv;
@@ -2035,7 +2359,7 @@ static ptr s_widechartomultibyte(unsigned cp, ptr inbv) {
   inwords = Sbytevector_length(inbv) / 2;
 
 #if (ptr_bits > int_bits)
-  if ((int)inwords != inwords) S_error1("multibyte->string", "input size ~s is beyond WideCharToMultiByte's limit", Sinteger(inwords));
+  if ((uptr)(int)inwords != inwords) S_error1("multibyte->string", "input size ~s is beyond WideCharToMultiByte's limit", Sinteger(inwords));
 #endif
 
   if ((outbytes = WideCharToMultiByte(cp, 0, (wchar_t *)&BVIT(inbv,0), (int)inwords, NULL, 0, NULL, NULL)) == 0)
@@ -2043,9 +2367,19 @@ static ptr s_widechartomultibyte(unsigned cp, ptr inbv) {
 
   outbv = S_bytevector(outbytes);
 
-  if (WideCharToMultiByte(cp, 0, (wchar_t *)&BVIT(inbv,0), (int)inwords, &BVIT(outbv, 0), outbytes, NULL, NULL) == 0)
+  if (WideCharToMultiByte(cp, 0, (wchar_t *)&BVIT(inbv,0), (int)inwords, (char *)&BVIT(outbv, 0), outbytes, NULL, NULL) == 0)
     S_error1("string->multibyte", "conversion failed: ~a", S_LastErrorString());
   
   return outbv;  
 }
 #endif /* WIN32 */
+
+#ifdef PORTABLE_BYTECODE
+static ptr s_separatorchar() {
+#ifdef WIN32
+  return Schar(';');
+#else
+  return Schar(':');
+#endif
+}
+#endif

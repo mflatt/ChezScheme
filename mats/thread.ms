@@ -98,16 +98,9 @@
          (eq? 'cname (condition-name c2))
          (not (mutex? 'mutex))
          (not (thread-condition? 'condition))))
+  (thread? (get-initial-thread))
   (begin
-    (define $fib (lambda (x) (if (< x 2) 1 (+ ($fib (- x 1)) ($fib (- x 2))))))
-    (let-syntax ([mats-dir-relative
-                  (lambda (x)
-                    (syntax-case x ()
-                      [(_ (include ?path))
-                       (string? (datum ?path))
-                       #`(include #,(format "~a/~a" *mats-dir* (datum ?path)))]))])
-      (mats-dir-relative
-        (include "../../mats/thread-check.ss")))
+    (include "thread-check.ss")
     (define $time-in-range?
       (lambda (start stop target)
         (let ([t (time-difference stop start)])
@@ -125,49 +118,44 @@
        (let f () (if n n (begin ($yield) (f)))))
      (get-process-id))
   ($thread-check)
-  (equal?
-    (let ()
-      (define fat+
-        (lambda (x y)
-          (if (zero? y)
-              x
-              (fat+ (1+ x) (1- y)))))
-      (define fatfib
-        (lambda (x)
-          (if (< x 2)
-              1
-              (fat+ (fatfib (1- x)) (fatfib (1- (1- x)))))))
-      (define iota
-        (case-lambda
-          [(n) (iota 0 n)]
-          [(i n)
-           (if (= n 0)
-               '()
-               (cons i (iota (+ i 1) (- n 1))))]))
-      (define-syntax parallel-list
-        (syntax-rules ()
-          [(_ x ...)
-           (let ([v (make-vector (length '(x ...)) #f)]
-                 [m (make-mutex)]
-                 [c (make-condition)]
-                 [n (length '(x ...))])
-             (with-mutex m
-               (map (lambda (p i) (p i))
-                 (list (lambda (i)
-                         (fork-thread
-                          (lambda ()
-                            (vector-set! v i x)
-                            (with-mutex m
-                              (set! n (- n 1))
-                              (when (= n 0)
-                                (condition-signal c))))))
-                   ...)
-                 (iota (length '(x ...))))
-               (and (condition-wait c m (make-time 'time-duration 0 60))
-                    (vector->list v))))]))
+  (let ()
+    (define fat+
+      (lambda (x y)
+        (if (zero? y)
+            x
+            (fat+ (1+ x) (1- y)))))
+    (define fatfib
+      (lambda (x)
+        (if (< x 2)
+            1
+            (fat+ (fatfib (1- x)) (fatfib (1- (1- x)))))))
+    (define-syntax parallel-list
+      (syntax-rules ()
+        [(_ x ...)
+         (let ([v (make-vector (length '(x ...)) #f)]
+               [m (make-mutex)]
+               [c (make-condition)]
+               [n (length '(x ...))])
+           (and
+            (with-mutex m
+              (map (lambda (p i) (p i))
+                (list (lambda (i)
+                        (fork-thread
+                         (lambda ()
+                           (vector-set! v i x)
+                           (with-mutex m
+                             (set! n (- n 1))
+                             (when (= n 0)
+                               (condition-signal c))))))
+                  ...)
+                (iota (length '(x ...))))
+              (condition-wait c m (make-time 'time-duration 0 60)))
+            (vector->list v)))]))
+    (define result
       (parallel-list (fatfib 26) (fatfib 27) (fatfib 28)
         (fatfib 29) (fatfib 30) (fatfib 31)))
-    '(196418 317811 514229 832040 1346269 2178309))
+    (or (equal? result '(196418 317811 514229 832040 1346269 2178309))
+        (errorf #f "result=~s" result)))
   ($thread-check)
   (let ([m (make-mutex)] [c (make-condition)])
     (with-mutex m
@@ -744,6 +732,32 @@
       'cool)
     'cool)
   ($thread-check)
+  ;; copy of the test above, this time trying an immobile box instead of locked procedure
+  (eq?
+    (let ()
+      (define bt (foreign-procedure "(cs)backdoor_thread" (scheme-object) iptr))
+      (let f ([n 100])
+        (let ([q 0])
+          (unless (= n 0)
+            (let ([p (lambda ()
+                       (let ([count 10])
+                         (define chew (lambda (x) (when (> count 0) (chew (list 0)))))
+                         (parameterize ([collect-request-handler
+                                         (lambda ()
+                                           (set! count (- count 1))
+                                           (collect))])
+                           (chew 0)))
+                       (set! q (+ q 7)))])
+              (let ([b (box-immobile p)])
+                (bt b)
+                (let f () (when (= q 0) ($yield) (f)))
+                (let f () (unless (= (length ($threads)) 1) ($yield) (f)))
+                (keep-live b)))
+            (unless (= q 14) (errorf #f "~s isn't 14" q))
+            (f (- n 1)))))
+      'cool)
+    'cool)
+  ($thread-check)
   (let ()
     (define m (make-mutex))
     (define c (make-condition))
@@ -915,7 +929,7 @@
   (let ([thread-count 2] [iterations 10000])
     (equal?
       (parameterize ([collect-trip-bytes (expt 2 15)]
-                     [collect-generation-radix 1])
+                     [collect-generation-radix 2]) ; using 1 risks extreme slowness via major collections
         (let ([out '()]
               [out-mutex (make-mutex)]
               [out-condition (make-condition)]
@@ -1339,7 +1353,13 @@
     '(3.4 -4))
   ($thread-check)
   (begin
-    (load-shared-object (format "~a/foreign1.so" *mats-dir*))
+    (load-shared-object (let ([p (find-source "foreign1.so")])
+                          p
+                          (if (or (path-absolute? p)
+                                  (not (equal? "" (path-parent p))))
+                              p
+                              ;; specify relative to current directory:
+                              (path-build "." p))))
     #t)
   (equal?
     (let ()
@@ -1353,6 +1373,8 @@
       (define ls '())
       (ftype-set! A (x) a 3.4)
       (ftype-set! A (y) a 1)
+      (ff-locked-incr! (ftype-&ref A (y) a)) ; try once in main thread, in case this errors
+      (ff-locked-decr! (ftype-&ref A (y) a))
       (with-mutex m
         (do ([n n (fx- n 1)])
           ((fx= n 0))
@@ -1421,7 +1443,9 @@
                   (if (odd? i)
                       (let loop () (unless (ftype-lock! A (y) a) (printf "waiting\n") (loop)))
                       (ftype-spin-lock! A (y) a))
+                  (memory-order-acquire)
                   (ftype-set! A (x) a ((if (odd? n) + -) (ftype-ref A (x) a) 1.0))
+                  (memory-order-release)
                   (ftype-unlock! A (y) a))))))
         (let loop ()
           (if (equal? (length ls) n)
@@ -1438,7 +1462,7 @@
                         (format "~a is defunct" what)))])
         (thunk)
         (error #f "error expected")))
-    (let ([g (make-guardian)])
+    (let ([g (make-guardian #t)])
       (g (make-mutex))
       (collect)
       (let ([m (g)])
@@ -1516,6 +1540,99 @@
        (= (container-ref container) (* M N))))
    (check (box 0) unbox box-cas!))
  (check (vector 1 0 2) (lambda (v) (vector-ref v 1)) (lambda (v o n) (vector-cas! v 1 o n))))
- ; give the bump threads 0.2 s to finish
- (sleep (make-time 'time-duration 200000000 0))
+
+(mat rendezvous-in-main
+  ;; make sure that every collect rendezvous triggers the handler in the
+  ;; main thread
+  (let ([done? #f]
+        [gc-ids (list (get-thread-id))]
+        [gc-count 0]
+        [m #%$tc-mutex] ; using tc-mutex means main thread is not deactivated
+        [c (make-condition)])
+    (parameterize ([collect-request-handler
+                    (let ([orig (collect-request-handler)])
+                      (lambda ()
+                        (set! gc-count (add1 gc-count))
+                        (unless (memv (get-thread-id) gc-ids)
+                          (set! gc-ids (cons (get-thread-id) gc-ids)))
+                        (orig)))])
+      (let loop ([i 4])
+        (unless (= i 0)
+          (fork-thread (lambda () (let loop ()
+                                    (unless (with-mutex m
+                                               (unless done?
+                                                 (condition-wait c m))
+                                               done?)
+                                      (collect-rendezvous)
+                                      (loop)))))
+          (loop (sub1 i))))
+      (let loop ()
+        (unless (> gc-count 1000)
+          (with-mutex m (condition-broadcast c))
+          (collect-rendezvous)
+          (loop)))
+      (with-mutex m
+        (set! done? #t)
+        (condition-broadcast c))
+      (equal? gc-ids (list (get-thread-id)))))
+  )
+
+(mat memory-consistency
+  (equal? (memory-order-acquire) (void))
+  (equal? (memory-order-release) (void))
+  ;; Try to make a thread see a partially constructed box
+  (let ([ids '(one two three four)])
+    (let ([m (make-mutex)]
+          [c (make-condition)]
+          [ok? #t]
+          [running (length ids)]
+          [v (make-vector 1000 (box (car ids)))])
+      (let loop ([i running])
+        (unless (= i 0)
+          (fork-thread (lambda ()
+                         (let ([id (list-ref ids (sub1 i))]
+                               [failed? #f])
+                           (let loop ([j 10000])
+                             (cond
+                               [(fx= j 0)
+                                (mutex-acquire m)
+                                (set! running (sub1 running))
+                                (condition-signal c)
+                                (set! ok? (and ok? (not failed?)))
+                                (mutex-release m)]
+                               [else
+                                (let loop ([i 0])
+                                  (unless (fx= i (vector-length v))
+                                    (let ([b (vector-ref v i)])
+                                      (unless (and (box? b)
+                                                   (memq (unbox b) ids))
+                                        (set! failed? #t)))
+                                    (vector-set! v i (box id))
+                                    (loop (fx+ i 1))))
+                                (loop (fx- j 1))])))))
+          (loop (sub1 i))))
+      (mutex-acquire m)
+      (let loop ()
+        (cond
+          [(not (zero? running))
+           (condition-wait c m)
+           (loop)]
+          [else
+           (mutex-release m)]))
+      ok?))
+)
+
+(mat wait-for-threads
+  (begin
+    ;; To avoid breaking later tests that use `(collect)`,
+    ;; wait for any threads created here to exit
+    (let ()
+      (define $threads (foreign-procedure "(cs)threads" () scheme-object))
+      (let loop ()
+        (unless (= 1 (length ($threads)))
+          (sleep (make-time 'time-duration 10000 0))
+          (loop))))
+    #t)
+)
+
 )
