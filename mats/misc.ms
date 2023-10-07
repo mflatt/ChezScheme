@@ -1158,6 +1158,7 @@
             (pause-until (lambda () (= 1 (#%$top-level-value '$active-threads))))
             ;; Get thread's size, which shouldn't include bstr
             (let ([post-sizes (compute-size-increments (list th))])
+              (pretty-print (compute-composition th (collect-maximum-generation))) ; debugging
               (mutex-release m)
               ;; Wait for thread to exit
               (thread-join th)
