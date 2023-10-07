@@ -7,10 +7,6 @@ jobs:
       fail-fast: false
       matrix:
         config:
-          - machine: tpb
-            os: ubuntu-22.04
-            configure: --pb --threads --enable-libffi
-            test: test-some-fast
           - machine: a6osx
             os: macos-12
           - machine: ta6osx
