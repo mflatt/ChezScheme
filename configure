@@ -1062,6 +1062,7 @@ upsrcdir=$upsrcdir
 m=$m
 defaultm=$defaultm
 mboot=$mboot
+threaded=$threads
 buildKernelOnly=$buildKernelOnly
 enableFrompb=$enableFrompb
 mdinclude=$mdinclude
