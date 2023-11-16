@@ -15,8 +15,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# source directory, as opposed to the build directory (= current directory)
 srcdir=`dirname "$0"`
 
+# gather available machine names from source directory
 machs=""; last=""; sep0=""; sep1=""; sep2=""; sep3=""; sep4=" and ";
 for fn in "$srcdir"/boot/*/scheme.boot ; do
     next=`echo $fn | sed -e 's/.*\/boot\/\(.*\)\/scheme.boot/\1/'`
@@ -26,6 +28,7 @@ for fn in "$srcdir"/boot/*/scheme.boot ; do
         sep0=$sep1; sep1=", "; sep2=$sep3; sep3=$sep4; sep4=", and "
     fi
 done
+# maybe gather additional available machine names from build directory
 if [ "$srcdir" != "." ]; then
     for fn in boot/*/scheme.boot ; do
         next=`echo $fn | sed -e 's/boot\/\(.*\)\/scheme.boot/\1/'`
@@ -99,6 +102,7 @@ else
     CONFIG_UNAME=`uname`
 fi
 
+# using `uname`, infer OS-based defaults
 case "${CONFIG_UNAME}" in
   Linux)
     unixsuffix=le
@@ -177,6 +181,7 @@ esac
 
 unknownm=no
 
+# using `uname`, infer architecture-based defaults to refine OS defaults
 if [ "$unixsuffix" != "" ] ; then
     if uname -m | egrep 'i386|i686|amd64|athlon|x86_64' > /dev/null 2>&1 ; then
         m32=i3${unixsuffix}
@@ -411,6 +416,10 @@ fi
 
 if [ $emscripten = yes ] ; then
     pb=yes
+    if [ "$bits" = 64 ] ; then
+        echo "Cannot combine --emscripten with --64"
+        exit 1
+    fi
     bits=32
     if [ "$m" != "" ] ; then
         echo "Don't combine --emscripten with -m or --machine"
@@ -430,6 +439,7 @@ case "$m" in
 esac
 
 if [ "$bits" = "" ] ; then
+  # infer default bits; this will be irrelevant if a machine is specified
   if uname -m | egrep 'amd64|x86_64|aarch64|arm64|ppc64|powerpc64|riscv64' > /dev/null 2>&1 ; then
     bits=64
   # NetBSD `uname -m` produces "evbarm" for AArch64
@@ -438,30 +448,67 @@ if [ "$bits" = "" ] ; then
   else
     bits=32
   fi
+elif [ "$m" != "" ] ; then
+  # check consistentcy of explicit bits and explicit machine
+  case "${m}" in
+    i3*|ti3*|arm32*|tarm32*|ppc32*|tppc32*)
+        mbits=32
+        ;;
+    *)
+        mbits=64
+        ;;
+  esac
+  if [ $bits != $mbits ] ; then
+      echo "Machine $m is incompatible with --${bits}"
+      exit 1
+  fi
 fi
 
-if [ "$threads" = "" ] ; then
-    defaultthreads=yes
-else
-    defaultthreads=$threads
-fi
-
+# when threadedness is not explicit, use non-threaded for pb mode
 if [ "$threads" = "" ] ; then
     if [ "$pb" = "yes" ] ; then
-        if [ "$pbarch" = "yes" ] ; then
-            threads=yes
-        else
+        if [ "$pbarch" = "no" ] ; then
             threads=no
         fi
-    else
-        threads=yes
     fi
 fi
 
+# when threadedness is not explicit but a machine is supplied, use
+# the machine's threadedness; if both are supplied, check consistency
+if [ "$m" != "" ] ; then
+   case "${m}" in
+        t*)
+            mthreads=yes
+            ;;
+        *)
+            mthreads=no
+            ;;
+    esac
+    if [ "$threads" != "" ] ; then
+        if [ "$threads" != "$mthreads" ] ; then
+            if [ "$threads" = "yes" ] ; then
+                threadflag="threads"
+            else
+                threadflag="nothreads"
+            fi
+            echo "Machine $m is incompatible with --${threadflag}"
+            exit 1
+        fi
+    fi
+    threads=$mthreads
+fi
+
+# threads are enabled by default
+if [ "$threads" = "" ] ; then
+    threads=yes
+fi
+
+# infer machine (in case not specified) from bits, threadedness, and OS/arch inference;
+# it's possible that defaultm will end up as empty
 if [ $bits = 64 ] ; then
-  if [ $defaultthreads = yes ] ; then defaultm=$tm64 ; else defaultm=$m64 ; fi
+  if [ $threads = yes ] ; then defaultm=$tm64 ; else defaultm=$m64 ; fi
 else
-  if [ $defaultthreads = yes ] ; then defaultm=$tm32 ; else defaultm=$m32 ; fi
+  if [ $threads = yes ] ; then defaultm=$tm32 ; else defaultm=$m32 ; fi
 fi
 
 if [ "$m" = "" ] ; then
@@ -479,11 +526,14 @@ if [ "$m" = "" ] ; then
         m=$defaultm
     fi
     flagsm=$defaultm
+    # note that m (and flagsm) could still be "" at this point, in which
+    # case "No suitable machine type" will be reported further below
   fi
 elif [ $pb = yes ] ; then
   mpbhost=$m
   flagsm=$m
   m=pb
+  if [ $threads = yes ] ; then m=t$m ; fi
 else
   flagsm=$m
   defaultm=$m
@@ -789,7 +839,9 @@ if [ "$addflags" = "yes" ] ; then
         ;;
   esac
   if [ "$threadLibs" != "" ] ; then
-    LIBS="${LIBS} ${threadLibs}"
+      if [ "$threads" = "yes" ] ; then
+          LIBS="${LIBS} ${threadLibs}"
+      fi
   fi
 fi
 
