@@ -38,8 +38,21 @@
     print the result from `S_get_process_executable_path`, which is
     useful for testing.
 
+
   Parts of the implementation here are from the LLVM Project under
   the Apache License v2.0 with LLVM Exceptions.
+
+  The implementation of `string_dup` and `string_tok_r` are from musl:
+
+   Copyright © 2005-2020 Rich Felker, et al.
+
+   Permission is hereby granted, free of charge, to any person
+   obtaining a copy of this software and associated documentation
+   files (the "Software"), to deal in the Software without
+   restriction, including without limitation the rights to use, copy,
+   modify, merge, publish, distribute, sublicense, and/or sell copies
+   of the Software, and to permit persons to whom the Software is
+   furnished to do so, subject to the following conditions:
 */
 
 #include <stdlib.h>
@@ -91,6 +104,29 @@ static char *get_process_executable_path(const char *exec_file) {
 #else /* WIN32 */
 
 #include <unistd.h>
+
+/* strdup() is in POSIX, but it's not in C99 */
+/* This is `strdup` from musl: */
+static char *string_dup(const char *s)
+{
+  size_t l = strlen(s);
+  char *d = malloc(l+1);
+  if (!d) return NULL;
+  return memcpy(d, s, l+1);
+}
+
+/* strtok_r() is not in C99 */
+/* This is `strtok_r` from musl: */
+static char *string_tok_r(char *restrict s, const char *restrict sep, char **restrict p)
+{
+  if (!s && !(s = *p)) return NULL;
+  s += strspn(s, sep);
+  if (!*s) return *p = 0;
+  *p = s + strcspn(s, sep);
+  if (**p) *(*p)++ = 0;
+  else *p = 0;
+  return s;
+}
 
 #if defined(__APPLE__) && defined(__MACH__)
 #include <mach-o/dyld.h>
@@ -146,7 +182,7 @@ static char *get_self_path_platform() {
   /* Iterate through auxiliary vectors for AT_EXECPATH. */
   for (Elf_Auxinfo *aux = (Elf_Auxinfo *)p; aux->a_type != AT_NULL; aux++) {
     if (aux->a_type == AT_EXECPATH) {
-      return strdup((char *)aux->a_un.a_ptr);
+      return string_dup((char *)aux->a_un.a_ptr);
     }
   }
 #endif
@@ -159,7 +195,7 @@ static char *get_self_path_platform() {
 static char *get_self_path_platform() {
   const char *r = getexecname();
   if (r != NULL && strchr(r, '/') != NULL) {
-    return strdup(r);
+    return string_dup(r);
   }
   return NULL;
 }
@@ -167,13 +203,13 @@ static char *get_self_path_platform() {
 
 #if defined(__linux__) || defined(__CYGWIN__) || defined(__gnu_hurd__)
 #define HAVE_GET_SELF_PATH_PLATFORM
-static char *get_self_path_platform() { return strdup("/proc/self/exe"); }
+static char *get_self_path_platform() { return string_dup("/proc/self/exe"); }
 #endif
 
 #if defined(__NetBSD__) || defined(__minix) || defined(__DragonFly__) ||       \
     defined(__FreeBSD_kernel__) || defined(_AIX)
 #define HAVE_GET_SELF_PATH_PLATFORM
-static char *get_self_path_platform() { return strdup("/proc/curproc/file"); }
+static char *get_self_path_platform() { return string_dup("/proc/curproc/file"); }
 #endif
 
 #ifndef HAVE_GET_SELF_PATH_PLATFORM
@@ -195,19 +231,20 @@ static char *path_append(const char *s1, const char *s2) {
 
 static char *get_self_path_generic(const char *exec_file) {
   if (strchr(exec_file, '/')) {
-    return strdup(exec_file);
+    return string_dup(exec_file);
   }
   char *pv = getenv("PATH");
   if (pv == NULL) {
     return NULL;
   }
-  char *s = strdup(pv);
+  char *s = string_dup(pv);
   if (s == NULL) {
     return NULL;
   }
   char *state = NULL;
-  for (char *t = strtok_r(s, ":", &state); t != NULL;
-       t = strtok_r(NULL, ":", &state)) {
+  for (char *t = string_tok_r(s, ":", &state);
+       t != NULL;
+       t = string_tok_r(NULL, ":", &state)) {
     char *r = path_append(t, exec_file);
     if (access(r, X_OK) == 0) {
       free(s);

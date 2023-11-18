@@ -21,6 +21,11 @@ This product also includes separately copyrighted:
 
 * code derived from C. David Boyer's command-line editor
 
+* code derived from the LLVM Project to find a process's executable
+
+* code derived from musl developed by Rich Felker, et al. for strdup
+  and strtok_r
+
 Builds of this product incorporate separately copyrighted code from:
 
 * the Nanopass Infrastructure, developed by Dipanwita Sarkar,
@@ -30,4 +35,4 @@ Builds of this product incorporate separately copyrighted code from:
   Mark Adler
 
 * the LZ4 compression library, developed by Yann Collet and
-  contributors.
+  contributors
