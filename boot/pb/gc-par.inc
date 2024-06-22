@@ -850,7 +850,7 @@ static void sweep(thread_gc *tgc, ptr p, IGEN from_g)
                             fp = fp - (ENTRYFRAMESIZE(ret));
                             {
                               iptr oldret = ret;
-                              ptr num = ENTRYLIVEMASK(oldret);
+                              ptr livemask = ENTRYLIVEMASK(oldret);
                               ptr* pp = (ptr*)(TO_VOIDP(fp));
                               ret = (iptr)(*(pp));
                               {
@@ -866,10 +866,10 @@ static void sweep(thread_gc *tgc, ptr p, IGEN from_g)
                                         relocate_code(c_p, x_si);
                                         *(pp) = (ptr)(((uptr)c_p) + co);
                                       }
-                                      if (Sfixnump(num))
+                                      if (Sfixnump(livemask))
                                       {
                                         {
-                                          uptr mask = UNFIX(num);
+                                          uptr mask = UNFIX(livemask);
                                           while (mask != 0)
                                           {
                                             pp += 1;
@@ -881,30 +881,96 @@ static void sweep(thread_gc *tgc, ptr p, IGEN from_g)
                                           }
                                         }
                                       }
+                                      else if (Spairp(livemask))
+                                      {
+                                        relocate_pure(&(*((ENTRYNONCOMPACTLIVEMASKADDR(oldret)))));
+                                        {
+                                          ptr livemask = ENTRYLIVEMASK(oldret);
+                                          relocate_pure(&(INITCDR(livemask)));
+                                          {
+                                            uptr range_stack[ptr_bits];
+                                            ptr tree_stack[ptr_bits];
+                                            ptr* pp_stack[ptr_bits];
+                                            int stack_count = 1;
+                                            range_stack[0] = UNFIX((Scar(livemask)));
+                                            tree_stack[0] = Scdr(livemask);
+                                            pp_stack[0] = pp;
+                                            while (stack_count > 0)
+                                            {
+                                              stack_count -= 1;
+                                              {
+                                                uptr range = range_stack[stack_count];
+                                                ptr tree = tree_stack[stack_count];
+                                                ptr* pp = pp_stack[stack_count];
+                                                if (Sfixnump(tree))
+                                                {
+                                                  {
+                                                    uptr mask = UNFIX(tree);
+                                                    while (mask != 0)
+                                                    {
+                                                      pp += 1;
+                                                      if (mask & 1)
+                                                      {
+                                                        relocate_pure(&(*(pp)));
+                                                      }
+                                                      mask >>= 1;
+                                                    }
+                                                  }
+                                                }
+                                                else if (tree == Strue)
+                                                {
+                                                  while (range > 0)
+                                                  {
+                                                    range -= 1;
+                                                    pp += 1;
+                                                    relocate_pure(&(*(pp)));
+                                                  }
+                                                }
+                                                else
+                                                {
+                                                  {
+                                                    uptr split = range >> 1;
+                                                    relocate_pure(&(INITCAR(tree)));
+                                                    relocate_pure(&(INITCDR(tree)));
+                                                    range_stack[stack_count] = split;
+                                                    tree_stack[stack_count] = Scar(tree);
+                                                    pp_stack[stack_count] = pp;
+                                                    stack_count += 1;
+                                                    range_stack[stack_count] = range - split;
+                                                    tree_stack[stack_count] = Scdr(tree);
+                                                    pp_stack[stack_count] = pp + split;
+                                                    stack_count += 1;
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
                                       else
                                       {
-                                        seginfo* n_si = SegInfo((ptr_get_segment(num)));
+                                        seginfo* n_si = SegInfo((ptr_get_segment(livemask)));
                                         if (!(n_si -> old_space))
                                         {
                                         }
-                                        else if (SEGMENT_IS_LOCAL(n_si, num))
+                                        else if (SEGMENT_IS_LOCAL(n_si, livemask))
                                         {
                                           relocate_pure(&(*((ENTRYNONCOMPACTLIVEMASKADDR(oldret)))));
-                                          num = ENTRYLIVEMASK(oldret);
+                                          livemask = ENTRYLIVEMASK(oldret);
                                         }
                                         else
                                         {
                                           RECORD_REMOTE(n_si);
-                                          num = S_G.zero_length_bignum;
+                                          livemask = S_G.zero_length_bignum;
                                         }
                                         {
-                                          iptr index = BIGLEN(num);
+                                          iptr index = BIGLEN(livemask);
                                           while (index != 0)
                                           {
                                             index -= 1;
                                             {
                                               INT bits = bigit_bits;
-                                              bigit mask = BIGIT(num, index);
+                                              bigit mask = BIGIT(livemask, index);
                                               while (bits > 0)
                                               {
                                                 bits -= 1;
@@ -1060,7 +1126,7 @@ static void sweep(thread_gc *tgc, ptr p, IGEN from_g)
                               fp = fp - (ENTRYFRAMESIZE(ret));
                               {
                                 iptr oldret = ret;
-                                ptr num = ENTRYLIVEMASK(oldret);
+                                ptr livemask = ENTRYLIVEMASK(oldret);
                                 ptr* pp = (ptr*)(TO_VOIDP(fp));
                                 ret = (iptr)(*(pp));
                                 {
@@ -1076,10 +1142,10 @@ static void sweep(thread_gc *tgc, ptr p, IGEN from_g)
                                           relocate_code(c_p, x_si);
                                           *(pp) = (ptr)(((uptr)c_p) + co);
                                         }
-                                        if (Sfixnump(num))
+                                        if (Sfixnump(livemask))
                                         {
                                           {
-                                            uptr mask = UNFIX(num);
+                                            uptr mask = UNFIX(livemask);
                                             while (mask != 0)
                                             {
                                               pp += 1;
@@ -1091,30 +1157,96 @@ static void sweep(thread_gc *tgc, ptr p, IGEN from_g)
                                             }
                                           }
                                         }
+                                        else if (Spairp(livemask))
+                                        {
+                                          relocate_pure(&(*((ENTRYNONCOMPACTLIVEMASKADDR(oldret)))));
+                                          {
+                                            ptr livemask = ENTRYLIVEMASK(oldret);
+                                            relocate_pure(&(INITCDR(livemask)));
+                                            {
+                                              uptr range_stack[ptr_bits];
+                                              ptr tree_stack[ptr_bits];
+                                              ptr* pp_stack[ptr_bits];
+                                              int stack_count = 1;
+                                              range_stack[0] = UNFIX((Scar(livemask)));
+                                              tree_stack[0] = Scdr(livemask);
+                                              pp_stack[0] = pp;
+                                              while (stack_count > 0)
+                                              {
+                                                stack_count -= 1;
+                                                {
+                                                  uptr range = range_stack[stack_count];
+                                                  ptr tree = tree_stack[stack_count];
+                                                  ptr* pp = pp_stack[stack_count];
+                                                  if (Sfixnump(tree))
+                                                  {
+                                                    {
+                                                      uptr mask = UNFIX(tree);
+                                                      while (mask != 0)
+                                                      {
+                                                        pp += 1;
+                                                        if (mask & 1)
+                                                        {
+                                                          relocate_pure(&(*(pp)));
+                                                        }
+                                                        mask >>= 1;
+                                                      }
+                                                    }
+                                                  }
+                                                  else if (tree == Strue)
+                                                  {
+                                                    while (range > 0)
+                                                    {
+                                                      range -= 1;
+                                                      pp += 1;
+                                                      relocate_pure(&(*(pp)));
+                                                    }
+                                                  }
+                                                  else
+                                                  {
+                                                    {
+                                                      uptr split = range >> 1;
+                                                      relocate_pure(&(INITCAR(tree)));
+                                                      relocate_pure(&(INITCDR(tree)));
+                                                      range_stack[stack_count] = split;
+                                                      tree_stack[stack_count] = Scar(tree);
+                                                      pp_stack[stack_count] = pp;
+                                                      stack_count += 1;
+                                                      range_stack[stack_count] = range - split;
+                                                      tree_stack[stack_count] = Scdr(tree);
+                                                      pp_stack[stack_count] = pp + split;
+                                                      stack_count += 1;
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
                                         else
                                         {
-                                          seginfo* n_si = SegInfo((ptr_get_segment(num)));
+                                          seginfo* n_si = SegInfo((ptr_get_segment(livemask)));
                                           if (!(n_si -> old_space))
                                           {
                                           }
-                                          else if (SEGMENT_IS_LOCAL(n_si, num))
+                                          else if (SEGMENT_IS_LOCAL(n_si, livemask))
                                           {
                                             relocate_pure(&(*((ENTRYNONCOMPACTLIVEMASKADDR(oldret)))));
-                                            num = ENTRYLIVEMASK(oldret);
+                                            livemask = ENTRYLIVEMASK(oldret);
                                           }
                                           else
                                           {
                                             RECORD_REMOTE(n_si);
-                                            num = S_G.zero_length_bignum;
+                                            livemask = S_G.zero_length_bignum;
                                           }
                                           {
-                                            iptr index = BIGLEN(num);
+                                            iptr index = BIGLEN(livemask);
                                             while (index != 0)
                                             {
                                               index -= 1;
                                               {
                                                 INT bits = bigit_bits;
-                                                bigit mask = BIGIT(num, index);
+                                                bigit mask = BIGIT(livemask, index);
                                                 while (bits > 0)
                                                 {
                                                   bits -= 1;
@@ -1483,7 +1615,7 @@ static void sweep_object_in_old(thread_gc *tgc, ptr p)
                             fp = fp - (ENTRYFRAMESIZE(ret));
                             {
                               iptr oldret = ret;
-                              ptr num = ENTRYLIVEMASK(oldret);
+                              ptr livemask = ENTRYLIVEMASK(oldret);
                               ptr* pp = (ptr*)(TO_VOIDP(fp));
                               ret = (iptr)(*(pp));
                               {
@@ -1498,10 +1630,10 @@ static void sweep_object_in_old(thread_gc *tgc, ptr p)
                                       {
                                         relocate_code(c_p, x_si);
                                       }
-                                      if (Sfixnump(num))
+                                      if (Sfixnump(livemask))
                                       {
                                         {
-                                          uptr mask = UNFIX(num);
+                                          uptr mask = UNFIX(livemask);
                                           while (mask != 0)
                                           {
                                             pp += 1;
@@ -1513,30 +1645,96 @@ static void sweep_object_in_old(thread_gc *tgc, ptr p)
                                           }
                                         }
                                       }
+                                      else if (Spairp(livemask))
+                                      {
+                                        relocate_pure(&(*((ENTRYNONCOMPACTLIVEMASKADDR(oldret)))));
+                                        {
+                                          ptr livemask = ENTRYLIVEMASK(oldret);
+                                          relocate_pure(&(INITCDR(livemask)));
+                                          {
+                                            uptr range_stack[ptr_bits];
+                                            ptr tree_stack[ptr_bits];
+                                            ptr* pp_stack[ptr_bits];
+                                            int stack_count = 1;
+                                            range_stack[0] = UNFIX((Scar(livemask)));
+                                            tree_stack[0] = Scdr(livemask);
+                                            pp_stack[0] = pp;
+                                            while (stack_count > 0)
+                                            {
+                                              stack_count -= 1;
+                                              {
+                                                uptr range = range_stack[stack_count];
+                                                ptr tree = tree_stack[stack_count];
+                                                ptr* pp = pp_stack[stack_count];
+                                                if (Sfixnump(tree))
+                                                {
+                                                  {
+                                                    uptr mask = UNFIX(tree);
+                                                    while (mask != 0)
+                                                    {
+                                                      pp += 1;
+                                                      if (mask & 1)
+                                                      {
+                                                        relocate_pure(&(*(pp)));
+                                                      }
+                                                      mask >>= 1;
+                                                    }
+                                                  }
+                                                }
+                                                else if (tree == Strue)
+                                                {
+                                                  while (range > 0)
+                                                  {
+                                                    range -= 1;
+                                                    pp += 1;
+                                                    relocate_pure(&(*(pp)));
+                                                  }
+                                                }
+                                                else
+                                                {
+                                                  {
+                                                    uptr split = range >> 1;
+                                                    relocate_pure(&(INITCAR(tree)));
+                                                    relocate_pure(&(INITCDR(tree)));
+                                                    range_stack[stack_count] = split;
+                                                    tree_stack[stack_count] = Scar(tree);
+                                                    pp_stack[stack_count] = pp;
+                                                    stack_count += 1;
+                                                    range_stack[stack_count] = range - split;
+                                                    tree_stack[stack_count] = Scdr(tree);
+                                                    pp_stack[stack_count] = pp + split;
+                                                    stack_count += 1;
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
                                       else
                                       {
-                                        seginfo* n_si = SegInfo((ptr_get_segment(num)));
+                                        seginfo* n_si = SegInfo((ptr_get_segment(livemask)));
                                         if (!(n_si -> old_space))
                                         {
                                         }
-                                        else if (SEGMENT_IS_LOCAL(n_si, num))
+                                        else if (SEGMENT_IS_LOCAL(n_si, livemask))
                                         {
                                           relocate_pure(&(*((ENTRYNONCOMPACTLIVEMASKADDR(oldret)))));
-                                          num = ENTRYLIVEMASK(oldret);
+                                          livemask = ENTRYLIVEMASK(oldret);
                                         }
                                         else
                                         {
                                           RECORD_REMOTE(n_si);
-                                          num = S_G.zero_length_bignum;
+                                          livemask = S_G.zero_length_bignum;
                                         }
                                         {
-                                          iptr index = BIGLEN(num);
+                                          iptr index = BIGLEN(livemask);
                                           while (index != 0)
                                           {
                                             index -= 1;
                                             {
                                               INT bits = bigit_bits;
-                                              bigit mask = BIGIT(num, index);
+                                              bigit mask = BIGIT(livemask, index);
                                               while (bits > 0)
                                               {
                                                 bits -= 1;
@@ -1668,7 +1866,7 @@ static void sweep_object_in_old(thread_gc *tgc, ptr p)
                             fp = fp - (ENTRYFRAMESIZE(ret));
                             {
                               iptr oldret = ret;
-                              ptr num = ENTRYLIVEMASK(oldret);
+                              ptr livemask = ENTRYLIVEMASK(oldret);
                               ptr* pp = (ptr*)(TO_VOIDP(fp));
                               ret = (iptr)(*(pp));
                               {
@@ -1683,10 +1881,10 @@ static void sweep_object_in_old(thread_gc *tgc, ptr p)
                                       {
                                         relocate_code(c_p, x_si);
                                       }
-                                      if (Sfixnump(num))
+                                      if (Sfixnump(livemask))
                                       {
                                         {
-                                          uptr mask = UNFIX(num);
+                                          uptr mask = UNFIX(livemask);
                                           while (mask != 0)
                                           {
                                             pp += 1;
@@ -1698,30 +1896,96 @@ static void sweep_object_in_old(thread_gc *tgc, ptr p)
                                           }
                                         }
                                       }
+                                      else if (Spairp(livemask))
+                                      {
+                                        relocate_pure(&(*((ENTRYNONCOMPACTLIVEMASKADDR(oldret)))));
+                                        {
+                                          ptr livemask = ENTRYLIVEMASK(oldret);
+                                          relocate_pure(&(INITCDR(livemask)));
+                                          {
+                                            uptr range_stack[ptr_bits];
+                                            ptr tree_stack[ptr_bits];
+                                            ptr* pp_stack[ptr_bits];
+                                            int stack_count = 1;
+                                            range_stack[0] = UNFIX((Scar(livemask)));
+                                            tree_stack[0] = Scdr(livemask);
+                                            pp_stack[0] = pp;
+                                            while (stack_count > 0)
+                                            {
+                                              stack_count -= 1;
+                                              {
+                                                uptr range = range_stack[stack_count];
+                                                ptr tree = tree_stack[stack_count];
+                                                ptr* pp = pp_stack[stack_count];
+                                                if (Sfixnump(tree))
+                                                {
+                                                  {
+                                                    uptr mask = UNFIX(tree);
+                                                    while (mask != 0)
+                                                    {
+                                                      pp += 1;
+                                                      if (mask & 1)
+                                                      {
+                                                        relocate_pure(&(*(pp)));
+                                                      }
+                                                      mask >>= 1;
+                                                    }
+                                                  }
+                                                }
+                                                else if (tree == Strue)
+                                                {
+                                                  while (range > 0)
+                                                  {
+                                                    range -= 1;
+                                                    pp += 1;
+                                                    relocate_pure(&(*(pp)));
+                                                  }
+                                                }
+                                                else
+                                                {
+                                                  {
+                                                    uptr split = range >> 1;
+                                                    relocate_pure(&(INITCAR(tree)));
+                                                    relocate_pure(&(INITCDR(tree)));
+                                                    range_stack[stack_count] = split;
+                                                    tree_stack[stack_count] = Scar(tree);
+                                                    pp_stack[stack_count] = pp;
+                                                    stack_count += 1;
+                                                    range_stack[stack_count] = range - split;
+                                                    tree_stack[stack_count] = Scdr(tree);
+                                                    pp_stack[stack_count] = pp + split;
+                                                    stack_count += 1;
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
                                       else
                                       {
-                                        seginfo* n_si = SegInfo((ptr_get_segment(num)));
+                                        seginfo* n_si = SegInfo((ptr_get_segment(livemask)));
                                         if (!(n_si -> old_space))
                                         {
                                         }
-                                        else if (SEGMENT_IS_LOCAL(n_si, num))
+                                        else if (SEGMENT_IS_LOCAL(n_si, livemask))
                                         {
                                           relocate_pure(&(*((ENTRYNONCOMPACTLIVEMASKADDR(oldret)))));
-                                          num = ENTRYLIVEMASK(oldret);
+                                          livemask = ENTRYLIVEMASK(oldret);
                                         }
                                         else
                                         {
                                           RECORD_REMOTE(n_si);
-                                          num = S_G.zero_length_bignum;
+                                          livemask = S_G.zero_length_bignum;
                                         }
                                         {
-                                          iptr index = BIGLEN(num);
+                                          iptr index = BIGLEN(livemask);
                                           while (index != 0)
                                           {
                                             index -= 1;
                                             {
                                               INT bits = bigit_bits;
-                                              bigit mask = BIGIT(num, index);
+                                              bigit mask = BIGIT(livemask, index);
                                               while (bits > 0)
                                               {
                                                 bits -= 1;
@@ -2341,7 +2605,7 @@ static void sweep_thread(thread_gc *tgc, ptr p)
                         fp = fp - (ENTRYFRAMESIZE(ret));
                         {
                           iptr oldret = ret;
-                          ptr num = ENTRYLIVEMASK(oldret);
+                          ptr livemask = ENTRYLIVEMASK(oldret);
                           ptr* pp = (ptr*)(TO_VOIDP(fp));
                           ret = (iptr)(*(pp));
                           {
@@ -2357,10 +2621,10 @@ static void sweep_thread(thread_gc *tgc, ptr p)
                                     relocate_code(c_p, x_si);
                                     *(pp) = (ptr)(((uptr)c_p) + co);
                                   }
-                                  if (Sfixnump(num))
+                                  if (Sfixnump(livemask))
                                   {
                                     {
-                                      uptr mask = UNFIX(num);
+                                      uptr mask = UNFIX(livemask);
                                       while (mask != 0)
                                       {
                                         pp += 1;
@@ -2372,30 +2636,96 @@ static void sweep_thread(thread_gc *tgc, ptr p)
                                       }
                                     }
                                   }
+                                  else if (Spairp(livemask))
+                                  {
+                                    relocate_pure(&(*((ENTRYNONCOMPACTLIVEMASKADDR(oldret)))));
+                                    {
+                                      ptr livemask = ENTRYLIVEMASK(oldret);
+                                      relocate_pure(&(INITCDR(livemask)));
+                                      {
+                                        uptr range_stack[ptr_bits];
+                                        ptr tree_stack[ptr_bits];
+                                        ptr* pp_stack[ptr_bits];
+                                        int stack_count = 1;
+                                        range_stack[0] = UNFIX((Scar(livemask)));
+                                        tree_stack[0] = Scdr(livemask);
+                                        pp_stack[0] = pp;
+                                        while (stack_count > 0)
+                                        {
+                                          stack_count -= 1;
+                                          {
+                                            uptr range = range_stack[stack_count];
+                                            ptr tree = tree_stack[stack_count];
+                                            ptr* pp = pp_stack[stack_count];
+                                            if (Sfixnump(tree))
+                                            {
+                                              {
+                                                uptr mask = UNFIX(tree);
+                                                while (mask != 0)
+                                                {
+                                                  pp += 1;
+                                                  if (mask & 1)
+                                                  {
+                                                    relocate_pure(&(*(pp)));
+                                                  }
+                                                  mask >>= 1;
+                                                }
+                                              }
+                                            }
+                                            else if (tree == Strue)
+                                            {
+                                              while (range > 0)
+                                              {
+                                                range -= 1;
+                                                pp += 1;
+                                                relocate_pure(&(*(pp)));
+                                              }
+                                            }
+                                            else
+                                            {
+                                              {
+                                                uptr split = range >> 1;
+                                                relocate_pure(&(INITCAR(tree)));
+                                                relocate_pure(&(INITCDR(tree)));
+                                                range_stack[stack_count] = split;
+                                                tree_stack[stack_count] = Scar(tree);
+                                                pp_stack[stack_count] = pp;
+                                                stack_count += 1;
+                                                range_stack[stack_count] = range - split;
+                                                tree_stack[stack_count] = Scdr(tree);
+                                                pp_stack[stack_count] = pp + split;
+                                                stack_count += 1;
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
                                   else
                                   {
-                                    seginfo* n_si = SegInfo((ptr_get_segment(num)));
+                                    seginfo* n_si = SegInfo((ptr_get_segment(livemask)));
                                     if (!(n_si -> old_space))
                                     {
                                     }
-                                    else if (SEGMENT_IS_LOCAL(n_si, num))
+                                    else if (SEGMENT_IS_LOCAL(n_si, livemask))
                                     {
                                       relocate_pure(&(*((ENTRYNONCOMPACTLIVEMASKADDR(oldret)))));
-                                      num = ENTRYLIVEMASK(oldret);
+                                      livemask = ENTRYLIVEMASK(oldret);
                                     }
                                     else
                                     {
                                       RECORD_REMOTE(n_si);
-                                      num = S_G.zero_length_bignum;
+                                      livemask = S_G.zero_length_bignum;
                                     }
                                     {
-                                      iptr index = BIGLEN(num);
+                                      iptr index = BIGLEN(livemask);
                                       while (index != 0)
                                       {
                                         index -= 1;
                                         {
                                           INT bits = bigit_bits;
-                                          bigit mask = BIGIT(num, index);
+                                          bigit mask = BIGIT(livemask, index);
                                           while (bits > 0)
                                           {
                                             bits -= 1;
@@ -2567,7 +2897,7 @@ static void sweep_continuation(thread_gc *tgc, ptr p, IGEN from_g)
                             fp = fp - (ENTRYFRAMESIZE(ret));
                             {
                               iptr oldret = ret;
-                              ptr num = ENTRYLIVEMASK(oldret);
+                              ptr livemask = ENTRYLIVEMASK(oldret);
                               ptr* pp = (ptr*)(TO_VOIDP(fp));
                               ret = (iptr)(*(pp));
                               {
@@ -2583,10 +2913,10 @@ static void sweep_continuation(thread_gc *tgc, ptr p, IGEN from_g)
                                         relocate_code(c_p, x_si);
                                         *(pp) = (ptr)(((uptr)c_p) + co);
                                       }
-                                      if (Sfixnump(num))
+                                      if (Sfixnump(livemask))
                                       {
                                         {
-                                          uptr mask = UNFIX(num);
+                                          uptr mask = UNFIX(livemask);
                                           while (mask != 0)
                                           {
                                             pp += 1;
@@ -2598,30 +2928,96 @@ static void sweep_continuation(thread_gc *tgc, ptr p, IGEN from_g)
                                           }
                                         }
                                       }
+                                      else if (Spairp(livemask))
+                                      {
+                                        relocate_pure(&(*((ENTRYNONCOMPACTLIVEMASKADDR(oldret)))));
+                                        {
+                                          ptr livemask = ENTRYLIVEMASK(oldret);
+                                          relocate_pure(&(INITCDR(livemask)));
+                                          {
+                                            uptr range_stack[ptr_bits];
+                                            ptr tree_stack[ptr_bits];
+                                            ptr* pp_stack[ptr_bits];
+                                            int stack_count = 1;
+                                            range_stack[0] = UNFIX((Scar(livemask)));
+                                            tree_stack[0] = Scdr(livemask);
+                                            pp_stack[0] = pp;
+                                            while (stack_count > 0)
+                                            {
+                                              stack_count -= 1;
+                                              {
+                                                uptr range = range_stack[stack_count];
+                                                ptr tree = tree_stack[stack_count];
+                                                ptr* pp = pp_stack[stack_count];
+                                                if (Sfixnump(tree))
+                                                {
+                                                  {
+                                                    uptr mask = UNFIX(tree);
+                                                    while (mask != 0)
+                                                    {
+                                                      pp += 1;
+                                                      if (mask & 1)
+                                                      {
+                                                        relocate_pure(&(*(pp)));
+                                                      }
+                                                      mask >>= 1;
+                                                    }
+                                                  }
+                                                }
+                                                else if (tree == Strue)
+                                                {
+                                                  while (range > 0)
+                                                  {
+                                                    range -= 1;
+                                                    pp += 1;
+                                                    relocate_pure(&(*(pp)));
+                                                  }
+                                                }
+                                                else
+                                                {
+                                                  {
+                                                    uptr split = range >> 1;
+                                                    relocate_pure(&(INITCAR(tree)));
+                                                    relocate_pure(&(INITCDR(tree)));
+                                                    range_stack[stack_count] = split;
+                                                    tree_stack[stack_count] = Scar(tree);
+                                                    pp_stack[stack_count] = pp;
+                                                    stack_count += 1;
+                                                    range_stack[stack_count] = range - split;
+                                                    tree_stack[stack_count] = Scdr(tree);
+                                                    pp_stack[stack_count] = pp + split;
+                                                    stack_count += 1;
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
                                       else
                                       {
-                                        seginfo* n_si = SegInfo((ptr_get_segment(num)));
+                                        seginfo* n_si = SegInfo((ptr_get_segment(livemask)));
                                         if (!(n_si -> old_space))
                                         {
                                         }
-                                        else if (SEGMENT_IS_LOCAL(n_si, num))
+                                        else if (SEGMENT_IS_LOCAL(n_si, livemask))
                                         {
                                           relocate_pure(&(*((ENTRYNONCOMPACTLIVEMASKADDR(oldret)))));
-                                          num = ENTRYLIVEMASK(oldret);
+                                          livemask = ENTRYLIVEMASK(oldret);
                                         }
                                         else
                                         {
                                           RECORD_REMOTE(n_si);
-                                          num = S_G.zero_length_bignum;
+                                          livemask = S_G.zero_length_bignum;
                                         }
                                         {
-                                          iptr index = BIGLEN(num);
+                                          iptr index = BIGLEN(livemask);
                                           while (index != 0)
                                           {
                                             index -= 1;
                                             {
                                               INT bits = bigit_bits;
-                                              bigit mask = BIGIT(num, index);
+                                              bigit mask = BIGIT(livemask, index);
                                               while (bits > 0)
                                               {
                                                 bits -= 1;

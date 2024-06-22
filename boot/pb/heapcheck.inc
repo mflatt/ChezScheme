@@ -260,7 +260,7 @@ static void check_object(ptr p, uptr seg, ISPC s_in, IBOOL aftergc)
                         fp = fp - (ENTRYFRAMESIZE(ret));
                         {
                           iptr oldret = ret;
-                          ptr num = ENTRYLIVEMASK(oldret);
+                          ptr livemask = ENTRYLIVEMASK(oldret);
                           ptr* pp = (ptr*)(TO_VOIDP(fp));
                           ret = (iptr)(*(pp));
                           {
@@ -270,10 +270,10 @@ static void check_object(ptr p, uptr seg, ISPC s_in, IBOOL aftergc)
                               {
                                 ptr c_p = (ptr)(((uptr)xcp) - co);
                                 check_pointer(&(c_p), 0, 0, p, seg, s_in, aftergc);
-                                if (Sfixnump(num))
+                                if (Sfixnump(livemask))
                                 {
                                   {
-                                    uptr mask = UNFIX(num);
+                                    uptr mask = UNFIX(livemask);
                                     while (mask != 0)
                                     {
                                       pp += 1;
@@ -285,18 +285,84 @@ static void check_object(ptr p, uptr seg, ISPC s_in, IBOOL aftergc)
                                     }
                                   }
                                 }
+                                else if (Spairp(livemask))
+                                {
+                                  check_pointer(&(*((ENTRYNONCOMPACTLIVEMASKADDR(oldret)))), 1, 0, p, seg, s_in, aftergc);
+                                  {
+                                    ptr livemask = ENTRYLIVEMASK(oldret);
+                                    check_pointer(&(INITCDR(livemask)), 1, 0, p, seg, s_in, aftergc);
+                                    {
+                                      uptr range_stack[ptr_bits];
+                                      ptr tree_stack[ptr_bits];
+                                      ptr* pp_stack[ptr_bits];
+                                      int stack_count = 1;
+                                      range_stack[0] = UNFIX((Scar(livemask)));
+                                      tree_stack[0] = Scdr(livemask);
+                                      pp_stack[0] = pp;
+                                      while (stack_count > 0)
+                                      {
+                                        stack_count -= 1;
+                                        {
+                                          uptr range = range_stack[stack_count];
+                                          ptr tree = tree_stack[stack_count];
+                                          ptr* pp = pp_stack[stack_count];
+                                          if (Sfixnump(tree))
+                                          {
+                                            {
+                                              uptr mask = UNFIX(tree);
+                                              while (mask != 0)
+                                              {
+                                                pp += 1;
+                                                if (mask & 1)
+                                                {
+                                                  check_pointer(&(*(pp)), 1, 0, p, seg, s_in, aftergc);
+                                                }
+                                                mask >>= 1;
+                                              }
+                                            }
+                                          }
+                                          else if (tree == Strue)
+                                          {
+                                            while (range > 0)
+                                            {
+                                              range -= 1;
+                                              pp += 1;
+                                              check_pointer(&(*(pp)), 1, 0, p, seg, s_in, aftergc);
+                                            }
+                                          }
+                                          else
+                                          {
+                                            {
+                                              uptr split = range >> 1;
+                                              check_pointer(&(INITCAR(tree)), 1, 0, p, seg, s_in, aftergc);
+                                              check_pointer(&(INITCDR(tree)), 1, 0, p, seg, s_in, aftergc);
+                                              range_stack[stack_count] = split;
+                                              tree_stack[stack_count] = Scar(tree);
+                                              pp_stack[stack_count] = pp;
+                                              stack_count += 1;
+                                              range_stack[stack_count] = range - split;
+                                              tree_stack[stack_count] = Scdr(tree);
+                                              pp_stack[stack_count] = pp + split;
+                                              stack_count += 1;
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
                                 else
                                 {
-                                  check_pointer(&(num), 0, 0, p, seg, s_in, aftergc);
-                                  check_bignum(num);
+                                  check_pointer(&(livemask), 0, 0, p, seg, s_in, aftergc);
+                                  check_bignum(livemask);
                                   {
-                                    iptr index = BIGLEN(num);
+                                    iptr index = BIGLEN(livemask);
                                     while (index != 0)
                                     {
                                       index -= 1;
                                       {
                                         INT bits = bigit_bits;
-                                        bigit mask = BIGIT(num, index);
+                                        bigit mask = BIGIT(livemask, index);
                                         while (bits > 0)
                                         {
                                           bits -= 1;
@@ -423,7 +489,7 @@ static void check_object(ptr p, uptr seg, ISPC s_in, IBOOL aftergc)
                         fp = fp - (ENTRYFRAMESIZE(ret));
                         {
                           iptr oldret = ret;
-                          ptr num = ENTRYLIVEMASK(oldret);
+                          ptr livemask = ENTRYLIVEMASK(oldret);
                           ptr* pp = (ptr*)(TO_VOIDP(fp));
                           ret = (iptr)(*(pp));
                           {
@@ -433,10 +499,10 @@ static void check_object(ptr p, uptr seg, ISPC s_in, IBOOL aftergc)
                               {
                                 ptr c_p = (ptr)(((uptr)xcp) - co);
                                 check_pointer(&(c_p), 0, 0, p, seg, s_in, aftergc);
-                                if (Sfixnump(num))
+                                if (Sfixnump(livemask))
                                 {
                                   {
-                                    uptr mask = UNFIX(num);
+                                    uptr mask = UNFIX(livemask);
                                     while (mask != 0)
                                     {
                                       pp += 1;
@@ -448,18 +514,84 @@ static void check_object(ptr p, uptr seg, ISPC s_in, IBOOL aftergc)
                                     }
                                   }
                                 }
+                                else if (Spairp(livemask))
+                                {
+                                  check_pointer(&(*((ENTRYNONCOMPACTLIVEMASKADDR(oldret)))), 1, 0, p, seg, s_in, aftergc);
+                                  {
+                                    ptr livemask = ENTRYLIVEMASK(oldret);
+                                    check_pointer(&(INITCDR(livemask)), 1, 0, p, seg, s_in, aftergc);
+                                    {
+                                      uptr range_stack[ptr_bits];
+                                      ptr tree_stack[ptr_bits];
+                                      ptr* pp_stack[ptr_bits];
+                                      int stack_count = 1;
+                                      range_stack[0] = UNFIX((Scar(livemask)));
+                                      tree_stack[0] = Scdr(livemask);
+                                      pp_stack[0] = pp;
+                                      while (stack_count > 0)
+                                      {
+                                        stack_count -= 1;
+                                        {
+                                          uptr range = range_stack[stack_count];
+                                          ptr tree = tree_stack[stack_count];
+                                          ptr* pp = pp_stack[stack_count];
+                                          if (Sfixnump(tree))
+                                          {
+                                            {
+                                              uptr mask = UNFIX(tree);
+                                              while (mask != 0)
+                                              {
+                                                pp += 1;
+                                                if (mask & 1)
+                                                {
+                                                  check_pointer(&(*(pp)), 1, 0, p, seg, s_in, aftergc);
+                                                }
+                                                mask >>= 1;
+                                              }
+                                            }
+                                          }
+                                          else if (tree == Strue)
+                                          {
+                                            while (range > 0)
+                                            {
+                                              range -= 1;
+                                              pp += 1;
+                                              check_pointer(&(*(pp)), 1, 0, p, seg, s_in, aftergc);
+                                            }
+                                          }
+                                          else
+                                          {
+                                            {
+                                              uptr split = range >> 1;
+                                              check_pointer(&(INITCAR(tree)), 1, 0, p, seg, s_in, aftergc);
+                                              check_pointer(&(INITCDR(tree)), 1, 0, p, seg, s_in, aftergc);
+                                              range_stack[stack_count] = split;
+                                              tree_stack[stack_count] = Scar(tree);
+                                              pp_stack[stack_count] = pp;
+                                              stack_count += 1;
+                                              range_stack[stack_count] = range - split;
+                                              tree_stack[stack_count] = Scdr(tree);
+                                              pp_stack[stack_count] = pp + split;
+                                              stack_count += 1;
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
                                 else
                                 {
-                                  check_pointer(&(num), 0, 0, p, seg, s_in, aftergc);
-                                  check_bignum(num);
+                                  check_pointer(&(livemask), 0, 0, p, seg, s_in, aftergc);
+                                  check_bignum(livemask);
                                   {
-                                    iptr index = BIGLEN(num);
+                                    iptr index = BIGLEN(livemask);
                                     while (index != 0)
                                     {
                                       index -= 1;
                                       {
                                         INT bits = bigit_bits;
-                                        bigit mask = BIGIT(num, index);
+                                        bigit mask = BIGIT(livemask, index);
                                         while (bits > 0)
                                         {
                                           bits -= 1;
