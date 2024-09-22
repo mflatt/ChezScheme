@@ -518,7 +518,7 @@
 
  ; exposes continuation-attachment operations
   (define-language L4.9375 (extends L4.875)
-    (nongenerative-id #{L4.9375 jczowy6yjfz400ntojb6av7y0-4.9375})
+    (nongenerative-id #{L4.9375 jczowy6yjfz400ntojb6av7y0a-4.9375})
     (terminals
      (+ (attachment-op (aop)))
      (+ (continuation-op (cop)))
@@ -529,6 +529,7 @@
          (attachment-get reified (maybe e))
          (attachment-consume reified (maybe e))
          (continuation-get)
+         (continuation1-get)
          (continuation-set cop e1 e2))))
 
  ; moves all case lambda expressions into rhs of letrec
@@ -834,7 +835,7 @@
  ; Rhs expressions can appear on the right-hand-side of a set! or anywhere arbitrary
  ; Exprs can appear.  Exprs appear in the body of a case-lambda clause.
   (define-language L10 (extends L9.75)
-    (nongenerative-id #{L10 cdzl2w7vcr40l9ebd38t92bxg-10})
+    (nongenerative-id #{L10 cdzl2w7vcr40l9ebd38t92bxga-10})
     (terminals
       (+ (uvar (local))))
     (entry Program)
@@ -858,6 +859,7 @@
          (foreign-call info t t* ...)
          (attachment-get reified (maybe t))
          (attachment-consume reified (maybe t))
+         (continuation1-get)
          (continuation-get)))
     (Expr (e body)
       (- lvalue
@@ -875,6 +877,7 @@
          (foreign-call info e e* ...)
          (attachment-get reified (maybe e))
          (attachment-consume reified (maybe e))
+         (continuation1-get)
          (continuation-get))
       (+ rhs
          (values info t* ...)

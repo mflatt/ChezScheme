@@ -1255,11 +1255,15 @@
                (case-lambda ,info2 (clause (,x) ,interface ,[body (->in-get-cont mode) -> body])))
          (guard (and (memq mode '(tail tail/none tail/some tail/reified))
                      (or (eq? (primref-name pr) 'call/cc)
-                         (eq? (primref-name pr) 'call-with-current-continuation))
+                         (eq? (primref-name pr) 'call-with-current-continuation)
+                         (eq? (primref-name pr) 'call/1cc))
                      (= interface 1)))
          ;; Since we're in tail position, we can just reify the continuation and
          ;; put the stack link in the argument variable.
-         `(let ([,x (continuation-get)]) ,body)]
+         `(let ([,x ,(if (eq? (primref-name pr) 'call/1cc)
+                         `(continuation1-get)
+                         `(continuation-get))])
+            ,body)]
         [(call ,info ,mdcl ,pr
                ,[e1 'non/none -> e1]
                (case-lambda ,info2 (clause () ,interface ,[body (->in-set-cont mode #f) -> body])))
@@ -2895,6 +2899,7 @@
         [(attachment-get ,reified ,[e #f -> * fp?]) #f]
         [(attachment-consume ,reified ,[e #f -> * fp?]) #f]
         [(continuation-get) #f]
+        [(continuation1-get) #f]
         [(continuation-set ,cop ,[e1 #f -> * fp?1] ,[e2 #f -> * fp?2]) #f]
         [(foreign-call ,info ,[e #f -> * fp?] ,[e* #f -> * fp?*] ...) #f]
         [(profile ,src) #f]
@@ -3370,6 +3375,7 @@
            (lambda (t?)
              (k `(attachment-set ,aop ,t?))))]
         [(continuation-get) (k `(continuation-get))]
+        [(continuation1-get) (k `(continuation1-get))]
         [(continuation-set ,cop ,e1 ,e2)
          (Triv* (list e1 e2)
            (lambda (t*)
@@ -3759,6 +3765,8 @@
          `(set! ,lvalue (attachment-consume ,reified? ,t?))]
         [(set! ,[lvalue] (continuation-get))
          `(set! ,lvalue (continuation-get))]
+        [(set! ,[lvalue] (continuation1-get))
+         `(set! ,lvalue (continuation1-get))]
         [(label ,l ,[ebody]) `(seq (label ,l) ,ebody)]
         [(trap-check ,ioc ,[ebody]) `(seq (trap-check ,ioc) ,ebody)]
         [(overflow-check ,[ebody]) `(seq (overflow-check) ,ebody)]
@@ -3778,7 +3786,8 @@
               (label ,join)))]
         [(values ,info ,t* ...) `(nop)]
         [(attachment-get ,reified? ,t?) `(nop)]
-        [(continuation-get) `(nop)])
+        [(continuation-get) `(nop)]
+        [(continuation1-get) `(nop)])
       (Tail : Expr (ir) -> Tail ()
         [(inline ,info ,prim ,[t*] ...)
          (guard (pred-primitive? prim))
@@ -5406,7 +5415,9 @@
         [(attachment-consume ,reified? ,t?)
          ($oops who "Effect is responsible for handling attachment-consumes")]
         [(continuation-get)
-         ($oops who "Effect is responsible for handling continuatio-get")])
+         ($oops who "Effect is responsible for handling continuation-get")]
+        [(continuation1-get)
+         ($oops who "Effect is responsible for handling continuation1-get")])
       (Effect : Effect (ir) -> Effect ()
         [(do-rest ,fixed-args)
          (if (fx<= fixed-args dorest-intrinsic-max)
@@ -5574,6 +5585,10 @@
         [(set! ,[lvalue] (continuation-get))
          (%seq
           (set! ,%td (inline ,(intrinsic-info-asmlib maybe-reify-cc #f) ,%asmlibcall))
+          (set! ,lvalue ,%td))]
+        [(set! ,[lvalue] (continuation1-get))
+         (%seq
+          (set! ,%td (inline ,(intrinsic-info-asmlib reify-1cc #f) ,%asmlibcall))
           (set! ,lvalue ,%td))])
       (Tail : Tail  (ir) -> Tail  ()
         [(entry-point (,x* ...) ,dcl ,mcp ,tlbody)
