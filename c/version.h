@@ -54,6 +54,9 @@
 
 #if defined(__arm__) || defined(__arm64__) || defined(__aarch64__) || defined(_M_ARM64) || defined(__riscv) || defined(__loongarch64)
 # define FLUSHCACHE
+# if defined(__clang__) && (__clang_major__ == 15)
+#  define USE_PAR_SWEEPERS_WORKAROUND
+# endif
 #endif
 
 #if defined(__s390__) || defined(__s390x__) || defined(__zarch__)
