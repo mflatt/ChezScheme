@@ -171,8 +171,10 @@
       [(quote ,d)
        (cond
          [(and can-unbox-fp? (flonum? d) (constant immediate-flonums))
-          (values `(literal ,(make-info-literal #f 'flonum d 0))
-                  #t)]
+          ;; use an `flvector` so that we don't have to predict the flonum representation
+          (let ([flv `(literal ,(make-info-literal #f 'object (flvector d) 0))])
+            (values (%mref ,flv ,%zero ,(constant flvector-data-disp) fp)
+                    #t))]
          [else
           (values (cond
                     [(ptr->imm d) => (lambda (i) `(immediate ,i))]

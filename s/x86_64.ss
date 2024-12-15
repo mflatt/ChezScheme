@@ -202,14 +202,6 @@
                      (seq
                        (build-set! ,u ,a)
                        (k u)))))]
-              [(literal-flonum->value a)
-               => (lambda (d)
-                    (let ([u (make-tmp 'u 'fp)]
-                          [v (make-tmp 'v)])
-                      (seq
-                       (build-set! ,v (immediate ,(flbit-field d 0 64)))
-                       (build-set! ,u (asm ,null-info ,asm-fpcast ,v))
-                       (k u))))]
               [else
                (sorry! 'coerce-opnd "unexpected operand ~s" a)])]
            [else (sorry! 'coerce-opnd "cannot coerce ~s to ~s" a aty*)]))]))

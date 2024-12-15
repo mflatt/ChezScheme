@@ -9571,15 +9571,6 @@
             (nanopass-case (L15c Triv) x
               [(literal ,info) (info-literal-indirect? info)]
               [else #f])))
-        (define literal-flonum->value
-          (lambda (x)
-            (nanopass-case (L15c Triv) x
-              [(literal ,info) (and (eq? (info-literal-type info) 'flonum)
-                                    (info-literal-addr info))]
-              [else #f])))
-        (define literal-flonum?
-          (lambda (x)
-            (and (literal-flonum->value x) #t)))
         (define lmem?
           (lambda (x)
             (nanopass-case (L15c Triv) x
@@ -9647,10 +9638,10 @@
             (syntax-case stx (quote)
               [(_ x '(ty ...))
                (memq 'ur (datum (ty ...)))
-               #`(let () (safe-assert (not (or (fpur? x) (fpmem? x) (literal-flonum? x)))) #t)]
+               #`(let () (safe-assert (not (or (fpur? x) (fpmem? x)))) #t)]
               [(_ x '(ty ...))
                (memq 'fpur (datum (ty ...)))
-               #`(let () (safe-assert (or (fpur? x) (fpmem? x) (literal-flonum? x))) #t)]
+               #`(let () (safe-assert (or (fpur? x) (fpmem? x))) #t)]
               [(_ x '(ty ...))
                #`(coercible? x '(ty ...))])))
 
@@ -9662,8 +9653,8 @@
               (case t
                 [(mem) #'lmem?]
                 [(fpmem) #'fpmem?]
-                [(ur) #'(lambda (x) (safe-assert (not (or (fpur? x) (fpmem? x) (literal-flonum? x)))) #t)]
-                [(fpur) #'(lambda (x) (safe-assert (or (fpur? x) (fpmem? x) (literal-flonum? x))) #t)]
+                [(ur) #'(lambda (x) (safe-assert (not (or (fpur? x) (fpmem? x)))) #t)]
+                [(fpur) #'(lambda (x) (safe-assert (or (fpur? x) (fpmem? x))) #t)]
                 [else ($oops 'type->red "unrecognized ~s" t)]))
 
             (define make-value-clause

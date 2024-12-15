@@ -202,12 +202,6 @@
                      (seq
                        (build-set! ,u ,a)
                        (k u)))))]
-              [(literal-flonum->value a)
-               => (lambda (d)
-                    (let ([u (make-tmp 'u 'fp)])
-                      (seq
-                       (build-set! ,u (asm ,null-info ,(asm-literal-fp d)))
-                       (k u))))]
               [else
                (sorry! 'coerce-opnd "unexpected fp operand ~s" a)])]
            [else (sorry! 'coerce-opnd "cannot coerce ~s to ~s" a aty*)]))]))
@@ -718,7 +712,7 @@
                      asm-mul asm-smulh asm-div asm-add asm-sub asm-logand asm-logor asm-logxor
                      asm-pop-multiple asm-shiftop asm-logand asm-lognot asm-cmp/asr63 asm-popcount asm-rotate
                      asm-logtest asm-fp-relop asm-relop asm-push-multiple asm-push-fpmultiple asm-pop-fpmultiple
-                     asm-indirect-jump asm-literal-jump asm-literal-fp
+                     asm-indirect-jump asm-literal-jump
                      asm-direct-jump asm-return-address asm-jump asm-conditional-jump
                      asm-indirect-call asm-condition-code
                      asm-fpmove-single asm-fl-cvt asm-fpt asm-fpmove asm-fpcastto asm-fpcastfrom
@@ -1746,14 +1740,6 @@
     (lambda (code* src0 src1)
       (Trivit (src0 src1)
         (emit cmp/asr63 src0 src1 code*))))
-
-  (define asm-literal-fp
-    (lambda (d)
-      (lambda (code* dest)
-        (Trivit (dest)
-          (let ([arg-tmp (cons 'reg %argtmp)])
-            (ax-movi arg-tmp (flbit-field d 0 64)
-                     (emit fmov.g->f dest arg-tmp code*)))))))
 
   (define-who asm-fl-cvt
     (lambda (op)
