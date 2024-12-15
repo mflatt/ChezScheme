@@ -202,8 +202,14 @@
                      (seq
                        (build-set! ,u ,a)
                        (k u)))))]
+              [(literal-flonum->value a)
+               => (lambda (d)
+                    (let ([u (make-tmp 'u 'fp)])
+                      (seq
+                       (build-set! ,u (asm ,null-info ,(asm-literal-fp d)))
+                       (k u))))]
               [else
-               (sorry! 'coerce-opnd "unexpected operand ~s" a)])]
+               (sorry! 'coerce-opnd "unexpected fp operand ~s" a)])]
            [else (sorry! 'coerce-opnd "cannot coerce ~s to ~s" a aty*)]))]))
 
   (define md-handle-jump
@@ -295,6 +301,10 @@
   (define-instruction value (sll srl sra)
     [(op (z ur) (x ur) (y imm-constant ur))
      `(set! ,(make-live-info) ,z (asm ,info ,(asm-shiftop op) ,x ,y))])
+
+  (define-instruction value (rot) ; rotate right
+    [(op (z ur) (x ur) (y imm-constant ur))
+     `(set! ,(make-live-info) ,z (asm ,info ,asm-rotate ,x ,y))])
 
   (define-instruction value popcount
     [(op (z ur) (x ur))
@@ -706,9 +716,9 @@
 (module asm-module (; required exports
                      asm-move asm-move/extend asm-load asm-store asm-swap asm-library-call asm-library-call! asm-library-jump
                      asm-mul asm-smulh asm-div asm-add asm-sub asm-logand asm-logor asm-logxor
-                     asm-pop-multiple asm-shiftop asm-logand asm-lognot asm-cmp/asr63 asm-popcount
+                     asm-pop-multiple asm-shiftop asm-logand asm-lognot asm-cmp/asr63 asm-popcount asm-rotate
                      asm-logtest asm-fp-relop asm-relop asm-push-multiple asm-push-fpmultiple asm-pop-fpmultiple
-                     asm-indirect-jump asm-literal-jump
+                     asm-indirect-jump asm-literal-jump asm-literal-fp
                      asm-direct-jump asm-return-address asm-jump asm-conditional-jump
                      asm-indirect-call asm-condition-code
                      asm-fpmove-single asm-fl-cvt asm-fpt asm-fpmove asm-fpcastto asm-fpcastfrom
@@ -817,6 +827,9 @@
   (define-op lsl  shift-op #b00) ; selector is at bit 10 (op2)
   (define-op lsr  shift-op #b01)
   (define-op asr  shift-op #b10)
+
+  (define-op rori roti-op)
+  (define-op ror  rot-op)
 
   (define-op sxtb extend-op  #b100 #b1 #b000111) ; selectors are at bits 29 (sfc+opc), 22 (N), and 10 (imms)
   (define-op sxth extend-op  #b100 #b1 #b001111)
@@ -1097,6 +1110,26 @@
         [16 (ax-ea-reg-code src1)]
         [12 #b0010]
         [10 opcode]
+        [5  (ax-ea-reg-code src0)]
+        [0  (ax-ea-reg-code dest)])))
+
+  (define roti-op
+    (lambda (op dest src imm code*)
+      (emit-code (op dest src imm code*)
+        [31 #b1]
+        [21 #b0010011110]
+        [16 (ax-ea-reg-code src)]
+        [10 imm]
+        [5  (ax-ea-reg-code src)]
+        [0  (ax-ea-reg-code dest)])))
+
+  (define rot-op
+    (lambda (op dest src0 src1 code*)
+      (emit-code (op dest src0 src1 code*)
+        [31 #b1]
+        [21 #b0011010110]
+        [16 (ax-ea-reg-code src1)]
+        [10 #b001011]
         [5  (ax-ea-reg-code src0)]
         [0  (ax-ea-reg-code dest)])))
 
@@ -1713,6 +1746,14 @@
     (lambda (code* src0 src1)
       (Trivit (src0 src1)
         (emit cmp/asr63 src0 src1 code*))))
+
+  (define asm-literal-fp
+    (lambda (d)
+      (lambda (code* dest)
+        (Trivit (dest)
+          (let ([arg-tmp (cons 'reg %argtmp)])
+            (ax-movi arg-tmp (flbit-field d 0 64)
+                     (emit fmov.g->f dest arg-tmp code*)))))))
 
   (define-who asm-fl-cvt
     (lambda (op)
@@ -2362,6 +2403,16 @@
                [(srl) (emit lsr dest src0 src1 code*)]
                [(sra) (emit asr dest src0 src1 code*)]
                [else (sorry! 'shiftop "unrecognized ~s" op)])])))))
+
+  (define-who asm-rotate
+    (lambda (code* dest src0 src1)
+      (Trivit (dest src0 src1)
+        (record-case src1
+          [(imm) (n)
+           (let ([n (fxand n 63)])
+             (emit rori dest src0 n code*))]
+          [else
+           (emit ror dest src0 src1 code*)]))))
 
   (define asm-lognot
     (lambda (code* dest src)

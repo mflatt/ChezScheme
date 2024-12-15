@@ -114,6 +114,69 @@
               ,(make-info-alloc (constant tag) save-flrv? save-asm-ra?)
               (immediate ,(c-alloc-align size))))])))
 
+(define-syntax %immediate-flonum-pack
+  (lambda (x)
+    (syntax-case x ()
+      [(k e)
+       (with-implicit (k %inline quasiquote)
+         #'(%inline logor
+                    ,(%inline logor
+                              ,(%inline sll e (immediate ,(- (constant flonum-bits) (constant immediate-flonum-offset))))
+                              ,(%inline sll
+                                        ,(%inline srl e (immediate ,(constant immediate-flonum-lo-bits)))
+                                        (immediate ,(constant immediate-flonum-mask-bits))))
+                    (immediate ,(constant type-immediate-flonum))))])))
+
+(define-syntax %immediate-flonum-unpack
+  (lambda (x)
+    (syntax-case x ()
+      [(k e)
+       (with-implicit (k %inline quasiquote)
+         #'(%inline rot ,(%inline sra e (immediate ,(constant immediate-flonum-mask-bits)))
+                    (immediate ,(constant immediate-flonum-hi-bits))))])))
+
+(define-syntax %immediate-flonum-check
+  (lambda (x)
+    (syntax-case x ()
+      [(k e tru)
+       (with-implicit (k %inline quasiquote)
+         #'`(if ,(%inline eq? 
+                         ,(%inline logand e (immediate ,(constant immediate-flonum-drop-mask)))
+                         (immediate 0))
+                tru
+                ,(%inline eq?
+                         ,(%inline logand e (immediate ,(constant immediate-flonum-drop-mask)))
+                         (immediate ,(constant immediate-flonum-drop-mask)))))])))
+
+(define-syntax %flonum-unpack
+  (lambda (x)
+    (syntax-case x ()
+      [(k e)
+       (with-implicit (k %inline %mref %type-check %immediate-flonum-unpack bind quasiquote)
+         (constant-case immediate-flonums
+           [(#t)
+            #'(bind #t ([p `e])
+                `(if ,(%type-check mask-immediate-flonum type-immediate-flonum ,p)
+                     (unboxed-fp
+                      (inline ,null-info ,%fpcastfrom ,(%immediate-flonum-unpack ,p)))
+                     ,(%mref ,p ,%zero ,(constant flonum-data-disp) fp)))]
+           [else
+            #'(%mref e ,%zero ,(constant flonum-data-disp) fp)]))])))
+
+(define-syntax %flonum-unpack-as-int
+  (lambda (x)
+    (syntax-case x ()
+      [(k e)
+       (with-implicit (k %inline %mref %type-check %immediate-flonum-unpack bind quasiquote)
+         (constant-case immediate-flonums
+           [(#t)
+            #'(bind #t ([p `e])
+                `(if ,(%type-check mask-immediate-flonum type-immediate-flonum ,p)
+                     ,(%immediate-flonum-unpack ,p)
+                     ,(%mref ,p ,%zero ,(constant flonum-data-disp))))]
+           [else
+            #'(%mref e ,%zero ,(constant flonum-data-disp))]))])))
+
 (define-syntax %mv-jump
   (lambda (x)
     (syntax-case x ()
