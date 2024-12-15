@@ -367,12 +367,20 @@ static void idiot_checks(void) {
     oops = 1;
   }
 
+
   if (most_positive_fixnum / bigit_bits >= maximum_bignum_length) {
     /* operations like `expt` assume that a fixnum number of bits at least fits
        into the representation of a bignum (although possible not into memory) */
     fprintf(stderr, "most_positive_fixnum >= maximum_bignum_length * bigit_bits\n");
     oops = 1;
   }
+
+#if defined(scheme_feature_immed_flonum)
+  if (sizeof(double) != sizeof(ptr)) {
+    fprintf(stderr, "pointer and double size do not match as needed for immediate flonums\n");
+    oops = 1;
+  }
+#endif
 
   if (oops) S_abnormal_exit();
 }

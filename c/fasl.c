@@ -1081,7 +1081,7 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
             faslin(tc, &ip, t, pstrbuf, f);
             if (!Sflonump(rp) || !Sflonump(ip))
               S_error1("", "malformed fasl inexactnum found in ~a", f->uf.path);
-            *x = S_inexactnum(FLODAT(rp), FLODAT(ip));
+            *x = S_inexactnum(Sflonum_value(rp), Sflonum_value(ip));
             return;
         }
         case fasl_type_string:

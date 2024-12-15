@@ -4517,11 +4517,24 @@
                     (let ([x (make-tmp 't (if is-unboxed? 'fp 'ptr))])
                       `(seq
                          (set! ,x ,t)
-                         ,(toC (if (and expects-unboxed?
-                                        (not is-unboxed?))
-                                   (with-output-language (L13 Rhs)
-                                     (%mref ,x ,%zero ,(constant flonum-data-disp) fp))
-                                   x))))))
+                         ,(if (and expects-unboxed?
+                                   (not is-unboxed?))
+                              (constant-case immediate-flonums
+                                [(#t)
+                                 `(if ,(%type-check mask-immediate-flonum type-immediate-flonum ,x)
+                                      ,(let ([f (make-tmp 'f 'fp)])
+                                         (%seq
+                                          (set! ,x ,(%inline sra ,x (immediate ,(constant immediate-flonum-mask-bits))))
+                                          (set! ,x ,(%inline ror ,x (immediate ,(constant immediate-flonum-hi-bits))))
+                                          (set! ,f (inline ,null-info ,%fpcastfrom ,x))
+                                          ,(toC f)))
+                                      ,(toC
+                                        (with-output-language (L13 Rhs)
+                                          (%mref ,x ,%zero ,(constant flonum-data-disp) fp))))]
+                                [else
+                                 (with-output-language (L13 Rhs)
+                                   (toC (%mref ,x ,%zero ,(constant flonum-data-disp) fp)))])
+                              (toC x))))))
                 (define build-fptr-ref
                   (lambda ()
                     (let ([x (make-tmp 't)])
@@ -4556,7 +4569,7 @@
                    ;; to the function as its first argument (or simulated as such)
                    (toC)]
                   [else
-                   (Scheme->C type toC t #f #f)])))
+                   (Scheme->C type toC t (constant immediate-flonums) #f)])))
             (define C->Scheme
               ; ASSUMPTIONS: ac0, ac1, and xp are not C argument registers
               (lambda (type fromC lvalue expects-unboxed? is-unboxed? for-return?)
@@ -4647,11 +4660,11 @@
                   (if is-unboxed?
                       (fromC lvalue)
                       (%seq
-                       (set! ,%xp ,(%constant-alloc type-flonum (constant size-flonum) for-return?))
-                       ,(fromC (if expects-unboxed?
-                                   (with-output-language (L13 Lvalue)
-                                     (%mref ,%xp ,%zero ,(constant flonum-data-disp) fp))
-                                   %xp))
+                       (set! ,%xp ,(%constant-alloc type-flonum (constant size-flonum) for-return?))                       
+                       ,(fromC (with-output-language (L13 Lvalue)
+                                 (if expects-unboxed?
+                                     (%mref ,%xp ,%zero ,(constant flonum-data-disp) fp)
+                                     %xp)))
                        (set! ,lvalue ,%xp))))
                 (nanopass-case (Ltype Type) type
                   [(fp-void) `(set! ,lvalue ,(%constant svoid))]
@@ -9630,6 +9643,15 @@
             (nanopass-case (L15c Triv) x
               [(literal ,info) (info-literal-indirect? info)]
               [else #f])))
+        (define literal-flonum->value
+          (lambda (x)
+            (nanopass-case (L15c Triv) x
+              [(literal ,info) (and (eq? (info-literal-type info) 'flonum)
+                                    (info-literal-addr info))]
+              [else #f])))
+        (define literal-flonum?
+          (lambda (x)
+            (and (literal-flonum->value x) #t)))
         (define lmem?
           (lambda (x)
             (nanopass-case (L15c Triv) x
@@ -9697,10 +9719,10 @@
             (syntax-case stx (quote)
               [(_ x '(ty ...))
                (memq 'ur (datum (ty ...)))
-               #`(let () (safe-assert (not (or (fpur? x) (fpmem? x)))) #t)]
+               #`(let () (safe-assert (not (or (fpur? x) (fpmem? x) (literal-flonum? x)))) #t)]
               [(_ x '(ty ...))
                (memq 'fpur (datum (ty ...)))
-               #`(let () (safe-assert (or (fpur? x) (fpmem? x))) #t)]
+               #`(let () (safe-assert (or (fpur? x) (fpmem? x) (literal-flonum? x))) #t)]
               [(_ x '(ty ...))
                #`(coercible? x '(ty ...))])))
 
@@ -9712,8 +9734,8 @@
               (case t
                 [(mem) #'lmem?]
                 [(fpmem) #'fpmem?]
-                [(ur) #'(lambda (x) (safe-assert (not (or (fpur? x) (fpmem? x)))) #t)]
-                [(fpur) #'(lambda (x) (safe-assert (or (fpur? x) (fpmem? x))) #t)]
+                [(ur) #'(lambda (x) (safe-assert (not (or (fpur? x) (fpmem? x) (literal-flonum? x)))) #t)]
+                [(fpur) #'(lambda (x) (safe-assert (or (fpur? x) (fpmem? x) (literal-flonum? x))) #t)]
                 [else ($oops 'type->red "unrecognized ~s" t)]))
 
             (define make-value-clause
