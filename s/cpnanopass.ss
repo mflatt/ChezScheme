@@ -4486,7 +4486,7 @@
                   [(fp-unsigned ,bits) (ptr->integer bits t toC)]
                   [(fp-double-float) (build-float)]
                   [(fp-single-float) (build-float)]
-                  [(fp-ftd ,ftd)
+                  [(fp-fptrtd ,fptrtd)
                    (let ([x (make-tmp 't)])
                      `(seq
                         (set! ,x ,t)
@@ -4576,13 +4576,13 @@
                                          ,(e1 `(goto ,Lbig))
                                          (seq (label ,Lbig) ,e2)))))
                               (e1 e2))))))
-                (define (alloc-fptr ftd)
+                (define (alloc-fptr fptrtd)
                   (%seq
                    (set! ,%xp
                          ,(%constant-alloc type-typed-object (fx* (constant ptr-bytes) 2) #f))
                    (set!
                     ,(%mref ,%xp ,(constant record-type-disp))
-                    (literal ,(make-info-literal #f 'object ftd 0)))
+                    (literal ,(make-info-literal #f 'object fptrtd 0)))
                    (set! ,(%mref ,%xp ,(constant record-data-disp)) ,%ac0)
                    (set! ,lvalue ,%xp)))
                 (define (receive-fp)
@@ -4632,10 +4632,10 @@
                       ,(unsigned->ptr bits lvalue))]
                   [(fp-double-float) (receive-fp)]
                   [(fp-single-float) (receive-fp)]
-                  [(fp-ftd ,ftd)
+                  [(fp-fptrtd ,fptrtd)
                    (%seq
                     ,(fromC %ac0) ; C integer return might be wiped out by alloc
-                    ,(alloc-fptr ftd))]
+                    ,(alloc-fptr fptrtd))]
                   [(fp-ftd& ,ftd)
                    (%seq
                     ,(fromC %ac0)

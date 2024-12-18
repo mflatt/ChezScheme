@@ -200,9 +200,13 @@
                (nanopass-case (Ltype Type) ty2
                  [(fp-single-float) #t]
                  [else #f])]
-              [(fp-ftd ,ftd1)
+              [(fp-fptrtd ,fptrtd1)
                (nanopass-case (Ltype Type) ty2
-                 [(fp-ftd ,ftd2) (eq? ftd1 ftd2)]
+                 [(fp-fptrtd ,fptrtd2) (eq? fptrtd1 fptrtd2)]
+                 [else #f])]
+              [(fp-ftd& ,ftd1)
+               (nanopass-case (Ltype Type) ty2
+                 [(fp-ftd& ,ftd2) (eq? ftd1 ftd2)]
                  [else #f])]
               [else (sorry! who "unhandled foreign type ~s" ty1)])))
         (define okay-to-subst?

@@ -664,7 +664,7 @@
               [(void) (and void-okay? `(fp-void))]
               [else
                (cond
-                [($ftd? x) `(fp-ftd ,x)]
+                [($fptrtd? x) `(fp-fptrtd ,x)]
                 [($ftd-as-box? x) `(fp-ftd& ,(unbox x))]
                 [else #f])])
             ($oops #f "invalid ~a ~a specifier ~s" who what x)))))
@@ -8959,7 +8959,7 @@
             [(big) 'utf-32be]
             [(unknown) 'utf-32])])]
       [else
-       (and (or ($ftd? type) ($ftd-as-box? type))
+       (and (or ($fptrtd? type) ($ftd-as-box? type))
             type)])))
 
 (define $fp-type->pred
@@ -9178,8 +9178,8 @@
                                     (check-floats-allowed pos)
                                     #f]
                                    [else #f])
-                                 (if (or ($ftd? type) ($ftd-as-box? type))
-                                     (let ([ftd (if ($ftd? type) type (unbox type))])
+                                 (if (or ($fptrtd? type) ($ftd-as-box? type))
+                                     (let ([ftd (if ($fptrtd? type) type (unbox type))])
                                        #`(#,(if unsafe? #'() #`((unless (record? x '#,ftd) (err ($moi) x))))
                                           (x)
                                           (#,type)))
@@ -9520,7 +9520,7 @@
                              [] [])]
                          [else
                           (cond
-                            [($ftd? result-type)
+                            [($fptrtd? result-type)
                              (with-syntax ([type (datum->syntax #'foreign-callable result-type)])
                                #`((lambda (x)
                                     #,@(if unsafe? #'() #'((unless (record? x 'type) (err x))))
