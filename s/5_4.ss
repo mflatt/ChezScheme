@@ -52,17 +52,22 @@
 
   (define do-string-append
     (lambda (who args)
-      (let f ([ls args] [n 0])
-        (if (null? ls)
-            (if (fixnum? n)
-                ($make-uninitialized-string n)
-                ($oops who "result string size ~s is not a fixnum" n))
-            (let ([s1 (car ls)])
-              (unless (string? s1) ($oops who "~s is not a string" s1))
-              (let ([m (string-length s1)])
-                (let ([s2 (f (cdr ls) (+ n m))])
+      (let ([n (let f ([ls args] [n 0])
+                 (if (null? ls)
+                     (if (fixnum? n)
+                         n
+                         ($oops who "result string size ~s is not a fixnum" n))
+                     (let ([s1 (car ls)])
+                       (unless (string? s1) ($oops who "~s is not a string" s1))
+                       (f (cdr ls) (+ n (string-length s1))))))])
+        (let ([s2 ($make-uninitialized-string n)])
+          (let f ([ls args] [n 0])
+            (unless (null? ls)
+              (let ([s1 (car ls)])
+                (let ([m (string-length s1)])
                   (string-copy! s1 0 s2 n m)
-                  s2)))))))
+                  (f (cdr ls) (+ n m))))))
+          s2))))
 
   (define (immutable! str)
     (cond
