@@ -7,6 +7,8 @@
 (provide-targets targets-at)
 (provide all-src-names)
 
+(error "sorry, broken")
+
 (define default-options
   (hash
    ;; o determines the optimize level
