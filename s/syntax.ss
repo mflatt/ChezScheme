@@ -641,7 +641,7 @@
   (let ([moi-record `(moi)])
     (lambda () moi-record)))
 
-(module (build-foreign-procedure build-foreign-callable)
+(module (build-foreign-call build-foreign-callable)
   (define build-fp-specifier
     (lambda (who what x void-okay?)
       (with-output-language (Ltype Type)
@@ -669,12 +669,13 @@
                 [else #f])])
             ($oops #f "invalid ~a ~a specifier ~s" who what x)))))
 
-  (define build-foreign-procedure
-    (lambda (ae conv* foreign-name foreign-addr params result)
+  (define build-foreign-call
+    (lambda (ae conv* foreign-name foreign-addr params result e*)
       (build-profile ae
-        `(foreign (,conv* ...) ,foreign-name ,foreign-addr
+        `(foreign-call (,conv* ...) ,foreign-name ,foreign-addr
            (,(map (lambda (x) (build-fp-specifier 'foreign-procedure 'parameter x #f)) params) ...)
-           ,(build-fp-specifier 'foreign-procedure "result" result #t)))))
+           ,(build-fp-specifier 'foreign-procedure "result" result #t)
+           ,e* ...))))
 
   (define build-foreign-callable
     (lambda (ae conv* proc params result)
@@ -6378,16 +6379,17 @@
     (syntax-case e ()
       [(_) (build-moi)])))
 
-(global-extend 'core '$foreign-procedure
+(global-extend 'core '$foreign-call
   (lambda (e r w ae)
     (syntax-case e ()
-      ((_ conv* foreign-name foreign-addr (arg ...) result)
-       (build-foreign-procedure ae
+      ((_ conv* foreign-name foreign-addr (arg ...) result arg-e ...)
+       (build-foreign-call ae
          (strip (syntax conv*) w)
          (strip (syntax foreign-name) w)
          (chi (syntax foreign-addr) r w)
          (map (lambda (x) (strip x w)) (syntax (arg ...)))
-         (strip (syntax result) w))))))
+         (strip (syntax result) w)
+         (map (lambda (e) (chi e r w)) (syntax (arg-e ...))))))))
 
 (global-extend 'core '$foreign-callable
   (lambda (e r w ae)
@@ -9004,6 +9006,7 @@
                          (cond
                            [(not c) (values #f #f)]
                            [(eq? c '__collect_safe) (values 'adjust-active #f)]
+                           [(eq? c '__atomic) (values 'atomic #f)]
                            [(eq? c '__varargs)
                             (check-arg-count 1 orig-c)
                             (values (cons 'varargs 1) #f)]
@@ -9034,6 +9037,10 @@
                        (and (pair? c) (ormap pair? accum)))
                (syntax-error orig-c (format "redundant ~s convention" who)))
              (when (and select? selected)
+               (syntax-error orig-c (format "conflicting ~s convention" who)))
+             (when (and (eq? c 'atomic) (member 'adjust-active keep-accum))
+               (syntax-error orig-c (format "conflicting ~s convention" who)))
+             (when (and (eq? c 'adjust-active) (member 'atomic keep-accum))
                (syntax-error orig-c (format "conflicting ~s convention" who)))
              (loop (cdr conv*) (if select? c selected) (cons c accum)
                    (if c
@@ -9241,14 +9248,18 @@
                                    #`[]
                                    #`[(unless (record? &-result '#,(cdr result-type)) (err ($moi) &-result))]))]
                          [else #'([] [] [])])])
-          #`(let ([p ($foreign-procedure conv* foreign-name ?foreign-addr (extra-arg ... arg ... ...) result)]
+          #`(let ([foreign-addr ?foreign-addr]
                   #,@(if unsafe?
                          #'()
                          #'([err (lambda (who x)
                                    ($oops (or who foreign-name)
-                                     "invalid foreign-procedure argument ~s"
-                                     x))])))
-              (lambda (extra ... t ...) extra-check ... check ... ... (result-filter (p extra ... actual ... ...)))))))))
+                                          "invalid foreign-procedure argument ~s"
+                                          x))])))
+              (lambda (extra ... t ...)
+                extra-check ... check ... ...
+                (result-filter
+                 ($foreign-call conv* foreign-name foreign-addr (extra-arg ... arg ... ...) result
+                                extra ... actual ... ...)))))))))
 
 (define-syntax foreign-procedure
   (lambda (x)

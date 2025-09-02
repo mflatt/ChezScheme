@@ -529,10 +529,12 @@
         [(_ id) (top #'id)]
         [(_ level id) (top #'id)]))))
 
-(define-syntax ($foreign-procedure stx)
+(define-syntax ($foreign-call stx)
   (syntax-case stx ()
     [(_ _ name . _)
      #'(lambda args (error 'reboot "expander not expected to call foreign procedure ~s" name))]))
+(define-primitive ($foreign-entry name)
+  (list 'foreign name))
 
 (define-primitive ($oops . args)
   (apply error args))

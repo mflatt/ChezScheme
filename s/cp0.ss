@@ -1052,6 +1052,9 @@
                              (exit #f))
                            (bump!)
                            `(call ,preinfo ,(do-expr e) ,(map do-expr e*) ...)]
+                          [(foreign-call (,conv* ...) ,name ,e (,arg-type* ...) ,result-type ,e* ...)
+                           (bump!)
+                           `(foreign-call (,conv* ...) ,name ,(do-expr e) (,arg-type* ...) ,result-type ,(map do-expr e*) ...)]
                           [(case-lambda ,preinfo ,cl* ...)
                            (bump!)
                            `(case-lambda ,preinfo ,(map (ids->do-clause ids) cl*) ...)]
@@ -1165,6 +1168,7 @@
                  (nanopass-case (Lsrc Expr) e
                    [(seq ,e1 ,e2) (pure-call? e1 e2)]
                    [else (pure-call? #f e)]))]
+              [(foreign-call (,conv* ...) ,name ,e (,arg-type* ...) ,result-type ,e* ...) #f]
               [(quote ,d) #t]
               [,pr (all-set? (prim-mask proc) (primref-flags pr))]
               [(case-lambda ,preinfo ,cl* ...) #t]
@@ -1179,7 +1183,6 @@
               [(record-cd ,rcd ,rtd-expr ,e) (memoize (pure1? e))]
               [(letrec ([,x* ,e*] ...) ,body) (memoize (and (andmap pure1? e*) (pure? body)))]
               [(record-type ,rtd ,e) (memoize (pure1? e))]
-              [(foreign (,conv* ...) ,name ,e (,arg-type* ...) ,result-type) (memoize (pure? e))]
               [(letrec* ([,x* ,e*] ...) ,body) (memoize (and (andmap pure1? e*) (pure? body)))]
               [(immutable-list (,e* ...) ,e) (memoize (and (andmap pure1? e*) (pure? e)))]
               [(immutable-vector (,e* ...) ,e) (memoize (and (andmap pure1? e*) (pure? e)))]
@@ -1226,6 +1229,7 @@
                  (nanopass-case (Lsrc Expr) e
                    [(seq ,e1 ,e2) (ivory-call? e1 e2)]
                    [else (ivory-call? #f e)]))]
+              [(foreign-call (,conv* ...) ,name ,e (,arg-type* ...) ,result-type ,e* ...) #f]
               [(quote ,d) #t]
               [,pr (all-set? (prim-mask proc) (primref-flags pr))]
               [(case-lambda ,preinfo ,cl* ...) #t]
@@ -1244,7 +1248,6 @@
               [(record-cd ,rcd ,rtd-expr ,e) (memoize (ivory1? e))]
               [(letrec ([,x* ,e*] ...) ,body) (memoize (and (andmap ivory1? e*) (ivory? body)))]
               [(record-type ,rtd ,e) (memoize (ivory1? e))]
-              [(foreign (,conv* ...) ,name ,e (,arg-type* ...) ,result-type) (memoize (ivory1? e))]
               [(letrec* ([,x* ,e*] ...) ,body) (memoize (and (andmap ivory1? e*) (ivory? body)))]
               [(immutable-list (,e* ...) ,e) (memoize (and (andmap ivory1? e*) (ivory? e)))]
               [(immutable-vector (,e* ...) ,e) (memoize (and (andmap ivory1? e*) (ivory? e)))]
@@ -1282,6 +1285,7 @@
                   (guard (fx= interface (length e*)))
                   (memoize (and (simple? body) (andmap simple1? e*)))]
                  [else #f])]
+              [(foreign-call (,conv* ...) ,name ,e (,arg-type* ...) ,result-type ,e* ...) #f]
               [(ref ,maybe-src ,x) #t]
               [(case-lambda ,preinfo ,cl* ...) #t]
               [(if ,e1 ,e2 ,e3) (memoize (and (simple1? e1) (simple? e2) (simple? e3)))]
@@ -1295,7 +1299,6 @@
               [(record-cd ,rcd ,rtd-expr ,e) (memoize (simple1? e))]
               [(record-ref ,rtd ,type ,index ,e) (memoize (simple1? e))]
               [(record-set! ,rtd ,type ,index ,e1 ,e2) #f]
-              [(foreign (,conv* ...) ,name ,e (,arg-type* ...) ,result-type) (memoize (simple1? e))]
               [(record-type ,rtd ,e) (memoize (simple1? e))]
               [(record ,rtd ,rtd-expr ,e* ...) (memoize (and (simple1? rtd-expr) (andmap simple1? e*)))]
               [(pariah) #f]
@@ -1334,6 +1337,7 @@
                   (guard (fx= interface (length e*)))
                   (memoize (and (simple/profile? body) (andmap simple/profile1? e*)))]
                  [else #f])]
+              [(foreign-call (,conv* ...) ,name ,e (,arg-type* ...) ,result-type ,e* ...) #f]
               [(ref ,maybe-src ,x) #t]
               [(case-lambda ,preinfo ,cl* ...) #t]
               [(if ,e1 ,e2 ,e3) (memoize (and (simple/profile1? e1) (simple/profile? e2) (simple/profile? e3)))]
@@ -1347,7 +1351,6 @@
               [(record-cd ,rcd ,rtd-expr ,e) (memoize (simple/profile1? e))]
               [(record-ref ,rtd ,type ,index ,e) (memoize (simple/profile1? e))]
               [(record-set! ,rtd ,type ,index ,e1 ,e2) #f]
-              [(foreign (,conv* ...) ,name ,e (,arg-type* ...) ,result-type) (memoize (simple/profile1? e))]
               [(record-type ,rtd ,e) (memoize (simple/profile1? e))]
               [(record ,rtd ,rtd-expr ,e* ...) (memoize (and (simple/profile1? rtd-expr) (andmap simple/profile1? e*)))]
               [(pariah) #t]
@@ -1410,6 +1413,7 @@
                                           (boolean-valued? body)]))
                                      cl*))]
                    [else #f]))]
+              [(foreign-call (,conv* ...) ,name ,e (,arg-type* ...) ,result-type ,e* ...) #f]
               [(if ,e0 ,e1 ,e2) (memoize (and (boolean-valued? e1) (boolean-valued? e2)))]
               [(record-ref ,rtd ,type ,index ,e) (eq? type 'boolean)]
               [(ref ,maybe-src ,x) #f]
@@ -1429,7 +1433,6 @@
               [(profile ,src) #f]
               [(set! ,maybe-src ,x ,e) #f]
               [(moi) #f]
-              [(foreign (,conv* ...) ,name ,e (,arg-type* ...) ,result-type) #f]
               [(fcallable (,conv* ...) ,e (,arg-type* ...) ,result-type) #f]
               [(pariah) #f]
               [else ($oops who "unrecognized record ~s" e)]))))
@@ -1519,6 +1522,7 @@
                                   (cte-info-procedure-single-valued? (cdr as))))]
                           [else #f])]
                        [else #f])))]
+              [(foreign-call (,conv* ...) ,name ,e (,arg-type* ...) ,result-type ,e* ...) #t]
               [(ref ,maybe-src ,x) #t]
               [(case-lambda ,preinfo ,cl* ...) #t]
               [(if ,e1 ,e2 ,e3) (memoize (single-valued-join (single-valued e2) (single-valued e3)))]
@@ -1532,7 +1536,6 @@
               [(record-cd ,rcd ,rtd-expr ,e) #t]
               [(record-ref ,rtd ,type ,index ,e) #t]
               [(record-set! ,rtd ,type ,index ,e1 ,e2) #t]
-              [(foreign (,conv* ...) ,name ,e (,arg-type* ...) ,result-type) #t]
               [(record-type ,rtd ,e) #t]
               [(record ,rtd ,rtd-expr ,e* ...) #t]
               [(pariah) #t]
@@ -3071,6 +3074,11 @@
             (nanopass-case (Lsrc Expr) e
               [(quote ,d) (flonum? d)]
               [(call ,preinfo ,pr ,e* ...) (eq? 'flonum ($sgetprop (primref-name pr) '*result-type* #f))]
+              [(foreign-call (,conv* ...) ,name ,e (,arg-type* ...) ,result-type ,e* ...)
+               (nanopass-case (Ltype Type) result-type
+                 [(fp-double-float) #t]
+                 [(fp-single-float) #t]
+                 [else #f])]
               [else #f])))
 
         ; handling nans here using the support for handling exact zero in
@@ -4201,7 +4209,6 @@
             (nanopass-case (Lsrc Expr) xres
               [(case-lambda ,preinfo ,cl ...) #t]
               [,pr (all-set? (prim-mask proc) (primref-flags pr))]
-              [(foreign (,conv* ...) ,name ,e (,arg-type* ...) ,result-type) #t]
               [(fcallable (,conv* ...) ,e (,arg-type* ...) ,result-type) #t]
               [(record-set! ,rtd ,type ,index ,e1 ,e2) #t]
               [(immutable-list (,e* ...) ,e) #t]
@@ -5631,6 +5638,9 @@
                [else (values e args)])))
          (let-values ([(e args) (lift-let e e*)])
            (cp0-call preinfo e (build-operands (ivory? e) args env wd moi) ctxt env sc wd name moi)))]
+      [(foreign-call (,conv* ...) ,name ,e (,arg-type* ...) ,result-type ,e* ...)
+       `(foreign-call (,conv* ...) ,name ,(cp0 e 'value env sc wd #f moi) (,arg-type* ...) ,result-type
+                      ,(map (lambda (e) (cp0 e 'value env sc wd #f moi)) e*) ...)]
       [(case-lambda ,preinfo ,cl* ...)
        (context-case ctxt
          [(value tail)
@@ -5712,11 +5722,6 @@
                   true-rec
                   (begin (bump sc 1) pr))]
              [(app) (fold-primref pr ctxt sc wd name moi)])]
-      [(foreign (,conv* ...) ,name ,e (,arg-type* ...) ,result-type)
-       (context-case ctxt
-         [(value tail app) (bump sc 1) `(foreign (,conv* ...) ,name ,(cp0 e 'value env sc wd #f moi) (,arg-type* ...) ,result-type)]
-         [(effect ignored) (make-nontail ctxt (cp0 e 'ignored env sc wd #f moi))]
-         [(test) (make-1seq ctxt (cp0 e 'ignored env sc wd #f moi) true-rec)])]
       [(fcallable (,conv* ...) ,e (,arg-type* ...) ,result-type)
        (context-case ctxt
          [(value tail app) (bump sc 1) `(fcallable (,conv* ...) ,(cp0 e 'value env sc wd #f moi) (,arg-type* ...) ,result-type)]

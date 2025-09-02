@@ -141,9 +141,6 @@
       [(set! ,maybe-src ,x ,[e #f -> e]) `(set! ,maybe-src ,x ,e)]
       [(seq ,[e1 #f -> e1] ,[e2]) `(seq ,e1 ,e2)]
       [(if ,[e1 #f -> e1] ,[e2 #f -> e2] ,[e3 #f -> e3]) `(if ,e1 ,e2 ,e3)]
-      [(foreign (,conv* ...) ,name ,e (,arg-type* ...) ,result-type)
-       (check! ctxt (list (length arg-type*)))
-       `(foreign (,conv* ...) ,name ,(Expr e #f) (,arg-type* ...) ,result-type)]
       [(fcallable (,conv* ...) ,[e #f -> e] (,arg-type* ...) ,result-type)
         `(fcallable (,conv* ...) ,e (,arg-type* ...) ,result-type)]
       [(call ,preinfo0
@@ -171,6 +168,8 @@
                      (argcnt-error preinfo e e*)
                      `(call ,preinfo ,e ,e* ...))))
              `(call ,preinfo ,(Expr e #f) ,e* ...)))]
+      [(foreign-call (,conv* ...) ,name ,[e #f -> e] (,arg-type* ...) ,result-type ,[e* #f -> e*] ...)
+       `(foreign-call (,conv* ...) ,name ,e (,arg-type* ...) ,result-type ,e* ...)]
       [(case-lambda ,preinfo (clause (,x** ...) ,interface* ,[body* #f -> body*]) ...)
        (check! ctxt interface*)
        `(case-lambda ,preinfo (clause (,x** ...) ,interface* ,body*) ...)]

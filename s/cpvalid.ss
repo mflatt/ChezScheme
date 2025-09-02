@@ -318,6 +318,10 @@
        (let-values ([(e* args-dl?) (undefer* e* proxy dl?)])
          (defer-or-not (or fun-dl? args-dl?)
            `(call ,preinfo ,e ,e* ...)))]
+      [(foreign-call (,conv* ...) ,name ,[undefer : e fun-dl?] (,arg-type* ...) ,result-type ,e* ...)
+       (let-values ([(e* args-dl?) (undefer* e* proxy dl?)])
+         (defer-or-not (or fun-dl? args-dl?)
+           `(foreign-call (,conv* ...) ,name ,e (,arg-type* ...) ,result-type ,e* ...)))]
       [(if ,[undefer : e0 dl0?] ,[undefer : e1 dl1?] ,[undefer : e2 dl2?])
        (defer-or-not (or dl0? dl1? dl2?) `(if ,e0 ,e1 ,e2))]
       [(case-lambda ,preinfo ,cl* ...)
@@ -334,8 +338,6 @@
        (let-values ([(e* vals-dl?) (undefer* e* proxy dl?)])
          (defer-or-not (or body-dl? vals-dl?)
            `(letrec* ([,x* ,e*] ...) ,body)))]
-      [(foreign (,conv* ...) ,name ,[undefer : e dl?] (,arg-type* ...) ,result-type)
-       (defer-or-not dl? `(foreign (,conv* ...) ,name ,e (,arg-type* ...) ,result-type))]
       [(fcallable (,conv* ...) ,[undefer : e dl?] (,arg-type* ...) ,result-type)
        (defer-or-not dl? `(fcallable (,conv* ...) ,e (,arg-type* ...) ,result-type))]
       [(cte-optimization-loc ,box ,[undefer : e dl?] ,exts)
@@ -393,6 +395,9 @@
               ,(first-value (cpvalid e #f #f))
               ,(map (lambda (x) (first-value (cpvalid x #f #f))) e*) ...))
          #f)]
+      [(foreign-call (,conv* ...) ,name ,[cpvalid : e dl?] (,arg-type* ...) ,result-type ,e* ...)
+       (let-values ([(e* dl?) (map/ormap (lambda (e) (cpvalid e proxy dl?)) e*)])
+         (defer-or-not dl? `(foreign-call (,conv* ...) ,name ,e (,arg-type* ...) ,result-type ,e* ...)))]
       [(case-lambda ,preinfo ,cl* ...)
        (if dl?
            (values `(cpvalid-defer ,x) #t)
@@ -553,8 +558,6 @@
        (defer-or-not (or dl0? dl1? dl2?) `(if ,e0 ,e1 ,e2))]
       [(seq ,[cpvalid : e1 dl1?] ,[cpvalid : e2 dl2?])
        (defer-or-not (or dl1? dl2?) `(seq ,e1 ,e2))]
-      [(foreign (,conv* ...) ,name ,[cpvalid : e dl?] (,arg-type* ...) ,result-type)
-       (defer-or-not dl? `(foreign (,conv* ...) ,name ,e (,arg-type* ...) ,result-type))]
       [(fcallable (,conv* ...) ,[cpvalid : e dl?] (,arg-type* ...) ,result-type)
        (defer-or-not dl? `(fcallable (,conv* ...) ,e (,arg-type* ...) ,result-type))]
       [(cte-optimization-loc ,box ,[cpvalid : e dl?] ,exts)

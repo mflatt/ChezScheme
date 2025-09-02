@@ -130,7 +130,7 @@
                    ; UPDATE THIS if new keywords are added
                    '(let $primitive quote begin case-lambda
                       library-case-lambda lambda if set!
-                      letrec letrec* $foreign-procedure
+                      letrec letrec* $foreign-call
                       $foreign-callable eval-when
                       $lambda/lift-barrier))))
              (nanopass-case (Lsrc Expr) x
@@ -212,10 +212,11 @@
                [(letrec* ([,x* ,[e*]] ...) ,body)
                 `(letrec* ,(map (lambda (x e) `(,(get-name x) ,e)) x* e*)
                    ,@(uncprep-sequence body '()))]
-               [(foreign (,conv* ...) ,name ,[e] (,arg-type* ...) ,result-type)
-                `($foreign-procedure ,(uncprep-fp-conv conv*) ,name ,e
+               [(foreign-call (,conv* ...) ,name ,[e] (,arg-type* ...) ,result-type ,[e*] ...)
+                `($foreign-call ,(uncprep-fp-conv conv*) ,name ,e
                    ,(map uncprep-fp-specifier arg-type*)
-                   ,(uncprep-fp-specifier result-type))]
+                   ,(uncprep-fp-specifier result-type)
+                   ,@e*)]
                [(fcallable (,conv* ...) ,[e] (,arg-type* ...) ,result-type)
                 `($foreign-callable ,(uncprep-fp-conv conv*) ,e
                    ,(map uncprep-fp-specifier arg-type*)

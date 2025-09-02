@@ -641,7 +641,9 @@
 
     (define add-caller-save-registers
       ;; Adds alloctable caller-saved registers, since those may be
-      ;; mangled on a call to a C function
+      ;; mangled on a call to a C function. If the C function is not
+      ;; atomic (i.e., it can have callbacks to Scheme), then any
+      ;; register might become stale, so add all allocatable registers.
       (lambda (reg*)
         (let loop ([i 0])
           (cond
@@ -723,10 +725,11 @@
          `(call ,(make-info-call (preinfo-src preinfo) (preinfo-sexpr preinfo) (preinfo-call-check? preinfo) #f
                                  (and (preinfo-call-no-return? preinfo) (not (preinfo-call-check? preinfo))))
             ,(Expr e) ,e* ...)]
-        [(foreign (,conv* ...) ,name ,[e] (,arg-type* ...) ,result-type)
-         (let ([info (make-info-foreign conv* arg-type* result-type #f)])
+        [(foreign-call (,conv* ...) ,name ,[e] (,arg-type* ...) ,result-type ,[e*] ...)
+         (let* ([unbox-args? (memq 'atomic conv*)]
+                [info (make-info-foreign conv* arg-type* result-type unbox-args?)])
            (info-foreign-name-set! info name)
-           `(foreign ,info ,e))]
+           `(foreign-call ,info ,e ,e* ...))]
         [(fcallable (,conv* ...) ,[e] (,arg-type* ...) ,result-type)
          `(fcallable ,(make-info-foreign conv* arg-type* result-type #f) ,e)])
       (CaseLambdaExpr ir #f))
@@ -812,9 +815,8 @@
          `(if ,e0 ,e1 ,e2)]
         [(seq ,[e0 #f moi -> e0] ,[e1])
          `(seq ,e0 ,e1)]
-        [(foreign ,info ,[e #f moi -> e])
-         (when name (info-foreign-name-set! info name))
-         `(foreign ,info ,e)]
+        [(foreign-call ,info ,[e #f moi -> e] ,[e* #f moi -> e*] ...)
+         `(foreign-call ,info ,e ,e* ...)]
         [(fcallable ,info ,[e #f moi -> e])
          (info-foreign-name-set! info name)
          `(fcallable ,info ,e)]
@@ -944,7 +946,7 @@
         [,pr (values)]
         [(let ([,x ,[]] ...) ,[]) (values)]
         [(letrec ([,x ,[]] ...) ,[]) (values)]
-        [(foreign ,info ,[]) (values)]
+        [(foreign-call ,info ,[] ,[] ...) (values)]
         [(fcallable ,info ,[]) (values)]
         [(profile ,src) (values)]
         [(pariah) (values)]
@@ -1029,20 +1031,27 @@
 
     (define-pass np-expand-foreign : L4.5 (ir) -> L4.75 ()
       (Expr : Expr (ir) -> Expr ()
-        [(foreign ,info ,[e])
-         (let ([iface (length (info-foreign-arg-type* info))]
-               [t (make-tmp 'tentry 'uptr)]
-               [t* (map (lambda (x) (make-tmp 't)) (info-foreign-arg-type* info))])
-           (let ([lambda-info (make-info-lambda #f #f #f (list iface) (info-foreign-name info))])
-             `(let ([,t ,e])
-                (case-lambda ,lambda-info
-                  (clause (,t* ...) ,iface
-                    (foreign-call ,info ,t ,t* ...))))))]
         [(fcallable ,info ,[e])
          (%primcall #f #f $instantiate-code-object
            (fcallable ,info)
            (quote 0) ; hard-wiring "cookie" to 0
-           ,e)]))
+           ,e)]
+        [(foreign-call ,info ,[e] ,[e*] ...)
+         (if (not (memq 'atomic (info-foreign-conv* info)))
+             ;; force non-atomic foreign calls into a fresh frame, because during a
+             ;; foreign call, there's no Scheme-level return address to know the
+             ;; caller's frame, so there must be no live variables in the frame;
+             ;; potential improvement: leave call as-is when in tail position
+             (let ([iface (+ 1 (length (info-foreign-arg-type* info)))]
+                   [t (make-tmp 'tentry)]
+                   [t* (map (lambda (x) (make-tmp 't)) (info-foreign-arg-type* info))])
+               (let ([lambda-info (make-info-lambda #f #f #f (list iface) (info-foreign-name info))])
+                 `(call ,(make-info-call #f #f #f #f #f) #f
+                        (case-lambda ,lambda-info
+                                     (clause (,t ,t* ...) ,iface
+                                             (foreign-call ,info ,t ,t* ...)))
+                        ,e ,e* ...)))
+             `(foreign-call ,info ,e ,e* ...))]))
 
     (define-pass np-recognize-loops : L4.75 (ir) -> L4.875 ()
       ; TODO: also recognize andmap/for-all, ormap/exists, for-each
@@ -2854,6 +2863,10 @@
          (guard (eq? 'flvector-set! (primref-name pr)))
          (Expr e3 #t)
          #f]
+        [(call ,info ,mdcl ,pr ,[e1 #f -> * fp?1] ,[e2 #f -> * fp?2] ,[e3 #f -> * fp?3] ,e4)
+         (guard (memq (primref-name pr) '($fptr-set-double-float! $fptr-set-single-float!)))
+         (Expr e4 #t)
+         #f]
         [(call ,info ,mdcl ,pr ,[e* #f -> * fp?] ...)
          (primref-flonum-result? pr)]
         [(loop ,x (,x* ...) ,body)
@@ -2897,7 +2910,15 @@
         [(attachment-consume ,reified ,[e #f -> * fp?]) #f]
         [(continuation-get) #f]
         [(continuation-set ,cop ,[e1 #f -> * fp?1] ,[e2 #f -> * fp?2]) #f]
-        [(foreign-call ,info ,[e #f -> * fp?] ,[e* #f -> * fp?*] ...) #f]
+        [(foreign-call ,info ,[e #f -> * fp?] ,e* ...)
+         (cond
+           [(equal? (length e*) (length (info-foreign-arg-type* info)))
+            (for-each (lambda (e arg-type) (Expr e (fp-type? arg-type)))
+                      e*
+                      (info-foreign-arg-type* info))]
+           [else
+            (for-each (lambda (e) (Expr e #f)) e*)])
+         (fp-type? (info-foreign-result-type info))]
         [(profile ,src) #f]
         [(raw ,e) #f]
         [(pariah) #f])
@@ -4661,7 +4682,8 @@
           (define build-foreign-call
             (with-output-language (L13 Effect)
               (lambda (info t0 t1* maybe-lvalue new-frame?)
-                (let ([atomic? (memq 'atomic (info-foreign-conv* info))]) ;; 'atomic => no callables, not varargs
+                (let ([atomic? (memq 'atomic (info-foreign-conv* info))]) ;; 'atomic => no callables, varargs is precise
+                  (safe-assert (or atomic? (not new-frame?)))
                   (let ([arg-type* (info-foreign-arg-type* info)]
                         [result-type (info-foreign-result-type info)]
                         [unboxed? (info-foreign-unboxed? info)]
@@ -4693,11 +4715,7 @@
                                         [else
                                          `(seq ,(C->Scheme result-type c-res maybe-lvalue #t unboxed? #t) ,e)])
                                       e))))])
-                    e
-                    #;
-                    (if new-frame?
-                        (sorry! who "can't handle nontail foreign calls")
-                        e)))))))
+                      e))))))
           (define build-fcallable
             (with-output-language (L13 Tail)
               (lambda (info self-label)

@@ -419,7 +419,7 @@
  ; records, and make sure other record types have been discarded.  also formally sets up
  ; CaseLambdaClause as entry point for language.
   (define-language L1
-    (nongenerative-id #{L1 jczowy6yjfz400ntojb6av7y0-1})
+    (nongenerative-id #{L1 dpwxeuld93u52qa5su9n8kzbr-0})
     (terminals
       (uvar (x))
       (datum (d))
@@ -440,7 +440,7 @@
       (set! x e)
       (letrec ([x le] ...) body)
       (moi)                                                 => "moi"
-      (foreign info e)
+      (foreign-call info e0 e1 ...)
       (fcallable info e)
       (profile src)                                         => (profile)
       (pariah)
@@ -457,28 +457,28 @@
 
  ; introducing let
   (define-language L2 (extends L1)
-    (nongenerative-id #{L2 jczowy6yjfz400ntojb6av7y0-2})
+    (nongenerative-id #{L2 dpwxeuld93u52qa5su9n8kzbr-2})
     (entry CaseLambdaExpr)
     (Expr (e body)
       (+ (let ([x e] ...) body))))
 
  ; removes moi; also adds name to info-lambda & info-foreign
   (define-language L3 (extends L2)
-    (nongenerative-id #{L3 jczowy6yjfz400ntojb6av7y0-3})
+    (nongenerative-id #{L3 dpwxeuld93u52qa5su9n8kzbr-3})
     (entry CaseLambdaExpr)
     (Expr (e body)
       (- (moi))))
 
  ; removes assignable indefinite-extent variables from the language
   (define-language L4 (extends L3)
-    (nongenerative-id #{L4 jczowy6yjfz400ntojb6av7y0-4})
+    (nongenerative-id #{L4 dpwxeuld93u52qa5su9n8kzbr-4})
     (entry CaseLambdaExpr)
     (Expr (e body)
       (- (set! x e))))
 
  ; introducing mvlet, and mvcall
   (define-language L4.5 (extends L4)
-    (nongenerative-id #{L4.5 jczowy6yjfz400ntojb6av7y0-4.5})
+    (nongenerative-id #{L4.5 dpwxeuld93u52qa5su9n8kzbr-4.5})
     (terminals
       (+ (maybe-label (mdcl))))
     (entry CaseLambdaExpr)
@@ -488,22 +488,20 @@
          (mvcall info e1 e2)                              => (mvcall e1 e2)
          (mvlet e ((x** ...) interface* body*) ...))))
 
- ; removes foreign, adds foreign-call, updates fcallable
+ ; updates fcallable
   (define-language L4.75 (extends L4.5)
-    (nongenerative-id #{L4.75 jczowy6yjfz400ntojb6av7y0-4.75})
+    (nongenerative-id #{L4.75 dpwxeuld93u52qa5su9n8kzbr-4.75})
     (entry CaseLambdaExpr)
     (terminals
       (+ (label (l))))
     (Expr (e body)
-      (- (foreign info e)
-         (fcallable info e))
+      (- (fcallable info e))
       (+ (label l body)
-         (foreign-call info e e* ...)
          (fcallable info))))
 
  ; adds loop form
   (define-language L4.875 (extends L4.75)
-    (nongenerative-id #{L4.875 jczowy6yjfz400ntojb6av7y0-4.875})
+    (nongenerative-id #{L4.875 dpwxeuld93u52qa5su9n8kzbr-4.875})
     (entry CaseLambdaExpr)
     (Expr (e body)
       (+ (loop x (x* ...) body) => (loop x body))))
@@ -518,7 +516,7 @@
 
  ; exposes continuation-attachment operations
   (define-language L4.9375 (extends L4.875)
-    (nongenerative-id #{L4.9375 jczowy6yjfz400ntojb6av7y0-4.9375})
+    (nongenerative-id #{L4.9375 dpwxeuld93u52qa5su9n8kzbr-4.9375})
     (terminals
      (+ (attachment-op (aop)))
      (+ (continuation-op (cop)))
@@ -533,14 +531,14 @@
 
  ; moves all case lambda expressions into rhs of letrec
   (define-language L5 (extends L4.9375)
-    (nongenerative-id #{L5 jczowy6yjfz400ntojb6av7y0-5})
+    (nongenerative-id #{L5 dpwxeuld93u52qa5su9n8kzbr-5})
     (entry CaseLambdaExpr)
     (Expr (e body)
       (- le)))
 
  ; replaces letrec with labels and closures forms
   (define-language L6 (extends L5)
-    (nongenerative-id #{L6 jczowy6yjfz400ntojb6av7y0-6})
+    (nongenerative-id #{L6 dpwxeuld93u52qa5su9n8kzbr-6})
     (terminals
       (+ (maybe-var (mcp))))
     (entry CaseLambdaExpr)
@@ -559,7 +557,7 @@
 
  ; move labels to top level and expands closures forms to more primitive operations
   (define-language L7 (extends L6)
-    (nongenerative-id #{L7 cdzl2w7vcr40l9ebd38t92bxg-7})
+    (nongenerative-id #{L7 dpwxeuld93u52qa5su9n8kzbr-7})
     (terminals
       (- (uvar (x))
          (fixnum (interface)))
@@ -797,7 +795,7 @@
  ; '(), (eof-object), ($unbound-object), #!bwp, characters, and fixnums as
  ; scheme-object ptrs and inlines primitive calls
   (define-language L9 (extends L7)
-    (nongenerative-id #{L9 cdzl2w7vcr40l9ebd38t92bxg-9})
+    (nongenerative-id #{L9 dpwxeuld93u52qa5su9n8kzbr-9})
     (entry Program)
     (terminals
       (- (datum (d))
@@ -812,7 +810,7 @@
 
  ; determine where we should be placing interrupt and overflow
   (define-language L9.5 (extends L9)
-    (nongenerative-id #{L9.5 cdzl2w7vcr40l9ebd38t92bxg-9.5})
+    (nongenerative-id #{L9.5 dpwxeuld93u52qa5su9n8kzbr-9.5})
     (entry Program)
     (terminals
       (+ (boolean (ioc))))
@@ -822,7 +820,7 @@
 
  ; remove the loop form
   (define-language L9.75 (extends L9.5)
-    (nongenerative-id #{L9.75 cdzl2w7vcr40l9ebd38t92bxg-9.75})
+    (nongenerative-id #{L9.75 dpwxeuld93u52qa5su9n8kzbr-9.75})
     (entry Program)
     (Expr (e body)
       (- (loop x (x* ...) body))))
@@ -834,7 +832,7 @@
  ; Rhs expressions can appear on the right-hand-side of a set! or anywhere arbitrary
  ; Exprs can appear.  Exprs appear in the body of a case-lambda clause.
   (define-language L10 (extends L9.75)
-    (nongenerative-id #{L10 cdzl2w7vcr40l9ebd38t92bxg-10})
+    (nongenerative-id #{L10 dpwxeuld93u52qa5su9n8kzbr-10})
     (terminals
       (+ (uvar (local))))
     (entry Program)
@@ -872,7 +870,7 @@
          (set! lvalue e)
          (mvcall info e1 e2)
          (raw e)
-         (foreign-call info e e* ...)
+         (foreign-call info e0 e1 ...)
          (attachment-get reified (maybe e))
          (attachment-consume reified (maybe e))
          (continuation-get))

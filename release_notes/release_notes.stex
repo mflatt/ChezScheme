@@ -152,6 +152,16 @@ The \scheme{expt} function produces a more accurate result when its
 first argument is a flonum and its second argument is an exact integer
 that has no equivalent flonum representation.
 
+\subsection{Foreign-procedure thread activation (10.3.0)}
+
+A new \scheme{__atomic} foreign-procedure convention indicates that
+the foreign function will not call back to Scheme, such as through a
+foreign callable. Calls to atomic foreign functions may be compiled to
+more efficient form, particularly if the function accepts or returns
+flonums that may be unboxed (in the sense of Section~\ref{sec:unbox-floats}).
+Unboxing is also improved for \scheme{fptr-ref} and \scheme{fptr-set!}
+on \scheme{double} and \scheme{float} fields.
+
 \subsection{Atomic compare-and-set for pairs (10.3.0)}
 
 The new procedures \scheme{car-cas!} and \scheme{cdr-cas!}

@@ -474,19 +474,21 @@
       [(seq ,e1 ,e2)
        (let ((e1 (ip2 e1)) (e2 (ip2 e2)))
          ($rt lambda () ($rt e1) ($rt e2)))]
-      [(foreign (,conv* ...) ,name ,e (,arg-type* ...) ,result-type)
+      [(foreign-call (,conv* ...) ,name ,e (,arg-type* ...) ,result-type ,e* ...)
        (unless $compiler-is-loaded?
-         ($oops 'interpret "cannot compile foreign-procedure: compiler is not loaded"))
+         ($oops 'interpret "cannot compile foreign-call: compiler is not loaded"))
        (let ([p ($compile-backend
-                  (let ((t (make-prelex* 'tmp)))
-                    (set-prelex-referenced! t #t)
-                    (with-output-language (Lsrc Expr)
-                      `(case-lambda ,(make-preinfo-lambda)
-                         (clause (,t) 1
-                           (foreign (,conv* ...) ,name (ref #f ,t)
-                             (,arg-type* ...) ,result-type))))))])
-         (let ([e (ip2 e)])
-           ($rt lambda () ((p) ($rt e)))))]
+                 (let ((t (make-prelex* 'tmp))
+                       (x* (map (lambda (e) (make-prelex* 'arg)) e*)))
+                   (set-prelex-referenced! t #t)
+                   (for-each (lambda (x) (set-prelex-referenced! x #t)) x*)
+                   (with-output-language (Lsrc Expr)
+                     `(case-lambda ,(make-preinfo-lambda)
+                        (clause (,t ,x* ...) ,(+ 1 (length x*))
+                          (foreign-call (,conv* ...) ,name (ref #f ,t)
+                                        (,arg-type* ...) ,result-type
+                                        ,(map (lambda (x) `(ref #f ,x)) x*) ...))))))])
+         (ip2-fat-call ($rt lambda () (p)) (map ip2 (cons e e*))))]
       [(fcallable (,conv* ...) ,e (,arg-type* ...) ,result-type)
        (unless $compiler-is-loaded?
          ($oops 'interpret "cannot compile foreign-callable: compiler is not loaded"))
@@ -496,7 +498,7 @@
                     (with-output-language (Lsrc Expr)
                       `(case-lambda ,(make-preinfo-lambda)
                          (clause (,t) 1
-                           (fcallable (,conv* ...) (ref #f ,t) (,arg-type* ...) ,result-type))))))])
+                           (fcallable (,conv* ...) (ref #f ,t) (,arg-type* ...) ,result-type))))))])         
          (let ([e (ip2 e)])
            ($rt lambda () ((p) ($rt e)))))]
       [else (unexpected-record x)])))

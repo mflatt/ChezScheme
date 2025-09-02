@@ -190,7 +190,7 @@
 
   ; language of foreign types
   (define-language Ltype 
-    (nongenerative-id #{Ltype czp82kxwe75y4e77-1})
+    (nongenerative-id #{Ltype bkm4vcqo46s9kg894ccemp1g4-1})
     (terminals
       (exact-integer (bits))
       ($ftd (ftd))
@@ -218,7 +218,7 @@
 
   ; source language used by the passes leading up to the compiler or interpreter
   (define-language Lsrc
-    (nongenerative-id #{Lsrc e9hk42fhc9m126ci6byqksp4h-5})
+    (nongenerative-id #{Lsrc bkm4vcqo46s9kg894ccemp1g4-5})
     (terminals
       (preinfo (preinfo))
       ($prelex (x))
@@ -257,7 +257,7 @@
       (record-ref rtd type index e)
       (record-set! rtd type index e1 e2)
       (cte-optimization-loc box e exts)
-      (foreign (conv* ...) name e (arg-type* ...) result-type)
+      (foreign-call (conv* ...) name e (arg-type* ...) result-type e* ...)
       (fcallable (conv* ...) e (arg-type* ...) result-type)
       (profile src)                                         => (profile)
       ; used only in cpvalid

@@ -118,6 +118,7 @@ Notes:
                  [(call ,preinfo1 (case-lambda ,preinfo2 (clause (,x* ...) ,interface ,body)) ,e*  ...) ; let-like expressions
                   (guard (fx= interface (length e*)))
                   (sv? body fuel)]
+                 [(foreign-call (,conv* ...) ,name ,e (,arg-type* ...) ,result-type ,e* ...) #t]
                  [(letrec ((,x* ,e*) ...) ,body)
                   (sv? body fuel)]
                  [(letrec* ((,x* ,e*) ...) ,body)
@@ -131,7 +132,6 @@ Notes:
                  [(record-cd ,rcd ,rtd-expr ,e) #t]
                  [(record-ref ,rtd ,type ,index ,e) #t]
                  [(record-set! ,rtd ,type ,index ,e1 ,e2) #t]
-                 [(foreign (,conv* ...) ,name ,e (,arg-type* ...) ,result-type) #t]
                  [(record-type ,rtd ,e) #t]
                  [(record ,rtd ,rtd-expr ,e* ...) #t]
                  [(pariah) #t]
@@ -192,8 +192,6 @@ Notes:
            `(letrec* ([,x* ,e*] ...) ,body)]
           [,pr
            void-rec]
-          [(foreign (,conv* ...) ,name ,e (,arg-type* ...) ,result-type)
-           (make-1seq 'effect e void-rec)]
           [(fcallable (,conv* ...) ,e (,arg-type* ...) ,result-type)
            (make-1seq 'effect e void-rec)]
           [(record ,rtd ,rtd-expr ,e* ...)
@@ -1383,7 +1381,7 @@ Notes:
                             (pred-env-add/ref (pred-env-add/ref ntypes
                                                                 x real-pred plxc)
                                               y real-pred plxc)
-                             #f #f)]))])
+                            #f #f)]))])
 
       (define-specialize 2 char-name
         [(n) (let ([r (get-type n)]
@@ -1995,6 +1993,22 @@ Notes:
        (fold-call/lambda preinfo `(case-lambda ,preinfo2 ,cl* ...) e* ctxt types plxc)]
       [(call ,preinfo ,e0 ,e*  ...)
        (fold-call/other preinfo e0 e* ctxt types plxc)]
+      [(foreign-call (,conv* ...) ,name ,[e 'value types plxc -> e ret types t-types f-types] (,arg-type* ...) ,result-type
+                     ,e* ...)
+       (let-values ([(e* types)
+                     (let loop ([e* e*] [e*-accum '()] [types types])
+                       (cond
+                         [(null? e*) (values (reverse e*-accum) types)]
+                         [else
+                          (let-values ([(e ret types t-type f-tyoes) (Expr (car e*) 'value types plxc)])
+                            (loop (cdr e*) (cons e e*-accum) types))]))])
+         (let ([ret (nanopass-case (Ltype Type) result-type
+                      [(fp-fixnum) fixnum-pred]
+                      [(fp-double-float) flonum-pred]
+                      [(fp-single-float) flonum-pred]
+                      [else #f])])
+           (values `(foreign-call (,conv* ...) ,name ,e (,arg-type* ...) ,result-type ,e* ...)
+                   ret types #f #f)))]
       [(letrec ((,x* ,e*) ...) ,body)
        (let-values ([(ntypes e* r* t* t-t* f-t*)
                      (map-Expr/delayed e* types plxc)])
@@ -2024,9 +2038,6 @@ Notes:
        (values ir
                (and (all-set? (prim-mask proc) (primref-flags pr)) 'procedure)
                types #f #f)]
-      [(foreign (,conv* ...) ,name ,[e 'value types plxc -> e ret types t-types f-types] (,arg-type* ...) ,result-type)
-       (values `(foreign (,conv* ...) ,name ,e (,arg-type* ...) ,result-type)
-               #f types #f #f)]
       [(fcallable (,conv* ...) ,[e 'value types plxc -> e ret types t-types f-types] (,arg-type* ...) ,result-type)
        (values `(fcallable (,conv* ...) ,e (,arg-type* ...) ,result-type)
                #f types #f #f)]

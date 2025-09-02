@@ -108,7 +108,11 @@ Handling letrec and letrec*
       [(letrec* ([,x* ,[e*]] ...) ,[body])
        (lift-profile-forms e*
          (lambda (e*)
-           `(letrec* ([,x* ,e*] ...) ,body)))]))
+           `(letrec* ([,x* ,e*] ...) ,body)))]
+      [(foreign-call (,conv* ...) ,name ,[e] (,arg-type* ...) ,result-type ,[e*] ...)
+       (lift-profile-forms (cons e e*)
+         (lambda (e*)
+           `(foreign-call (,conv* ...) ,name ,(car e*) (,arg-type* ...) ,result-type ,(cdr e*) ...)))]))
 
   (define-pass cpletrec : Lsrc (ir) -> Lsrc ()
     (definitions
@@ -334,6 +338,8 @@ Handling letrec and letrec*
                   (arity-okay? (primref-arity pr) (length e*))))))]
       [(call ,preinfo ,[e pure?] ,[e* pure?*] ...)
        (values `(call ,preinfo ,e ,e* ...) #f)]
+      [(foreign-call (,conv* ...) ,name ,[e pure?] (,arg-type* ...) ,result-type ,[e* pure?*] ...)
+       (values `(foreign-call (,conv* ...) ,name ,e (,arg-type* ...) ,result-type ,e* ...) #f)]
       [(if ,[e0 e0-pure?] ,[e1 e1-pure?] ,[e2 e2-pure?])
        (values `(if ,e0 ,e1 ,e2) (and e0-pure? e1-pure? e2-pure?))]
       [(case-lambda ,preinfo ,[cl*] ...)
@@ -358,9 +364,6 @@ Handling letrec and letrec*
        (with-initialized-ids x*
          (lambda (x*)
            (cpletrec-letrec #t x* e* body)))]
-      [(foreign (,conv* ...) ,name ,[e pure?] (,arg-type* ...) ,result-type)
-       (values `(foreign (,conv* ...) ,name ,e (,arg-type* ...) ,result-type)
-         (and (fx= (optimize-level) 3) pure?))]
       [(fcallable (,conv* ...) ,[e pure?] (,arg-type* ...) ,result-type)
        (values `(fcallable (,conv* ...) ,e (,arg-type* ...) ,result-type)
          (and (fx= (optimize-level) 3) pure?))]
