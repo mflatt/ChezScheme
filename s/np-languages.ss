@@ -674,9 +674,7 @@
   (declare-primitive remember effect #f)
   (declare-primitive restore-flrv effect #f)
   (declare-primitive restore-lr effect #f) ; ppc
-  (declare-primitive save-errno effect #f)
   (declare-primitive save-flrv effect #f)
-  (declare-primitive save-last-error effect #f)
   (declare-primitive save-lr effect #f) ; ppc
   (declare-primitive store effect #f)
   (declare-primitive store-single effect #f); not required by cpnanopass
@@ -737,6 +735,8 @@
   (declare-primitive pop value #f)
   (declare-primitive read-performance-monitoring-counter value #t) ; on x86/x86_64 actually side-effects edx/rdx
   (declare-primitive read-time-stamp-counter value #t) ; on x86/x86_64 actually side-effects edx/rdx
+  (declare-primitive save-errno value #f)
+  (declare-primitive save-last-error effect #f)
   (declare-primitive sext8 value #t)
   (declare-primitive sext16 value #t)
   (declare-primitive sext32 value #t) ; 64-bit only

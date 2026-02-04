@@ -2392,7 +2392,7 @@
                  [else (values (reg-list %eax) 0)])]
               [(fp-void) (values '() 0)]
               [else (values (reg-list %eax) 0)])]))
-        (define (add-deactivate adjust-active? save-last-error? maybe-errno-lvalue fill-result-here? t0 result-type e)
+        (define (add-deactivate/errno adjust-active? save-last-error? maybe-errno-lvalue fill-result-here? t0 result-type e)
           (cond
            [(or adjust-active? maybe-errno-lvalue)
             (let-values ([(result-regs result-fp-count) (get-result-registers fill-result-here? result-type)])
@@ -2419,17 +2419,17 @@
                                                                (%inline save-last-error)
                                                                (%inline save-errno)))
                                              ,(save-and-restore (list %eax) 0 e)
-                                             ,(set! ,maybe-errno-lvalue ,%eax))]
+                                             (set! ,maybe-errno-lvalue ,%eax))]
                                            [else e]))))]
                   [else ; maybe-errno-lvalue
                    (%seq
                     ,e
                     ,(save-and-restore result-regs result-fp-count
                                        (%seq
-                                        (set! ,%eax (if save-last-error?
-                                                        (%inline save-last-error)
-                                                        (%inline save-errno)))
-                                        (set! ,maybe-errno-lvalue ,%eax))))]
+                                        (set! ,%eax ,(if save-last-error?
+                                                         (%inline save-last-error)
+                                                         (%inline save-errno)))
+                                        (set! ,maybe-errno-lvalue ,%eax))))])))]
            [else e]))
         (define (add-cleanup-compensate result-type e)
           ;; The convention for the calle to pop the return-pointer argument makes a mess,
@@ -2473,7 +2473,7 @@
                            [t (if adjust-active? %edx t0)] ; need a register if `adjust-active?`
                            [live* (add-caller-save-registers (reg-list %eax %edx))]
                            [call
-                            (add-deactivate
+                            (add-deactivate/errno
                               adjust-active? save-last-error? maybe-errno-lvalue
                               fill-result-here? t0 result-type
                               (add-cleanup-compensate result-type

@@ -320,13 +320,13 @@
    (procedure? (foreign-procedure __errno "idiptr" (scheme-object) scheme-object))
    (procedure? (meta-cond
                 [(windows?)
-                 (procedure? (foreign-procedure __last_error "idiptr" (scheme-object) scheme-object))]
+                 (procedure? (foreign-procedure __get_last_error "idiptr" (scheme-object) scheme-object))]
                 [else void]))
    (error? (meta-cond
             [(windows?)
-             (lambda () (foreign-procedure __bad_conv "idiptr" (scheme-object) scheme-object))]
+             (error #f "invalid foreign-procedure convention __get_last_error")]
             [else
-             (lambda () (foreign-procedure __last_error "idiptr" (scheme-object) scheme-object))]))
+             (lambda () (foreign-procedure __get_last_error "idiptr" (scheme-object) scheme-object))]))
    (error? (foreign-procedure "i do not exist" (scheme-object) scheme-object))
    (error? (begin (foreign-procedure "i do not exist" () scheme-object) 'q))
    (error? (if (foreign-procedure "i do not exist" () scheme-object) 'q 'q))
@@ -337,12 +337,20 @@
    (error? (lambda () (foreign-procedure __bad_conv "foo" () scheme-object)))
    (error? (lambda () (foreign-procedure __collect_safe __atomic "foo" () scheme-object)))
    (error? (lambda () (foreign-procedure __atomic __collect_safe "foo" () scheme-object)))
-   (error? (lambda () (foreign-procedure __errno __last_error "foo" () scheme-object)))
-   (error? (lambda () (foreign-procedure __last_error __errno "foo" () scheme-object)))
-   (error? (lambda () (foreign-procedure __atomic __last_error "foo" () scheme-object)))
    (error? (lambda () (foreign-procedure __atomic __errno "foo" () scheme-object)))
-   (error? (lambda () (foreign-procedure __last_error __atomic "foo" () scheme-object)))
-   (error? (lambda () (foreign-procedure __errno __atomic "foo" () scheme-object)))
+   (error? (lambda () (foreign-procedure __errno __atomic "foo" () scheme-object)))   
+   (error? (meta-cond
+            [(windows?) (lambda () (foreign-procedure __errno __get_last_error "foo" () scheme-object))]
+            [else (error #f "conflicting foreign-procedure convention __get_last_error")]))
+   (error? (meta-cond
+            [(windows?) (lambda () (foreign-procedure __get_last_error __errno "foo" () scheme-object))]
+            [else (error #f "conflicting foreign-procedure convention __errno")]))
+   (error? (meta-cond
+            [(windows?) (lambda () (foreign-procedure __atomic __get_last_error "foo" () scheme-object))]
+            [else (error #f "conflicting foreign-procedure convention __get_last_error")]))
+   (error? (meta-cond
+            [(windows?) (lambda () (foreign-procedure __get_last_error __atomic "foo" () scheme-object))]
+            [else (error #f "conflicting foreign-procedure convention __atomic")]))
 
    (eq? 'foo ((foreign-procedure "idiptr" (scheme-object) scheme-object) 'foo))
 
@@ -3863,13 +3871,13 @@
     (define set-last-error-value
       (meta-cond
        [(windows?)
-        (foreign-procedure __last_error "set_last_error_value" (int) int)]
+        (foreign-procedure __get_last_error "set_last_error_value" (int) int)]
        [else
         set-errno-value]))
     (define set-last-error-value/collect-safe
       (meta-cond
        [(windows?)
-        (foreign-procedure __last_error __collect_safe "set_errno_value" (int) int)]
+        (foreign-procedure __get_last_error __collect_safe "set_errno_value" (int) int)]
        [else
         set-errno-value/collect-safe]))
     #t)

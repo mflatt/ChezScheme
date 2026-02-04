@@ -482,10 +482,10 @@ void S_ffi_call(ptr types, ptr proc, ptr *arena) {
     ptr tc = get_thread_context();
 #ifdef WIN32
     if (Svector_ref(types, SAVE_ERRNO_INDEX) == Sfixnum(2))
-      ERRNOSAVED(tc) = S_save_last_error();
+      U(tc) = S_save_last_error();
     else
 #endif
-      ERRNOSAVED(tc) = S_save_errno();
+      U(tc) = S_save_errno();
   }
 
 #ifdef PTHREADS

@@ -1936,7 +1936,7 @@
                                       (set! ,%Carg1 (literal ,(make-type-desc-literal info args-enc res-enc)))
                                       (inline ,null-info ,%c-stack-call ,t0 ,%Carg1)
                                       ,(if maybe-errno-lvalue
-                                           `(set! ,maybe-errno-lvalue ,(%tc-ref errno-saved))
+                                           `(set! ,maybe-errno-lvalue ,(%tc-ref U))
                                            `(nop)))])
                           (cond
                             [atomic?

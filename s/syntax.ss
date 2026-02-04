@@ -9005,7 +9005,7 @@
                            [(not c) (values #f #f)]
                            [(eq? c '__collect_safe) (values 'adjust-active #f)]
                            [(eq? c '__errno) (values 'save-errno #f)]
-                           [(and (eq? c '__last_error)
+                           [(and (eq? c '__get_last_error)
                                  (memq ($target-machine) '(i3nt ti3nt a6nt ta6nt arm64nt tarm64nt)))
                             (values 'save-last-error #f)]
                            [(eq? c '__atomic) (values 'atomic #f)]

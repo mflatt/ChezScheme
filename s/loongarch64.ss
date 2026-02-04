@@ -488,12 +488,13 @@
         `(set! ,(make-live-info) ,u (asm ,null-info ,asm-kill))
         `(asm ,info ,asm-unactivate-thread ,u)))])
 
-  (define-instruction effect (save-errno)
-    [(op)
+  (define-instruction value (save-errno)
+    [(op (z ur))
+     (safe-assert (eq? z %Cretval))
      (let ([u (make-tmp 'u)])
        (seq
         `(set! ,(make-live-info) ,u (asm ,null-info ,asm-kill))
-        `(asm ,info ,asm-save-errno ,u)))])
+        `(set! ,(make-live-info) ,z (asm ,info ,asm-save-errno ,u))))])
 
   (define-instruction value (asmlibcall)
     [(op (z ur))
@@ -1747,7 +1748,7 @@
 
   (define asm-save-errno
     (let ([target `(loongarch64-call 0 (entry ,(lookup-c-entry save-errno)))])
-      (lambda (code* tmp . ignore)
+      (lambda (code* dest tmp . ignore) ; dest is ignored, since it is always Cretval
         (asm-helper-call code* target #f tmp))))
 
   (define asm-push ;;@ todo alignment
@@ -2206,25 +2207,29 @@
                                                                  (reg-to-memory %Carg3 (cadr offsets) (cadr sizes) r2))))]
                                                         [else ($oops 'assembler-internal "unexpected result place")])))]
                                          [else e]))]
-                                     [add-deactivate
-                                      (lambda (adjust-active? save-errno? t0 live* result-live* k)
+                                     [add-deactivate/errno
+                                      (lambda (adjust-active? maybe-errno-lvalue t0 live* result-live* k)
                                         (cond
-                                         [adjust-active? ; maybe also `save-errno?`
+                                         [adjust-active?
                                           (%seq
                                            (set! ,%ac0 ,t0)
                                            ,(save-and-restore live* (%inline deactivate-thread))
                                            ,(k %ac0)
                                            ,(save-and-restore result-live* (let ([e `(set! ,%Cretval ,(%inline activate-thread))])
                                                                              (cond
-                                                                               [save-errno?
+                                                                               [maybe-errno-lvalue
                                                                                 (%seq
-                                                                                 ,(%inline save-errno)
-                                                                                 ,e)]
+                                                                                 (set! %Cretval ,(%inline save-errno))
+                                                                                 ,(save-and-restore (list %Cretval) e)
+                                                                                 (set! ,maybe-errno-lvalue ,%Cretval))]
                                                                                [else e]))))]
-                                         [save-errno?
+                                         [maybe-errno-lvalue
                                           (%seq
                                            ,(k t0)
-                                           ,(save-and-restore result-live* (%inline save-errno)))]
+                                           ,(save-and-restore result-live*
+                                                              (%seq
+                                                               (set! ,%Cretval ,(%inline save-errno))
+                                                               (set! ,maybe-errno-lvalue ,%Cretval))))]
                                          [else (k t0)]))])
                               (define returnem
                                 (lambda (frame-size locs ccall r-loc)
@@ -2256,8 +2261,7 @@
                                                            (not pass-result-ptr?))
                                                       (cdr arg-type*)
                                                       arg-type*)]
-                                       [adjust-active? (if-feature pthreads (memq 'adjust-active conv*) #f)]
-                                       [save-errno? (memq 'save-errno conv*)])
+                                       [adjust-active? (if-feature pthreads (memq 'adjust-active conv*) #f)])
                                   (with-values (do-args arg-type* (extract-varargs-after-conv conv*))
                                     (lambda (locs live* frame-size)
                                       (returnem (if (and ftd-result?
@@ -2270,7 +2274,7 @@
                                                   ;; stash extra argument on the stack to be retrieved after call and filled with the result:
                                                   (cons (load-int-stack frame-size) locs)]
                                                  [else locs])
-                                                (lambda (t0 not-varargs?)
+                                                (lambda (t0 not-varargs? maybe-errno-lvalue)
                                                   (let* ([cat (categorize-result result-type)]
                                                          [result-reg* (if pass-result-ptr?
                                                                           '()
@@ -2282,9 +2286,10 @@
                                                      ;;@ so don't use that. BUT, we still have to store the retval in regs into
                                                      ;;@ the place pointed to by the pointer.
                                                      (and ftd-result? (not pass-result-ptr?)) cat frame-size
-                                                     (add-deactivate adjust-active? save-errno? t0 live* result-reg*
-                                                                     (lambda (t0)
-                                                                       `(inline ,(make-info-kill*-live* (add-caller-save-registers result-reg*) live*) ,%c-call ,t0))))))
+                                                     (add-deactivate/errno
+                                                      adjust-active? maybe-errno-lvalue t0 live* result-reg*
+                                                      (lambda (t0)
+                                                        `(inline ,(make-info-kill*-live* (add-caller-save-registers result-reg*) live*) ,%c-call ,t0))))))
                                                 (nanopass-case (Ltype Type) result-type
                                                                ;;@ TODO check the two
                                                                [(fp-double-float)

@@ -158,7 +158,6 @@ ptr S_create_thread_object(const char *who, ptr p_tc) {
   }
 
   DSTBV(tc) = SRCBV(tc) = Sfalse;
-  ERRNOSAVED(tc) = Sfixnum(0);
 
   thread = S_thread(tc);
 

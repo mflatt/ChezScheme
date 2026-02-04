@@ -481,9 +481,9 @@ ptr S_save_errno(void) {
     int errno_val;
 
 #ifdef WIN32
-    if (ERRNOMODE(tc) == Sfalse) {
+    if (CURENTERRNOSOURCE(tc) == Sfalse) {
       errno_val = errno;
-    } else if (STRIT(SYMNAME(ERRNOMODE(tc)), 0) == 'm' /* msvcrt */) {
+    } else if (STRIT(SYMNAME(CURENTERRNOSOURCE(tc)), 0) == 'm' /* msvcrt */) {
       if (!msvcrt_get_errno_ptr) {
         HMODULE hm;
         tc_mutex_acquire();

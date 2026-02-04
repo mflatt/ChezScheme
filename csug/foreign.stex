@@ -221,10 +221,10 @@ Since \scheme{__cdecl} is the default, specifying \scheme{__cdecl} is
 equivalent to specifying \scheme{#f} or no convention.
 Additionally, \var{conv} can be \scheme{__collect_safe} to indicate that garbage
 collection is allowed concurrently with a call of the foreign procedure, it can be
-\scheme{__atomic} to indicate that the foreign function never calls back to Scheme,
-it can be \scheme{__save_errno} or \scheme{__save_last_error} (Windows only) to
-indicate that \scheme{current-errno} should be updated on return, or it
-can be \scheme{__varargs} or \scheme{(__varargs_after \var{n})} to indicate
+it can be \scheme{__errno} or \scheme{__get_last_error} (Windows only) to
+get an error value as an additional result when the foreign procedure is called, it can be
+\scheme{__atomic} to indicate that the foreign procedure never calls back to Scheme,
+or it can be \scheme{__varargs} or \scheme{(__varargs_after \var{n})} to indicate
 that the procedure uses a convention that works with a variable number of arguments
 after the first \var{n} (which may differ from the convention used for the
 fixed-argument variant on some platforms and conventions).
@@ -284,26 +284,25 @@ problem:
 \endschemedisplay
 
 \noindent
-If a foreign procedure that is called with \scheme{__collect_safe} can
+If a foreign procedure with \scheme{__collect_safe} can
 invoke callables, then each callable should also be declared with
 \scheme{__collect_safe} so that the callable reactivates the thread.
+
+Use \scheme{__errno} to make the Scheme representative of a foreign
+procedure return two values instead of one: the foreign procedure's result
+and the value of the C library's \scheme{errno} immediately after the
+foreign procedure returns (and before that value can change for the
+current thread). On Windows, see \scheme{current-errno-source} for
+more information about \scheme{errno}. Alternatively on Windows, use
+\scheme{__get_last_error} for an additional result from
+calling \scheme{GetLastError} immediately after the foreign procedure.
 
 Use \scheme{__atomic} to declare that the foreign procedure never
 calls back to Scheme, such as through a foreign callable, which may
 allow a more efficient implementation of calls to the foreign
-function. The \scheme{__atomic} and \scheme{__collect_safe}
-declarations cannot be used at the same time.
-
-Use \scheme{__save_errno} to make a foreign call update the value of
-\scheme{current-errno} as the foreign function returns. It is updated
-to the value of the C library's \scheme{errno}, but see
-\scheme{current-errno-source} or Windows. Alternatively on Windows,
-use \scheme{__save_last_error} to instead update
-\scheme{current-errno} to the result of calling \scheme{GetLastError}.
-An interrupt handler should take care not to change
-\scheme{current-errno}, since that could overwrite a value of interest
-to a caller of a foreign function that uses \scheme{__save_errno} or
-\scheme{__save_last_error}.
+function. The \scheme{__atomic} declarations cannot be used at the
+same time as \scheme{__collect_safe}, \scheme{__errno}, or
+\scheme{__get_last_error}.
 
 Complete type checking and conversion is performed on the parameters
 to a foreign procedure.
@@ -1190,7 +1189,8 @@ correct.
 
 Each \var{conv} adjusts the calling convention to be used.
 \scheme{foreign-callable} supports the same conventions as
-\scheme{foreign-procedure} except for \scheme{__com} and \scheme{__atomic}.
+\scheme{foreign-procedure} except for \scheme{__com}, \scheme{__atomic},
+\scheme{__errno}, or \scheme{__get_last_error} (which are ignored).
 The \scheme{__collect_safe} convention for a callable activates a
 calling thread if the thread is not already activated, and
 the thread's activation state is reverted when the callable
@@ -3156,19 +3156,7 @@ one might have\index{\scheme{foreign-entry?}}:
 (foreign-entry? "=foo") ;=> #t
 \endschemedisplay
 
-\section{Saved Error Results\label{SECTFOREIGNERRNO}}
-
-%----------------------------------------------------------------------------
-\entryheader
-\formdef{current-errno}{\categorythreadparameter}{current-errno}
-\listlibraries
-\endentryheader
-
-\scheme{current-errno} gets or sets an exact integer that corresponds
-to a library error result. It is particularly intended for use with
-the \scheme{__save_errno} or \scheme{__save_last_error} convention of
-\scheme{foreign-procedure}, which causes \scheme{current-errno} to be
-set on return from a foreign call.
+\section{Foreign Error Results\label{SECTFOREIGNERRNO}}
 
 %----------------------------------------------------------------------------
 \entryheader
@@ -3181,10 +3169,10 @@ systems. On Windows, the symbols \scheme{msvcrt} and \scheme{ucrt} are
 also allowed.
 
 The global C variable \scheme{errno} can be linked in different ways
-on Windows. It is possible that the \scheme{errno} linkage for the
+on Windows, and it is possible that the \scheme{errno} linkage for the
 Chez Scheme executable differs from the linkage of a dynamically
 loaded library. When a foreign procedure with convention
-\scheme{__save_errno} is called, then the value of
+\scheme{__errno} is called, then the value of
 \scheme{current-errno-source} determines which \scheme{errno} is used:
 
 \begin{itemize}

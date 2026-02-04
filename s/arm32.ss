@@ -2804,7 +2804,7 @@
                              [(8) (list %Cretval %r1)]
                              [else (list %Cretval)])]))]
                       [else (list %r0)]))]
-                 [add-deactivate
+                 [add-deactivate/errno
                   (lambda (adjust-active? maybe-errno-lvalue t0 live* result-live* k)
                     (cond
                      [adjust-active?
@@ -2859,9 +2859,10 @@
                         [else locs]))
                      (lambda (t0 not-varargs? maybe-errno-lvalue)
                        (add-fill-result fill-result-here? result-type args-frame-size
-                                        (add-deactivate adjust-active? maybe-errno-lvalue t0 live* result-reg*
-                                                        (lambda (t0)
-                                                          `(inline ,(make-info-kill*-live* (add-caller-save-registers result-reg*) live*) ,%c-call ,t0)))))
+                                        (add-deactivate/errno
+                                         adjust-active? maybe-errno-lvalue t0 live* result-reg*
+                                         (lambda (t0)
+                                           `(inline ,(make-info-kill*-live* (add-caller-save-registers result-reg*) live*) ,%c-call ,t0)))))
                      (nanopass-case (Ltype Type) result-type
                        [(fp-double-float)
                         (if varargs?

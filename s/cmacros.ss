@@ -1630,8 +1630,7 @@
    [ptr current-input]
    [ptr current-output]
    [ptr current-error]
-   [ptr errno-saved]
-   [ptr errno-mode] ; Windows
+   [ptr current-errno-source]
    [ptr block-counter]
    [ptr sfd]
    [ptr current-mso]
