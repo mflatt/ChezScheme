@@ -8994,9 +8994,17 @@
       (lambda (n orig-c)
         (unless (<= n num-args)
           (syntax-error orig-c (format "invalid ~s convention with ~a arguments" who num-args)))))
-    (let loop ([conv* conv*] [selected #f] [accum '()] [keep-accum '()] [nonatomic? #f])
+    (let loop ([conv* conv*] [selected #f] [accum '()] [keep-accum '()])
       (cond
-        [(null? conv*) (datum->syntax #'filter-conv keep-accum)]
+        [(null? conv*)
+         (let ([keep-accum (if (or (memq 'save-errno keep-accum)
+                                   (memq 'save-last-error keep-accum))
+                               ;; Although `__atomic` is not inherently incompatible
+                               ;; with `__errno`, compilation treats `__atomic` as
+                               ;; implying single-valued
+                               (remq 'atomic keep-accum)
+                               keep-accum)])
+           (datum->syntax #'filter-conv keep-accum))]
         [else
          (let* ([orig-c (car conv*)]
                 [c (syntax->datum orig-c)])
@@ -9035,21 +9043,19 @@
                                   [else (squawk orig-c)])]
                                [else (squawk orig-c)])
                              #t)])])
-             (let ([now-nonatomic? (memq c '(adjust-active save-errno save-last-error))])
-               (when (or (member c accum)
-                         (and (pair? c) (ormap pair? accum)))
-                 (syntax-error orig-c (format "redundant ~s convention" who)))
-               (when (or (and select? selected)
-                         (and (eq? c 'atomic) nonatomic?)
-                         (and now-nonatomic? (memq 'atomic keep-accum))
-                         (and (eq? c 'save-errno) (memq 'save-last-error keep-accum))
-                         (and (eq? c 'save-last-error) (memq 'save-errno keep-accum)))
-                 (syntax-error orig-c (format "conflicting ~s convention" who)))
-               (loop (cdr conv*) (if select? c selected) (cons c accum)
-                     (if c
-                         (cons c keep-accum)
-                         keep-accum)
-                     (or nonatomic? now-nonatomic?)))))]))))
+             (when (or (member c accum)
+                       (and (pair? c) (ormap pair? accum)))
+               (syntax-error orig-c (format "redundant ~s convention" who)))
+             (when (or (and select? selected)
+                       (and (eq? c 'atomic) (memq 'adjust-active keep-accum))
+                       (and (eq? c 'adjust-active) (memq 'atomic keep-accum))
+                       (and (eq? c 'save-errno) (memq 'save-last-error keep-accum))
+                       (and (eq? c 'save-last-error) (memq 'save-errno keep-accum)))
+               (syntax-error orig-c (format "conflicting ~s convention" who)))
+             (loop (cdr conv*) (if select? c selected) (cons c accum)
+                   (if c
+                       (cons c keep-accum)
+                       keep-accum))))]))))
 
 (define $make-foreign-procedure
   (lambda (who conv* foreign-name ?foreign-addr type* result-type)

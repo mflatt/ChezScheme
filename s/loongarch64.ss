@@ -2219,7 +2219,7 @@
                                                                              (cond
                                                                                [maybe-errno-lvalue
                                                                                 (%seq
-                                                                                 (set! %Cretval ,(%inline save-errno))
+                                                                                 (set! ,%Cretval ,(%inline save-errno))
                                                                                  ,(save-and-restore (list %Cretval) e)
                                                                                  (set! ,maybe-errno-lvalue ,%Cretval))]
                                                                                [else e]))))]

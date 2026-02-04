@@ -337,20 +337,12 @@
    (error? (lambda () (foreign-procedure __bad_conv "foo" () scheme-object)))
    (error? (lambda () (foreign-procedure __collect_safe __atomic "foo" () scheme-object)))
    (error? (lambda () (foreign-procedure __atomic __collect_safe "foo" () scheme-object)))
-   (error? (lambda () (foreign-procedure __atomic __errno "foo" () scheme-object)))
-   (error? (lambda () (foreign-procedure __errno __atomic "foo" () scheme-object)))   
    (error? (meta-cond
             [(windows?) (lambda () (foreign-procedure __errno __get_last_error "foo" () scheme-object))]
             [else (error #f "conflicting foreign-procedure convention __get_last_error")]))
    (error? (meta-cond
             [(windows?) (lambda () (foreign-procedure __get_last_error __errno "foo" () scheme-object))]
             [else (error #f "conflicting foreign-procedure convention __errno")]))
-   (error? (meta-cond
-            [(windows?) (lambda () (foreign-procedure __atomic __get_last_error "foo" () scheme-object))]
-            [else (error #f "conflicting foreign-procedure convention __get_last_error")]))
-   (error? (meta-cond
-            [(windows?) (lambda () (foreign-procedure __get_last_error __atomic "foo" () scheme-object))]
-            [else (error #f "conflicting foreign-procedure convention __atomic")]))
 
    (eq? 'foo ((foreign-procedure "idiptr" (scheme-object) scheme-object) 'foo))
 

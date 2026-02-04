@@ -1032,6 +1032,8 @@
       (Expr : Expr (ir) -> Expr ()
         [(call ,info1 ,mdcl (foreign ,info ,[e]) ,[e*] ...)
          (guard (memq 'atomic (info-foreign-conv* info)))
+         (safe-assert (not (or (memq 'save-errno (info-foreign-conv* info))
+                               (memq 'save-last-error (info-foreign-conv* info)))))
          ;; convert atomic calls directly to `foreign-call`
          `(foreign-call ,info ,e ,e* ...)]
         [(foreign ,info ,[e])
