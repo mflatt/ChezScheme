@@ -357,7 +357,7 @@
 ;; ---------------------------------------------------------------------
 ;; Version and machine types:
 
-(define-constant scheme-version #x0a040002)
+(define-constant scheme-version #x0a040003)
 
 (define-syntax define-machine-types
   (lambda (x)
@@ -1630,6 +1630,8 @@
    [ptr current-input]
    [ptr current-output]
    [ptr current-error]
+   [ptr errno-saved]
+   [ptr errno-mode] ; Windows
    [ptr block-counter]
    [ptr sfd]
    [ptr current-mso]
@@ -3135,6 +3137,8 @@
      activate-thread
      deactivate-thread
      unactivate-thread
+     save-errno
+     save-last-error
      handle-values-error
      handle-mvlet-error
      handle-arg-error

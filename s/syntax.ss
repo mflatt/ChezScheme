@@ -8994,7 +8994,7 @@
       (lambda (n orig-c)
         (unless (<= n num-args)
           (syntax-error orig-c (format "invalid ~s convention with ~a arguments" who num-args)))))
-    (let loop ([conv* conv*] [selected #f] [accum '()] [keep-accum '()])
+    (let loop ([conv* conv*] [selected #f] [accum '()] [keep-accum '()] [nonatomic? #f])
       (cond
         [(null? conv*) (datum->syntax #'filter-conv keep-accum)]
         [else
@@ -9004,6 +9004,10 @@
                          (cond
                            [(not c) (values #f #f)]
                            [(eq? c '__collect_safe) (values 'adjust-active #f)]
+                           [(eq? c '__errno) (values 'save-errno #f)]
+                           [(and (eq? c '__last_error)
+                                 (memq ($target-machine) '(i3nt ti3nt a6nt ta6nt arm64nt tarm64nt)))
+                            (values 'save-last-error #f)]
                            [(eq? c '__atomic) (values 'atomic #f)]
                            [(eq? c '__varargs)
                             (check-arg-count 1 orig-c)
@@ -9031,19 +9035,21 @@
                                   [else (squawk orig-c)])]
                                [else (squawk orig-c)])
                              #t)])])
-             (when (or (member c accum)
-                       (and (pair? c) (ormap pair? accum)))
-               (syntax-error orig-c (format "redundant ~s convention" who)))
-             (when (and select? selected)
-               (syntax-error orig-c (format "conflicting ~s convention" who)))
-             (when (and (eq? c 'atomic) (member 'adjust-active keep-accum))
-               (syntax-error orig-c (format "conflicting ~s convention" who)))
-             (when (and (eq? c 'adjust-active) (member 'atomic keep-accum))
-               (syntax-error orig-c (format "conflicting ~s convention" who)))
-             (loop (cdr conv*) (if select? c selected) (cons c accum)
-                   (if c
-                       (cons c keep-accum)
-                       keep-accum))))]))))
+             (let ([now-nonatomic? (memq c '(adjust-active save-errno save-last-error))])
+               (when (or (member c accum)
+                         (and (pair? c) (ormap pair? accum)))
+                 (syntax-error orig-c (format "redundant ~s convention" who)))
+               (when (or (and select? selected)
+                         (and (eq? c 'atomic) nonatomic?)
+                         (and now-nonatomic? (memq 'atomic keep-accum))
+                         (and (eq? c 'save-errno) (memq 'save-last-error keep-accum))
+                         (and (eq? c 'save-last-error) (memq 'save-errno keep-accum)))
+                 (syntax-error orig-c (format "conflicting ~s convention" who)))
+               (loop (cdr conv*) (if select? c selected) (cons c accum)
+                     (if c
+                         (cons c keep-accum)
+                         keep-accum)
+                     (or nonatomic? now-nonatomic?)))))]))))
 
 (define $make-foreign-procedure
   (lambda (who conv* foreign-name ?foreign-addr type* result-type)
@@ -9246,17 +9252,29 @@
                                    #`[]
                                    #`[(unless (record? &-result '#,(cdr result-type)) (err ($moi) &-result))]))]
                          [else #'([] [] [])])])
-          #`(let ([foreign-addr ?foreign-addr]
-                  #,@(if unsafe?
-                         #'()
-                         #'([err (lambda (who x)
-                                   ($oops (or who foreign-name)
-                                          "invalid foreign-procedure argument ~s"
-                                          x))])))
-              (let ([p ($foreign-procedure conv* foreign-name foreign-addr (extra-arg ... arg ... ...) result)])
-                (lambda (extra ... t ...)
-                  extra-check ... check ... ...
-                  (result-filter (p extra ... actual ... ...))))))))))
+          (let ([wrap-result
+                 (syntax-case #'result-filter (begin)
+                   [begin (lambda (call) call)]
+                   [_
+                    (let ([conv* (syntax->datum #'conv*)])
+                      (cond
+                        [(or (memq 'save-errno conv*) (memq 'save-last-error conv*))
+                         (lambda (call)
+                           #`(let-values ([(v errno) #,call])
+                               (values (result-filter v) errno)))]
+                        [else
+                         (lambda (call) #`(result-filter #,call))]))])])
+            #`(let ([foreign-addr ?foreign-addr]
+                    #,@(if unsafe?
+                           #'()
+                           #'([err (lambda (who x)
+                                     ($oops (or who foreign-name)
+                                            "invalid foreign-procedure argument ~s"
+                                            x))])))
+                (let ([p ($foreign-procedure conv* foreign-name foreign-addr (extra-arg ... arg ... ...) result)])
+                  (lambda (extra ... t ...)
+                    extra-check ... check ... ...
+                    #,(wrap-result #`(p extra ... actual ... ...)))))))))))
 
 (define-syntax foreign-procedure
   (lambda (x)

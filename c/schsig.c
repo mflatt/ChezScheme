@@ -16,6 +16,7 @@
 
 #include "system.h"
 #include <setjmp.h>
+#include <errno.h>
 
 /* locally defined functions */
 static void split(ptr k, ptr *s);
@@ -26,6 +27,12 @@ static void init_signal_handlers(void);
 static void keyboard_interrupt(ptr tc);
 
 static void (*register_modified_signal)(int);
+
+#ifdef WIN32
+typedef int *(*get_errno_ptr_t)(void);
+static get_errno_ptr_t msvcrt_get_errno_ptr;
+static get_errno_ptr_t ucrt_get_errno_ptr;
+#endif
 
 ptr S_get_scheme_arg(ptr tc, iptr n) {
 
@@ -463,6 +470,56 @@ void S_handle_mvlet_error(void) {
 
     handle_call_error(tc, ERROR_MVLET, Sfalse);
 }
+
+#ifdef WIN32
+static int *get_errno_ptr() {
+  return &errno;
+}
+#endif
+
+ptr S_save_errno(void) {
+    int errno_val;
+
+#ifdef WIN32
+    if (ERRNOMODE(tc) == Sfalse) {
+      errno_val = errno;
+    } else if (STRIT(SYMNAME(ERRNOMODE(tc)), 0) == 'm' /* msvcrt */) {
+      if (!msvcrt_get_errno_ptr) {
+        HMODULE hm;
+        tc_mutex_acquire();
+        hm = LoadLibrary("msvcrt.dll");
+        if (hm)
+          msvcrt_get_errno_ptr = (get_errno_ptr_t)GetProcAddress(hm, "_errno");
+        if (!msvcrt_get_errno_ptr)
+          msvcrt_get_errno_ptr = get_errno_ptr;
+        tc_mutex_release();
+      }
+      errno_val = *(msvcrt_get_errno_ptr());
+    } else {
+      if (!ucrt_get_errno_ptr) {
+        HMODULE hm;
+        tc_mutex_acquire();
+        hm = LoadLibrary("api-ms-win-crt-runtime-l1-1-1.0.dll");
+        if (hm)
+          ucrt_get_errno_ptr = (get_errno_ptr_t)GetProcAddress(hm, "_errno");
+        if (!ucrt_get_errno_ptr)
+          ucrt_get_errno_ptr = get_errno_ptr;
+        tc_mutex_release();
+      }
+      errno_val = *(msvcrt_get_errno_ptr());
+    }
+#else
+    errno_val = errno;
+#endif
+
+    return Sinteger(errno_val);
+}
+
+#ifdef WIN32
+ptr S_save_last_error(void) {
+    return Sinteger(GetLastError());
+}
+#endif
 
 void S_handle_event_detour() {
     ptr tc = get_thread_context();

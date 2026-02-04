@@ -674,7 +674,9 @@
   (declare-primitive remember effect #f)
   (declare-primitive restore-flrv effect #f)
   (declare-primitive restore-lr effect #f) ; ppc
+  (declare-primitive save-errno effect #f)
   (declare-primitive save-flrv effect #f)
+  (declare-primitive save-last-error effect #f)
   (declare-primitive save-lr effect #f) ; ppc
   (declare-primitive store effect #f)
   (declare-primitive store-single effect #f); not required by cpnanopass
