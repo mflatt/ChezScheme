@@ -294,14 +294,14 @@ allow a more efficient implementation of calls to the foreign
 function. The \scheme{__atomic} and \scheme{__collect_safe}
 declarations cannot be used at the same time.
 
-Use \scheme{__errno} to make the Scheme representative of a foreign
-procedure return two values instead of one: the foreign procedure's result
-and the value of the C library's \scheme{errno} immediately after the
-foreign procedure returns (and before that value can change for the
-current thread). On Windows, see \scheme{current-errno-source} for
-more information about \scheme{errno}. Alternatively on Windows, use
-\scheme{__get_last_error} for an additional result from
-calling \scheme{GetLastError} immediately after the foreign procedure.
+Use \scheme{__errno} to make calling a foreign procedure return two
+values instead of one: the foreign procedure's direct result and the
+value of the C library's \scheme{errno} immediately after the foreign
+procedure returns (and before that value can change for the current
+thread). On Windows, see \scheme{current-errno-source} for more
+information about \scheme{errno}, or use \scheme{__get_last_error}
+instead of \scheme{__errno} to get a result from \scheme{GetLastError}
+instead of \scheme{errno}.
 
 Complete type checking and conversion is performed on the parameters
 to a foreign procedure.
