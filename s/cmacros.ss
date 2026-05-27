@@ -3179,6 +3179,16 @@
 ;; ---------------------------------------------------------------------
 ;; Portable bytecode - see "pb.ss"
 
+(define-syntax define-pbop-constant
+  (lambda (x)
+    (syntax-case x ()
+      ((_ x y)
+       (identifier? #'x)
+       #'(begin
+           (eval-when (compile load eval)
+             (putprop 'x '*pbop-constant* y))
+           (define-constant x y))))))
+
 (constant-case architecture
  [(pb)
 
@@ -3231,7 +3241,7 @@
                          (let loop ([id #'id] [field-id* #'(field-id ...)] [i i])
                            (cond
                              [(null? field-id*)
-                              (list #`(define-constant #,id '#,i))]
+                              (list #`(define-pbop-constant #,id '#,i))]
                              [else
                               (let* ([parent+fields (lookup-constant (syntax->datum (car field-id*)))]
                                      [parent (car parent+fields)])
@@ -3253,7 +3263,9 @@
                                         defns
                                         (f-loop (cdr fields) (fx+ i (length defns)))))])))]))])
                    #`(begin
-                       (define-constant id '#,i)
+                       #,@(if (null? defns)
+                              (list #`(define-pbop-constant id '#,i))
+                              (list #`(define-constant id '#,i)))
                        #,@defns
                        #,(c-loop (cdr clause*) (fx+ i (length defns)))))])]))])))
 

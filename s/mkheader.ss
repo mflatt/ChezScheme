@@ -1480,5 +1480,29 @@
         (def "library_cpu_features"
              (libspec-index (lookup-libspec cpu-features)))
 
+        (constant-case architecture
+          [(pb)
+           (nl) (comment "pb operation jump table")
+           (let* ([table (make-eqv-hashtable)]
+                  [size (add1
+                         (apply max
+                                (map
+                                 (lambda (x)
+                                   (cond
+                                     [(getprop x '*pbop-constant* #f) =>
+                                      (lambda (k)
+                                        (hashtable-set! table k x)
+                                        k)]
+                                     [else 0]))
+                                 (oblist))))])
+             (pr "#define define_pbop_jump_table \\\n")
+             (pr "static const void * const jump_table[~a] = { \\\n" size)
+             (let loop ([i 0])
+               (unless (fx= i size)
+                 (pr "  && ~a_op_case, \\\n" (sanitize (hashtable-ref table i 'default)))
+                 (loop (fx+ i 1))))
+             (pr "}\n"))]
+          [else (void)])
+
       )))
 )
