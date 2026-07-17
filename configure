@@ -90,6 +90,7 @@ disablex11=no
 disablecurses=no
 disableiconv=no
 addflags=yes
+softlinks=yes
 addwarningflags=no
 default_warning_flags="-Wpointer-arith -Wall -Wextra -Wno-implicit-fallthrough"
 : ${CC:="gcc"}
@@ -137,6 +138,9 @@ case "${CONFIG_UNAME}" in
     unixsuffix=le
     installprefix=/usr
     installmansuffix=share/man
+    if [ -n "$TERMUX_VERSION" ]; then
+        softlinks=no
+    fi
     ;;
   GNU)
     unixsuffix=gnu # the Hurd
@@ -147,6 +151,7 @@ case "${CONFIG_UNAME}" in
     unixsuffix=hk
     installprefix=/system
     installmansuffix=documentation/man
+    softlinks=no
     ;;
   QNX)
     if uname -m | egrep 'x86' > /dev/null 2>&1 ; then
@@ -254,6 +259,10 @@ if [ "$unixsuffix" != "" ] ; then
         m64=arm64${unixsuffix}
         tm32=tarm32${unixsuffix}
         tm64=tarm64${unixsuffix}
+        if [ -n "$TERMUX_VERSION" ]; then
+            m32=arm7${unixsuffix}
+            tm32=tarm7${unixsuffix}
+        fi
     elif uname -m | grep 'riscv64' > /dev/null 2>&1 ; then
         m32=""
         m64=rv64${unixsuffix}
@@ -894,6 +903,9 @@ if [ "$addflags" = "yes" ] ; then
   case "${flagsm}" in
     *le|*gnu|*hk)
         LDFLAGS="${LDFLAGS} -rdynamic"
+        if [ -n "$TERMUX_VERSION" ]; then
+            LDFLAGS="${LDFLAGS} ${iconvLib}"
+        fi
         ;;
     *fb|*nb)
         LDFLAGS="${LDFLAGS} -rdynamic -L/usr/local/lib"
@@ -1238,4 +1250,5 @@ GzipManPages=$gzipmanpages
 InstallSchemeName=$installschemename
 InstallPetiteName=$installpetitename
 InstallScriptName=$installscriptname
+InstallSoftlinks=$softlinks
 END

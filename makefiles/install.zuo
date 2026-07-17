@@ -38,6 +38,10 @@
         (~a s ".exe")
         s))
 
+  (define softlinks? (not (or (equal? (lookup 'InstallSoftlinks) "no")
+                              ;; no hard links on BeFS
+                              (glob-match? "*hk" m))))
+
   ;; The following variables determine where the executables, boot files,
   ;; example programs, and manual pages are installed.
 
@@ -179,10 +183,8 @@
     (shell/wait* "rm" "-f" f))
   (define (rm-rf d)
     (shell/wait* "rm" "-rf" d))
-  (define haiku? (glob-match? "*hk" m))
   (define (ln-f from to)
-    (if haiku?
-        ;; no hard links on BeFS
+    (if (not softlinks?)
         (shell/wait* "ln" "-s" from to)
         (shell/wait* "ln" "-f" from to)))
   (define (ln-s from to)
