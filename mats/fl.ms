@@ -1255,6 +1255,35 @@
                                  (fl+ v)
                                  (loop (fx- n 1) (fl+ v 1.0))))))
 
+  (check-loop-allocation (lambda (v)
+                           ;; check that a `let` around the initial call into a
+                           ;; loop is recognized by the lop-detection pass, which
+                           ;; in turn enables flonum unboxing
+                           (letrec ([loop (lambda (n v)
+                                            (if (fx= n 0)
+                                                (fl+ v)
+                                                (loop (fx- n 1) (fl+ v 1.0))))])
+                             (let ([v (fl+ v v)])
+                               ((black-box void))
+                               (loop 100 (fl+ v v))))))
+
+  (check-loop-allocation (lambda (v)
+                           ;; check that a loop entry can be nested in a call
+                           (letrec ([loop (lambda (n v)
+                                            (if (fx= n 0)
+                                                (fl+ v)
+                                                (loop (fx- n 1) (fl+ v 1.0))))])
+                             ((black-box (lambda (x y) y))
+                              'skip
+                              (loop 100 (fl+ v)))
+                             #;
+                             ((black-box (lambda (x y) x))
+                              ((black-box (lambda (x y z) z))
+                               'skip
+                               'skip-too
+                               (loop 100 (fl+ v)))
+                              'skip))))
+
   (let ([bv (make-bytevector 8 0)])
     (check-loop-allocation (lambda (v) (fl+ v (bytevector-ieee-double-native-ref bv 0)))))
   (let ([bv (make-bytevector 8 0)])

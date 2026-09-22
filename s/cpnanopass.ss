@@ -1074,45 +1074,129 @@
                 e))]))
 
     (define-pass np-recognize-loops : L4.75 (ir) -> L4.875 ()
-      ; TODO: also recognize andmap/for-all, ormap/exists, for-each
-      ;       and remove inline handlers
+      ;; In the simple case, recognize
+      ;;  (letrec ([f (lambda (x ...) body)]) (f arg ...))
+      ;; where `f` is otherwise used only as tail-called within `body`.
+      ;; More generally, instead of an immediate `(f arg ...)`, recognize a
+      ;; single call to `f` (i.e., a loop entry) in the letrec` body as nested
+      ;; under certain other forms (not including `letrec`), and rotate the
+      ;; `letrec` into that position to be like the simple case. We don't
+      ;; allow nesting of the loop entry under nested `letrec`, though,
+      ;; because we want to find innermost loops, and we don't expect cp0 or
+      ;; other passes to change `letrec` nesting.
       (definitions
         (define make-assigned-tmp
           (lambda (x)
             (let ([t (make-tmp 'tloop)])
               (uvar-assigned! t #t)
-              t))))
+              t)))
+        ;; Find a path to a candidate entry point of a loop, which is not
+        ;; necessarily in tail position. The ntry is expected to be unique,
+        ;; but we don't have to check for uniqueness here.
+        (define (find-entry-path e x1 rev-path)
+          (nanopass-case (L4.75 Expr) e
+            [(call ,info ,mdcl ,x ,e* ...)
+             (if (eq? x1 x)
+                 (reverse rev-path)
+                 (find-entry-path* e* x1 rev-path))]
+            [(call ,info ,mdcl ,e ,e* ...)
+             (find-entry-path* e* x1 rev-path)]
+            [(let ([,x ,e]) ,body)
+             (find-entry-path* (list e body) x1 rev-path)]
+            [(let ([,x* ,e*] ...) ,body)
+             (find-entry-path body x1 (cons (length e*) rev-path))]
+            [(seq ,e0 ,e1)
+             (find-entry-path* (list e0 e1) x1 rev-path)]
+            [else #f]))
+        (define (find-entry-path* e* x1 rev-path)
+          (let loop ([pos 0] [e* e*])
+            (cond
+              [(null? e*) #f]
+              [else
+               (or (find-entry-path (car e*) x1 (cons pos rev-path))
+                   (loop (fx+ pos 1) (cdr e*)))]))))
       (Expr : Expr (ir [tail* '()]) -> Expr ()
         [,x (uvar-referenced! x #t) (uvar-loop! x #f) x]
         [(letrec ([,x1 (case-lambda ,info1
                          (clause (,x* ...) ,interface
                            ,body))])
-           (call ,info2 ,mdcl ,x2 ,e* ...))
-         (guard (eq? x2 x1) (eq? (length e*) interface))
-         (uvar-referenced! x1 #f)
-         (uvar-loop! x1 #t)
-         (let ([tref?* (map uvar-referenced? tail*)])
-           (for-each (lambda (x) (uvar-referenced! x #f)) tail*)
-           (let ([e* (map (lambda (e) (Expr e '())) e*)]
-                 [body (Expr body (cons x1 tail*))])
-             (let ([body-tref?* (map uvar-referenced? tail*)])
-               (for-each (lambda (x tref?) (when tref? (uvar-referenced! x #t))) tail* tref?*)
-               (if (uvar-referenced? x1)
-                   (if (uvar-loop? x1)
-                       (let ([t* (map make-assigned-tmp x*)])
-                         `(let ([,t* ,e*] ...)
-                            (loop ,x1 (,t* ...)
-                              (let ([,x* ,t*] ...)
-                                ,body))))
-                       (begin
-                         (for-each (lambda (x body-tref?)
-                                     (when body-tref? (uvar-loop! x #f)))
-                           tail* body-tref?*)
-                         `(letrec ([,x1 (case-lambda ,info1
-                                          (clause (,x* ...) ,interface
-                                            ,body))])
-                            (call ,info2 ,mdcl ,x2 ,e* ...))))
-                   `(let ([,x* ,e*] ...) ,body)))))]
+           ,e)
+         (cond
+           [(find-entry-path e x1 '())
+            => (lambda (path)
+                 ;; `path` points to a cadndiate unique entry point, but we have
+                 ;; to check that it's the unique reference to `x1` in `e`
+                 (uvar-referenced! x1 #f)
+                 (let f ([e e] [tail* tail*] [path path] [rebuild (lambda (e) e)])
+                   (nanopass-case (L4.75 Expr) e
+                     [(let ([,x ,e0]) ,e)
+                      (guard (fx= (car path) 0))
+                      (let ([e (Expr e '())])
+                        (f e0 '() (cdr path) (lambda (e0) (rebuild `(let ([,x ,e0]) ,e)))))]
+                     [(let ([,x* ,e*] ...) ,e)
+                      (guard (fx= (car path) (length e*)))
+                      (let ([e* (map (lambda (e) (Expr e '())) e*)])
+                        (f e tail* (cdr path) (lambda (e) (rebuild `(let ([,x* ,e*] ...) ,e)))))]
+                     [(seq ,e1 ,e2)
+                      (cond
+                        [(fx= (car path) 0)
+                         (let ([e2 (Expr e2 '())])
+                           (f e1 tail* (cdr path) (lambda (e1) (rebuild `(seq ,e1 ,e2)))))]
+                        [else
+                         (let ([e1 (Expr e1 '())])
+                           (f e2 '() (cdr path) (lambda (e2) (rebuild `(seq ,e1 ,e2)))))])]
+                     [(call ,info2 ,mdcl ,x2 ,e* ...)
+                      (guard (eq? x2 x1) (not (uvar-referenced? x1)) (eq? (length e*) interface))
+                      (uvar-loop! x1 #t)
+                      (let ([tref?* (map uvar-referenced? tail*)])
+                        (for-each (lambda (x) (uvar-referenced! x #f)) tail*)
+                        (let ([e* (map (lambda (e) (Expr e '())) e*)]
+                              [body (Expr body (cons x1 tail*))])
+                          (let ([body-tref?* (map uvar-referenced? tail*)])
+                            (for-each (lambda (x tref?) (when tref? (uvar-referenced! x #t))) tail* tref?*)
+                            (if (uvar-referenced? x1)
+                                (if (uvar-loop? x1)
+                                    (let ([t* (map make-assigned-tmp x*)])
+                                      (rebuild
+                                       `(let ([,t* ,e*] ...)
+                                          (loop ,x1 (,t* ...)
+                                                (let ([,x* ,t*] ...)
+                                                  ,body)))))
+                                    (begin
+                                      (for-each (lambda (x body-tref?)
+                                                  (when body-tref? (uvar-loop! x #f)))
+                                                tail* body-tref?*)
+                                      `(letrec ([,x1 (case-lambda ,info1
+                                                                  (clause (,x* ...) ,interface
+                                                                          ,body))])
+                                         ,(rebuild `(call ,info2 ,mdcl ,x2 ,e* ...)))))
+                                (rebuild `(let ([,x* ,e*] ...) ,body))))))]
+                     [(call ,info ,mdcl ,e ,e* ...)
+                      (guard (pair? path))
+                      (let ([e (Expr e '())])
+                        (let loop ([pos 0] [e* e*] [rev-e* '()])
+                          (cond
+                            [(null? e*) (reverse rev-e*)]
+                            [(fx= pos (car path))
+                             (let ([rest-e* (loop (fx+ pos 1) (cdr e*) '())])
+                               (f (car e*)
+                                  '()
+                                  (cdr path)
+                                  (lambda (entry-e)
+                                    (let ([e* (append (reverse (cons entry-e rev-e*)) rest-e*)])
+                                      (rebuild `(call ,info ,mdcl ,e ,e* ...))))))]
+                            [else
+                             (loop (fx+ pos 1) (cdr e*) (cons (Expr (car e*) '()) rev-e*))])))]
+                     [else
+                      `(letrec ([,x1 (case-lambda ,info1
+                                       (clause (,x* ...) ,interface
+                                         ,(Expr body '())))])
+                         ,(rebuild (Expr e tail*)))])))]
+           [else
+            `(letrec ([,x1 (case-lambda ,info1
+                             (clause (,x* ...) ,interface
+                               ,(Expr body '())))])
+               ,(Expr e tail*))])]
         [(letrec ([,x* ,[le*]] ...) ,[body])
          `(letrec ([,x* ,le*] ...) ,body)]
         [(call ,info ,mdcl ,x ,[e* '() -> e*] ...)
