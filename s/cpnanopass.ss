@@ -1087,32 +1087,44 @@
         [(letrec ([,x1 (case-lambda ,info1
                          (clause (,x* ...) ,interface
                            ,body))])
-           (call ,info2 ,mdcl ,x2 ,e* ...))
-         (guard (eq? x2 x1) (eq? (length e*) interface))
+           ,e)
          (uvar-referenced! x1 #f)
-         (uvar-loop! x1 #t)
-         (let ([tref?* (map uvar-referenced? tail*)])
-           (for-each (lambda (x) (uvar-referenced! x #f)) tail*)
-           (let ([e* (map (lambda (e) (Expr e '())) e*)]
-                 [body (Expr body (cons x1 tail*))])
-             (let ([body-tref?* (map uvar-referenced? tail*)])
-               (for-each (lambda (x tref?) (when tref? (uvar-referenced! x #t))) tail* tref?*)
-               (if (uvar-referenced? x1)
-                   (if (uvar-loop? x1)
-                       (let ([t* (map make-assigned-tmp x*)])
-                         `(let ([,t* ,e*] ...)
-                            (loop ,x1 (,t* ...)
-                              (let ([,x* ,t*] ...)
-                                ,body))))
-                       (begin
-                         (for-each (lambda (x body-tref?)
-                                     (when body-tref? (uvar-loop! x #f)))
-                           tail* body-tref?*)
-                         `(letrec ([,x1 (case-lambda ,info1
-                                          (clause (,x* ...) ,interface
-                                            ,body))])
-                            (call ,info2 ,mdcl ,x2 ,e* ...))))
-                   `(let ([,x* ,e*] ...) ,body)))))]
+         (let f ([e e] [add-binds (lambda (e) e)])
+           (nanopass-case (L4.75 Expr) e
+             [(let ([,x* ,e*] ...) ,e)
+              (let ([e* (map (lambda (e) (Expr e '())) e*)])
+                (f e (lambda (e) (add-binds `(let ([,x* ,e*] ...) ,e)))))]
+             [(call ,info2 ,mdcl ,x2 ,e* ...)
+              (guard (eq? x2 x1) (not (uvar-referenced? x1)) (eq? (length e*) interface))
+              (uvar-loop! x1 #t)
+              (let ([tref?* (map uvar-referenced? tail*)])
+                (for-each (lambda (x) (uvar-referenced! x #f)) tail*)
+                (let ([e* (map (lambda (e) (Expr e '())) e*)]
+                      [body (Expr body (cons x1 tail*))])
+                  (let ([body-tref?* (map uvar-referenced? tail*)])
+                    (for-each (lambda (x tref?) (when tref? (uvar-referenced! x #t))) tail* tref?*)
+                    (if (uvar-referenced? x1)
+                        (if (uvar-loop? x1)
+                            (let ([t* (map make-assigned-tmp x*)])
+                              (add-binds
+                               `(let ([,t* ,e*] ...)
+                                  (loop ,x1 (,t* ...)
+                                        (let ([,x* ,t*] ...)
+                                          ,body)))))
+                            (begin
+                              (for-each (lambda (x body-tref?)
+                                          (when body-tref? (uvar-loop! x #f)))
+                                        tail* body-tref?*)
+                              `(letrec ([,x1 (case-lambda ,info1
+                                               (clause (,x* ...) ,interface
+                                                 ,body))])
+                                 ,(add-binds `(call ,info2 ,mdcl ,x2 ,e* ...)))))
+                        (add-binds `(let ([,x* ,e*] ...) ,body))))))]
+             [else
+              `(letrec ([,x1 (case-lambda ,info1
+                               (clause (,x* ...) ,interface
+                                 ,(Expr body '())))])
+                 ,(add-binds (Expr e tail*)))]))]
         [(letrec ([,x* ,[le*]] ...) ,[body])
          `(letrec ([,x* ,le*] ...) ,body)]
         [(call ,info ,mdcl ,x ,[e* '() -> e*] ...)
