@@ -122,6 +122,13 @@ Online versions of both books can be found at
 %-----------------------------------------------------------------------------
 \section{Functionality Changes}\label{section:functionality}
 
+\subsection{Native log1p (10.5.0)}
+
+The LOG1P flag is now enabled by default for all operating systems, improving the
+accuracy of \scheme{log} and \scheme{atanh} for some complex arguments. The fallback
+implementation for log1p and the inverse hyperbolic functions are now also slightly
+more accurate.
+
 \subsection{Exact zeros and \scheme{lcm} (10.5.0)}
 
 Supplying an exact \scheme{0} to \scheme{lcm} produces exact
