@@ -2463,7 +2463,11 @@
                                                                      (loop (cdr types) (cdr cats)
                                                                            (cons load locs)
                                                                            (fx+ reg-offset 16) stack-arg-offset copy-offset)))]
-                                                              [else (use-reg (load-stack-address stack-arg-offset))])])]
+                                                              [else
+                                                               ;; on the stack
+                                                               (loop (cdr types) (cdr cats)
+                                                                     (cons (load-stack-address stack-arg-offset) locs)
+                                                                     reg-offset (fx+ stack-arg-offset (cat-size/s cat)) copy-offset)])])]
                                                          [else
                                                           ;; integer, scheme-object, etc.
                                                           (case (cat-place cat)

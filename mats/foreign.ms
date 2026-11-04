@@ -2733,6 +2733,30 @@
     (= (proc 1 2 3 4 5 6 7 8 s 44)
        (stack-fold 1 2 3 4 5 6 7 8 41 42 43 44)))
 
+  ;; a struct that takes two words when only one argument register may be left
+  (begin
+    (define-ftype two_longs (struct (a integer-64) (b integer-64)))
+    (define-ftype last_reg_two_longs_callback
+      (function (int int int int int int int (& two_longs) int) integer-64))
+    #t)
+
+  (let ([proc (foreign-procedure "last_reg_two_longs" (int int int int int int int (& two_longs) int) integer-64)]
+        [s (make-ftype-pointer two_longs (alloc-stack-struct (ftype-sizeof two_longs)
+                                                      (lambda (p) (foreign-set! 'integer-64 p 0 41) (foreign-set! 'integer-64 p 8 42))))])
+    (= (proc 1 2 3 4 5 6 7 s 43)
+       (stack-fold 1 2 3 4 5 6 7 41 42 43)))
+
+  (let* ([cb (make-ftype-pointer last_reg_two_longs_callback
+                                 (lambda (a b c d e f g h i)
+                                   (stack-fold a b c d e f g
+                                               (ftype-ref two_longs (a) h)
+                                               (ftype-ref two_longs (b) h)
+                                               i)))]
+         [proc (foreign-procedure "call_with_last_reg_two_longs" ((* last_reg_two_longs_callback)) integer-64)]
+         [r (proc cb)])
+    (unlock-object (foreign-callable-code-object (ftype-pointer-address cb)))
+    (= r (stack-fold 1 2 3 4 5 6 7 41 42 43)))
+
   ;; a callable that receives floats after the floating-point registers are used up
   (begin
     (define-ftype a_float float)

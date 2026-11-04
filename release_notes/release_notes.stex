@@ -3124,6 +3124,13 @@ part changed the bytes after it. Also, a \scheme{foreign-callable} argument
 received by value on the stack with a size that is not a multiple of 8
 misplaced the stack arguments after it.
 
+\subsection{Repair riscv64 and loongarch64 foreign-callable struct arguments on the stack (10.5.0)}
+
+On riscv64 and loongarch64, a \scheme{foreign-callable} argument received
+by value on the stack did not advance past its stack slot, so the next
+stack argument was read from the same slot. It also shifted the saved
+register position used for any later register argument.
+
 \subsection{Repair \scheme{configure} on FreeBSD powerpc64 and powerpc64le (10.5.0)}
 
 On FreeBSD, \scheme{uname -m} reports \scheme{powerpc} for 32-bit and
