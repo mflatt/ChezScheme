@@ -10188,6 +10188,20 @@
         (architecture instructions)
       )
 
+      ; temporary experiment switches: CHEZ_REGALLOC=puzzle and CHEZ_REGALLOC_KEEP=<n>
+      (define regalloc-keep
+        (let ([v 'unknown])
+          (lambda ()
+            (when (eq? v 'unknown)
+              (set! v (let ([s (getenv "CHEZ_REGALLOC_KEEP")]) (and s (string->number s)))))
+            v)))
+      (define use-puzzle-allocator?
+        (let ([v 'unknown])
+          (lambda ()
+            (when (eq? v 'unknown)
+              (set! v (equal? (getenv "CHEZ_REGALLOC") "puzzle")))
+            v)))
+
       (define-who do-unspillable-conflict!
         (lambda (kfv kspillable reg-spillinfo varvec live-size kunspillable unvarvec block*)
           (define remove-var (make-remove-var live-size reg-spillinfo))
@@ -10665,6 +10679,673 @@
             block0*)
           (values `(dummy) entry-block* block*)))
 
+      ;; Puzzle-solving register assignment, an alternative to
+      ;; `do-unspillable-conflict!`, `assign-registers!`, and
+      ;; `finalize-register-locations!`; it is based on Pereira and
+      ;; Palsberg, "Register Allocation by Puzzle Solving" (PLDI 2008).
+      ;;
+      ;; Each instruction is a puzzle whose board has one row per
+      ;; register. A variable that is live through the instruction is an X
+      ;; piece that needs a whole row, a variable that dies there is a Y
+      ;; piece in the top of a row, and a variable that is defined there
+      ;; is a Z piece in the bottom of a row. Registers on all Chez Scheme
+      ;; targets have no aliasing, so all pieces have size 1 and placing
+      ;; pieces in free rows is complete. A variable can change rows
+      ;; between instructions, which is the parallel copy of the paper;
+      ;; no interference graph is needed for variable--variable conflicts.
+      ;;
+      ;; Differences from the paper: instead of converting to elementary
+      ;; form, blocks are visited in postorder and instructions backward,
+      ;; so that a variable's first appearance is its last use, which
+      ;; requires no liveness query; conflicts with fixed registers are
+      ;; taken from the reg x spillable sets that are already needed for
+      ;; frame assignment; and spilling is whole-variable, reusing the
+      ;; retry loop in `np-allocate-registers`.
+      (define-pass puzzle-registers! : (L15d Dummy) (ir entry-block* block* varvec kbase live-size kspillable reg-spillinfo)
+                                       -> (L15e Dummy) (extra-block* ok?)
+        (definitions
+          (define var->loc
+            (lambda (x)
+              (if (uvar? x)
+                  (or (uvar-location x) (sorry! who "no location assigned to uvar ~s" x))
+                  x)))
+          (define total-k (vector-length regvec))
+          (define all-mask (fx- (fxsll 1 total-k) 1))
+          (define fp-mask
+            (let f ([i 0] [m 0])
+              (if (fx= i total-k)
+                  m
+                  (f (fx+ i 1)
+                     (if (eq? (reg-type (vector-ref regvec i)) 'fp) (fxlogor m (fxsll 1 i)) m)))))
+          (define board (make-vector total-k #f)) ; row -> piece
+          (define occupied 0)                     ; mask of rows that have pieces
+          (define avoid 0)                        ; rows wanted by precolored temporaries
+          (define claimed 0)                      ; rows of variables live across blocks
+          (define top-only 0)                     ; rows of Y pieces in the current puzzle
+          (define bottom-taken 0)                 ; rows of Z pieces in the current puzzle
+          (define failed? #f)
+          (define evict-ok? #t)
+          (define in-check? #f)
+          (define after-move* '())                ; copies to run after the current instruction
+          (define earlier* '())                   ; instructions before the current one, reversed
+          (define new-effect* '())
+          (define extra-block* '())
+          (define reg-row (lambda (reg) (fx- (var-index reg reg-spillinfo) kbase)))
+          (define row-bit (lambda (row) (fxsll 1 row)))
+          (define top-row (lambda (m) (fx- (fxlength m) 1)))
+          ; while this pass runs, `uvar-degree` is the mask of forbidden rows, and
+          ; `uvar-live-count` is the latest row or -1
+          (define forbidden (lambda (x) (uvar-degree x)))
+          (define latest-row (lambda (x) (uvar-live-count x)))
+          (define stress-forbidden
+            ; experiment: CHEZ_REGALLOC_KEEP=<n> keeps only the first n non-fp and 2 fp rows
+            (let ([keep (regalloc-keep)])
+              (if keep
+                  (let f ([i 0] [ptr 0] [fp 0] [m 0])
+                    (if (fx= i total-k)
+                        m
+                        (if (fxlogtest (fxsll 1 i) fp-mask)
+                            (f (fx+ i 1) ptr (fx+ fp 1) (if (fx< fp 2) m (fxlogor m (fxsll 1 i))))
+                            (f (fx+ i 1) (fx+ ptr 1) fp (if (fx< ptr keep) m (fxlogor m (fxsll 1 i)))))))
+                  0)))
+          (define type-forbidden
+            (lambda (x)
+              (fxlogor
+                (if (uvar-unspillable? x) 0 stress-forbidden)
+                (if (eq? (uvar-type x) 'fp)
+                    (fxlogand all-mask (fxlognot fp-mask))
+                    fp-mask))))
+          (define on-board?
+            (lambda (x)
+              (let ([row (latest-row x)])
+                (and (fx>= row 0) (eq? (vector-ref board row) x)))))
+          (define place-at!
+            (lambda (x row)
+              (safe-assert (fx< -1 row total-k))
+              (vector-set! board row x)
+              (set! occupied (fxlogor occupied (row-bit row)))
+              (uvar-live-count-set! x row)
+              (uvar-location-set! x (vector-ref regvec row))))
+          (define remove!
+            (lambda (x)
+              (let ([row (latest-row x)])
+                (vector-set! board row #f)
+                (set! occupied (fxlogand occupied (fxlognot (row-bit row)))))))
+          (define clear-board!
+            (lambda ()
+              (let f ([m occupied])
+                (unless (fx= m 0)
+                  (let ([row (top-row m)])
+                    (vector-set! board row #f)
+                    (f (fxlogand m (fxlognot (row-bit row)))))))
+              (set! occupied 0)))
+          (define snapshot
+            (lambda ()
+              (let f ([m occupied] [a* '()])
+                (if (fx= m 0)
+                    a*
+                    (let ([row (top-row m)])
+                      (f (fxlogand m (fxlognot (row-bit row)))
+                         (cons (cons (vector-ref board row) row) a*)))))))
+          (define uvar-weight
+            (lambda (x)
+              (if (eq? (uvar-type x) 'fp)
+                  0
+                  (fx- (uvar-ref-weight x) (uvar-save-weight x)))))
+          (define arg-mask (fold-left (lambda (m r) (fxlogor m (row-bit (reg-row r)))) 0 arg-registers))
+          (define cross-pool (fxlogand (fxsll -1 5) (fxlognot arg-mask))) ; skip %ac0, etc., and arguments
+          (define current-live-in 0)
+          (define at-block-exit? #f)
+          (define cross-block?
+            (lambda (x)
+              (or at-block-exit?
+                  (and (not (uvar-unspillable? x))
+                       (tree-bit-set? current-live-in live-size (var-index x))))))
+          (define default-row
+            ; Block-local variables always start from the top row, as coloring
+            ; does, so that a code pattern tends to produce the same machine code
+            ; everywhere, which is important for compressibility. Variables that
+            ; live across blocks start from the other end, so they stay out of
+            ; the way of local variables without pushing those to other rows.
+            (lambda (x free)
+              (if (cross-block? x)
+                  (let* ([preferred (fxlogand free (fxlognot avoid))]
+                         [pool (fxlogand preferred cross-pool)]
+                         [unclaimed (fxlogand pool (fxlognot claimed))]
+                         [high (fxlogand preferred (fxsll -1 5))])
+                    (cond
+                      [(not (fx= unclaimed 0)) (fxfirst-bit-set unclaimed)]
+                      [(not (fx= pool 0)) (fxfirst-bit-set pool)]
+                      [(not (fx= high 0)) (fxfirst-bit-set high)]
+                      [(not (fx= preferred 0)) (top-row preferred)]
+                      [else (top-row free)]))
+                  (top-row free))))
+          (define choose-row
+            (lambda (x hint free0)
+              (define x0 x)
+              ; A value that lives across blocks in %ac0 was measurably slow on
+              ; AArch64 in a call-heavy loop, even with fewer instructions
+              (define free
+                (let ([f (fxlogand free0 (fxlognot (row-bit (reg-row %ac0))))])
+                  (if (and (not (fx= f 0))
+                           (not (fx= f free0))
+                           (cross-block? x))
+                      f
+                      free0)))
+              (define free?
+                (lambda (row)
+                  (and (fx>= row 0) (fx< row total-k) (fxlogtest (row-bit row) free))))
+              (cond
+                [(free? (latest-row x)) (latest-row x)]
+                [(and hint (free? hint)) hint]
+                [else
+                 ; breadth-first search of move-related variables
+                 (let f ([x x] [work* '()] [clear-seen! void])
+                   (define give-up
+                     (lambda ()
+                       (clear-seen!)
+                       (default-row x0 free)))
+                   (define next
+                     (lambda (work* clear-seen!)
+                       (if (null? work*)
+                           (give-up)
+                           (f (car work*) (cdr work*) clear-seen!))))
+                   (if (uvar-seen? x)
+                       (next work* clear-seen!)
+                       (let ([clear-seen! (lambda () (uvar-seen! x #f) (clear-seen!))])
+                         (uvar-seen! x #t)
+                         (let loop ([move* (uvar-move* x)] [work* work*])
+                           (if (null? move*)
+                               (if (null? work*)
+                                   (give-up)
+                                   (f (car work*) (cdr work*) clear-seen!))
+                               (let* ([y (caar move*)]
+                                      [row (cond
+                                             [(reg? y) (reg-row y)]
+                                             ; a variable in the frame has no row, and its
+                                             ; `uvar-live-count` is still a count
+                                             [(uvar? y) (if (fv? (uvar-location y)) -1 (latest-row y))]
+                                             [else -1])])
+                                 (cond
+                                   [(free? row) (clear-seen!) row]
+                                   [(and (uvar? y) (fx< row 0))
+                                    (loop (cdr move*) (cons y work*))]
+                                   [else (loop (cdr move*) work*)])))))))])))
+          (define try-evict!
+            ; moves a piece out of a row in `ok` and into a free row of its own,
+            ; then gives that row to `x`. A Y piece just moves, but an X piece needs
+            ; a copy after the current instruction and can't use a row with a Z piece.
+            (lambda (x ok)
+              (and evict-ok?
+                   (let f ([m (fxlogand ok occupied)])
+                     (and (not (fx= m 0))
+                          (let* ([row (top-row m)]
+                                 [y (vector-ref board row)]
+                                 [y-piece? (fxlogtest (row-bit row) top-only)]
+                                 [free (fxlogand all-mask
+                                         (fxlognot (fxlogor occupied (forbidden y)
+                                                     (if y-piece? 0 bottom-taken))))])
+                            (if (fx= free 0)
+                                (f (fxlogand m (fxlognot (row-bit row))))
+                                (let ([new-row (choose-row y #f free)])
+                                  (remove! y)
+                                  (place-at! y new-row)
+                                  (if y-piece?
+                                      (set! top-only (fxlogor top-only (row-bit new-row)))
+                                      (set! after-move* (cons (cons row new-row) after-move*)))
+                                  (place-at! x row)
+                                  #t))))))))
+          (define spill!
+            (lambda (x ok)
+              (let f ([m (fxlogand ok occupied)]
+                      [victim (and (not (uvar-unspillable? x)) x)])
+                (if (fx= m 0)
+                    (begin
+                      (unless victim (sorry! who "no row for unspillable ~s" x))
+                      (set! failed? #t)
+                      (uvar-spilled! victim #t)
+                      (unless (eq? victim x)
+                        (let ([row (latest-row victim)])
+                          (remove! victim)
+                          (place-at! x row))))
+                    (let* ([row (top-row m)] [y (vector-ref board row)] [m (fxlogand m (fxlognot (row-bit row)))])
+                      (f m (if (and (not (uvar-unspillable? y))
+                                    (or (not victim) (fx< (uvar-weight y) (uvar-weight victim))))
+                               y
+                               victim)))))))
+          (define place!
+            (lambda (x hint)
+              (let* ([ok (fxlogand all-mask (fxlognot (forbidden x)))]
+                     [free (fxlogand ok (fxlognot occupied))])
+                (cond
+                  [(fx= free 0)
+                   (unless (try-evict! x ok) (spill! x ok))]
+                  [else (place-at! x (choose-row x hint free))])
+                (unless (uvar-spilled? x)
+                  (set! top-only (fxlogor top-only (row-bit (latest-row x))))))))
+          (define unspillable-forbidden
+            ; A temporary's short live range is scanned when its last use is
+            ; found to determine the fixed registers that are live with it
+            (lambda (u rest*)
+              (let ([forb (forbidden u)])
+                (let ([ok (fxlogand all-mask (fxlognot forb))])
+                  (if (fx= 0 (fxlogand ok (fx- ok 1))) ; precolored
+                      forb
+                      (let loop ([e* rest*] [forb forb])
+                        (if (null? e*)
+                            forb
+                            (nanopass-case (L15d Effect) (car e*)
+                              [(set! ,live-info ,x ,rhs)
+                               (cond
+                                 [(eq? x u)
+                                  (let ([forb forb])
+                                    (tree-for-each (live-info-live live-info) live-size kbase live-size
+                                      (lambda (offset)
+                                        (unless (eq? (vector-ref varvec offset) rhs)
+                                          (set! forb (fxlogor forb (row-bit (fx- offset kbase)))))))
+                                    forb)]
+                                 [(and (reg? x) (var-index x reg-spillinfo) (not (eq? rhs u)))
+                                  (loop (cdr e*) (fxlogor forb (row-bit (reg-row x))))]
+                                 [else (loop (cdr e*) forb)])]
+                              [else (loop (cdr e*) forb)]))))))))
+          (define use!
+            (lambda (x hint)
+              (when (and (uvar? x) (not (on-board? x)) (not (uvar-spilled? x)))
+                (when (uvar-unspillable? x)
+                  (uvar-degree-set! x (unspillable-forbidden x earlier*)))
+                (place! x hint))))
+          (define use-triv!
+            (lambda (t hint)
+              (nanopass-case (L15d Triv) t
+                [(mref ,x1 ,x2 ,imm ,type) (use! x1 #f) (use! x2 #f)]
+                [,x (use! x hint)]
+                [else (void)])))
+          (define use-rhs!
+            (lambda (rhs hint)
+              (nanopass-case (L15d Rhs) rhs
+                [(asm ,info ,proc ,t* ...) (for-each (lambda (t) (use-triv! t #f)) t*)]
+                [else (use-triv! rhs hint)])))
+          (define triv-uses?
+            (lambda (t v)
+              (nanopass-case (L15d Triv) t
+                [(mref ,x1 ,x2 ,imm ,type) (or (eq? x1 v) (eq? x2 v))]
+                [,x (eq? x v)]
+                [else #f])))
+          (define rhs-uses?
+            (lambda (rhs x)
+              (nanopass-case (L15d Rhs) rhs
+                [(asm ,info ,proc ,t* ...) (ormap (lambda (t) (triv-uses? t x)) t*)]
+                [else (triv-uses? rhs x)])))
+          (define reg-move
+            (lambda (dest-row src-row)
+              (with-output-language (L15e Effect)
+                `(set! ,(vector-ref regvec dest-row) ,(vector-ref regvec src-row)))))
+          (define flush-after-moves!
+            (lambda ()
+              (unless (or in-check? (null? after-move*))
+                ; the most recent eviction's copy has to run first
+                (for-each
+                  (lambda (m) (set! new-effect* (cons (reg-move (car m) (cdr m)) new-effect*)))
+                  (reverse after-move*))
+                (set! after-move* '()))))
+          (define emit!
+            (lambda (e)
+              (flush-after-moves!)
+              (unless failed?
+                (set! new-effect* (cons (Effect e) new-effect*)))))
+          (define self-move?
+            (lambda (x rhs)
+              (and (not failed?)
+                   (let ([from (cond
+                                 [(uvar? rhs) (uvar-location rhs)]
+                                 [(reg? rhs) rhs]
+                                 [else #f])])
+                     (and from
+                          (eq? from (if (uvar? x) (uvar-location x) x)))))))
+          (define emit-set!
+            (lambda (e x rhs)
+              (if (self-move? x rhs)
+                  (flush-after-moves!)
+                  (emit! e))))
+          (define solve-effect!
+            (lambda (e)
+              (set! top-only 0)
+              (set! bottom-taken 0)
+              (nanopass-case (L15d Effect) e
+                [(set! ,live-info ,x ,rhs)
+                 (if (uvar? x)
+                     (begin
+                       (unless (or (on-board? x) (uvar-spilled? x))
+                         (when (uvar-unspillable? x)
+                           (uvar-degree-set! x (unspillable-forbidden x (list e))))
+                         (place! x #f))
+                       (if (uvar-spilled? x)
+                           (begin
+                             (use-rhs! rhs #f)
+                             (emit! e))
+                           (let ([row (latest-row x)])
+                             (set! bottom-taken (row-bit row))
+                             (unless (rhs-uses? rhs x) (remove! x))
+                             (use-rhs! rhs row)
+                             (emit-set! e x rhs))))
+                     (begin
+                       (use-rhs! rhs (and (var-index x reg-spillinfo) (reg-row x)))
+                       (emit-set! e x rhs)))]
+                [(set! ,live-info ,lvalue ,rhs)
+                 (use-triv! lvalue #f)
+                 (use-rhs! rhs #f)
+                 (emit! e)]
+                [(asm ,info ,proc ,t* ...)
+                 (for-each (lambda (t) (use-triv! t #f)) t*)
+                 (emit! e)]
+                [(move-related ,x1 ,x2)
+                 ; only a hint: bias whichever variable is not yet placed
+                 (when (and (uvar? x1) (uvar? x2))
+                   (cond
+                     [(and (on-board? x1) (not (on-board? x2)) (not (uvar-spilled? x2)))
+                      (uvar-live-count-set! x2 (latest-row x1))]
+                     [(and (on-board? x2) (not (on-board? x1)) (not (uvar-spilled? x1)))
+                      (uvar-live-count-set! x1 (latest-row x2))]))]
+                [(overflow-check ,p ,e* ...)
+                 ; The out-of-line code rejoins before anything that follows this
+                 ; effect, so copies for evicted pieces go after the whole check
+                 (let ([saved-earlier* earlier*] [saved-new-effect* new-effect*])
+                   (set! in-check? #t)
+                   (let loop ([re* (reverse e*)])
+                     (unless (null? re*)
+                       (set! earlier* (append (cdr re*) saved-earlier*))
+                       (solve-effect! (car re*))
+                       (loop (cdr re*))))
+                   (set! earlier* saved-earlier*)
+                   (set! new-effect* saved-new-effect*)
+                   (solve-pred! p)
+                   (set! in-check? #f)
+                   (emit! e))]
+                [else (emit! e)])))
+          (define solve-pred!
+            (lambda (p)
+              (set! top-only 0)
+              (set! bottom-taken 0)
+              (nanopass-case (L15d Pred) p
+                [(asm ,info ,proc ,t* ...) (for-each (lambda (t) (use-triv! t #f)) t*)]
+                [else (sorry! who "unexpected pred ~s" p)])))
+          (define solve-tail!
+            (lambda (tl)
+              (nanopass-case (L15d Tail) tl
+                [(jump ,t) (use-triv! t #f)]
+                [else (void)])))
+          (define block-successor*
+            (lambda (b)
+              (cond
+                [(goto-block? b) (list (goto-block-next b))]
+                [(joto-block? b) (list (joto-block-next b))]
+                [(newframe-block? b) (list (newframe-block-next b))]
+                [(if-block? b)
+                 (let ([t (if-block-true b)] [f (if-block-false b)])
+                   ; prefer the more deeply nested successor, because any fixup
+                   ; moves end up on the edge to the other one
+                   (if (fx< (block-depth t) (block-depth f))
+                       (list f t)
+                       (list t f)))]
+                [(tail-block? b) '()]
+                [else (sorry! who "unrecognized block ~s" b)])))
+          (define postorder
+            (lambda (entry-block* block*)
+              (let ([order* '()])
+                (define visit!
+                  (lambda (b)
+                    (unless (block-seen? b)
+                      (block-seen! b #t)
+                      (for-each visit! (block-successor* b))
+                      (when (newframe-block? b)
+                        (for-each visit! (newframe-block-rp* b))
+                        (visit! (newframe-block-rp b)))
+                      (set! order* (cons b order*)))))
+                (for-each visit! entry-block*)
+                (for-each visit! block*)
+                (for-each (lambda (b) (block-seen! b #f)) order*)
+                (reverse order*)))))
+        (Lvalue : Lvalue (ir) -> Lvalue ()
+          [(mref ,x0 ,x1 ,imm ,type) `(mref ,(var->loc x0) ,(var->loc x1) ,imm ,type)]
+          [,x (var->loc x)])
+        (Pred : Pred (ir) -> Pred ())
+        (Tail : Tail (ir) -> Tail ())
+        (Effect : Effect (ir) -> Effect ()
+          [(set! ,live-info ,[lvalue] ,[rhs]) `(set! ,lvalue ,rhs)])
+        (begin
+          (let* ([order* (postorder entry-block* block*)]
+                 [nblocks (length order*)]
+                 [entry-v (make-vector nblocks #f)]   ; pieces on the board at block entry
+                 [exit-v (make-vector nblocks '())]   ; pieces on the board at block exit
+                 [code-v (make-vector nblocks '())]   ; rewritten effects
+                 [end-v (make-vector nblocks #f)]     ; rewritten pred or tail
+                 [pending-split* '()]
+                 [target-v #f])                       ; entries from a previous solve
+            (define entry-of (lambda (b) (vector-ref entry-v (block-index b))))
+            (define set-up-variables!
+              (lambda ()
+                (for-each
+                  (lambda (x)
+                    (uvar-live-count-set! x -1)
+                    (uvar-degree-set! x (type-forbidden x)))
+                  spillable*)
+                (vector-for-each
+                  (lambda (reg)
+                    (let ([bit (row-bit (reg-row reg))])
+                      (cset-for-each (var-spillable-conflict* reg reg-spillinfo)
+                        (lambda (offset)
+                          (let ([x (vector-ref varvec offset)])
+                            (unless (uvar-location x)
+                              (uvar-degree-set! x (fxlogor (uvar-degree x) bit))))))))
+                  regvec)
+                (for-each
+                  (lambda (u)
+                    (uvar-live-count-set! u -1)
+                    (let ([forb (fold-left (lambda (m reg) (fxlogor m (row-bit (reg-row reg))))
+                                  (type-forbidden u)
+                                  (uvar-conflict* u))])
+                      (uvar-degree-set! u forb)
+                      (let ([ok (fxlogand all-mask (fxlognot forb))])
+                        (when (fx= 0 (fxlogand ok (fx- ok 1)))
+                          (set! avoid (fxlogor avoid ok))))))
+                  unspillable*)))
+            (define set-up-exit!
+              ; the pieces at block exit are determined by the successors
+              (lambda (b)
+                (for-each
+                  (lambda (s)
+                    (let ([entry (or (entry-of s)
+                                     (and target-v (vector-ref target-v (block-index s))))])
+                      (if entry
+                          (for-each
+                            (lambda (a)
+                              (let ([x (car a)] [row (cdr a)])
+                                (unless (or (on-board? x) (uvar-spilled? x))
+                                  (if (fxlogtest (row-bit row) occupied)
+                                      (place! x #f)
+                                      (place-at! x row)))))
+                            entry)
+                          ; a back edge, so we don't know yet where the successor wants pieces
+                          (tree-for-each (block-live-in s) live-size 0 kspillable
+                            (lambda (offset)
+                              (let ([x (vector-ref varvec offset)])
+                                (unless (or (fv? (uvar-location x)) (uvar-spilled? x) (on-board? x))
+                                  (place! x #f))))))))
+                  (block-successor* b))))
+            (define solve-block!
+              (lambda (b)
+                (clear-board!)
+                (set! new-effect* '())
+                (set! evict-ok? #f)
+                (set! at-block-exit? #t)
+                (set! current-live-in (block-live-in b))
+                (set-up-exit! b)
+                (set! at-block-exit? #f)
+                (let ([i (block-index b)] [re* (reverse (block-effect* b))])
+                  (vector-set! exit-v i (snapshot))
+                  (set! earlier* re*)
+                  (cond
+                    [(if-block? b)
+                     (solve-pred! (if-block-pred b))
+                     (unless failed? (vector-set! end-v i (Pred (if-block-pred b))))]
+                    [(tail-block? b)
+                     (solve-tail! (tail-block-tail b))
+                     (unless failed? (vector-set! end-v i (Tail (tail-block-tail b))))])
+                  (set! evict-ok? #t)
+                  (let loop ([re* re*])
+                    (unless (null? re*)
+                      (set! earlier* (cdr re*))
+                      (solve-effect! (car re*))
+                      (loop (cdr re*))))
+                  (flush-after-moves!)
+                  (vector-set! code-v i new-effect*)
+                  (set! claimed (fxlogor claimed occupied))
+                  (vector-set! entry-v i (snapshot)))))
+            (define edge-moves
+              ; returns a list of (dest-row . src-row) for an edge
+              (lambda (exit entry)
+                (fold-left
+                  (lambda (m* a)
+                    (let ([x (car a)] [row (cdr a)])
+                      (let ([from (assq x exit)])
+                        (unless from (sorry! who "~s missing at edge" x))
+                        (if (fx= (cdr from) row)
+                            m*
+                            (cons (cons row (cdr from)) m*)))))
+                  '() entry)))
+            (define loop-edge-mismatch?
+              (lambda (b)
+                (and (fx> (block-depth b) 0)
+                     (ormap
+                       (lambda (s)
+                         ; in postorder, the target of a back edge comes later
+                         (and (fx> (block-index s) (block-index b))
+                              (fx> (block-depth s) 0)
+                              (ormap
+                                (lambda (a)
+                                  (let ([from (assq (car a) (vector-ref exit-v (block-index b)))])
+                                    (and from (not (fx= (cdr from) (cdr a))))))
+                                (entry-of s))))
+                       (block-successor* b)))))
+            (define sequentialize
+              ; orders a parallel copy, breaking cycles with a row from `free`;
+              ; the result is #f if a cycle has no available row
+              (lambda (m* free)
+                (let loop ([m* m*] [out* '()])
+                  (if (null? m*)
+                      (reverse out*)
+                      (let ([ready (find (lambda (m)
+                                           (not (ormap (lambda (m2)
+                                                         (and (not (eq? m m2)) (fx= (cdr m2) (car m))))
+                                                       m*)))
+                                         m*)])
+                        (if ready
+                            (loop (remq ready m*) (cons ready out*))
+                            (let* ([m (car m*)]
+                                   [tmp-mask (fxlogand free (if (fxlogtest (row-bit (car m)) fp-mask)
+                                                                fp-mask
+                                                                (fxlognot fp-mask)))])
+                              (and (not (fx= tmp-mask 0))
+                                   (let ([tmp (top-row tmp-mask)])
+                                     (loop (map (lambda (m2)
+                                                  (if (fx= (cdr m2) (car m))
+                                                      (cons (car m2) tmp)
+                                                      m2))
+                                                m*)
+                                       (cons (cons tmp (car m)) out*)))))))))))
+            (define edge-free
+              (lambda (exit entry s)
+                (let ([used 0])
+                  (for-each (lambda (a) (set! used (fxlogor used (row-bit (cdr a))))) exit)
+                  (for-each (lambda (a) (set! used (fxlogor used (row-bit (cdr a))))) entry)
+                  (tree-for-each (block-live-in s) live-size kbase live-size
+                    (lambda (offset) (set! used (fxlogor used (row-bit (fx- offset kbase))))))
+                  (fxlogand all-mask (fxlognot used)))))
+            (define split-edge!
+              (lambda (b s e*)
+                (let ([new (make-goto-block s)] [l (make-local-label 'puzzle-edge)])
+                  (block-label-set! new l)
+                  (local-label-block-set! l new)
+                  (block-effect*-set! new e*)
+                  (block-in-link*-set! new (list b))
+                  (block-depth-set! new (fxmin (block-depth b) (block-depth s)))
+                  (block-weight-set! new (block-weight s))
+                  (block-pariah! new (or (block-pariah? b) (block-pariah? s)))
+                  (block-in-link*-set! s
+                    (let f ([b* (block-in-link* s)])
+                      (cond
+                        [(null? b*) '()]
+                        [(eq? (car b*) b) (cons new (cdr b*))]
+                        [else (cons (car b*) (f (cdr b*)))])))
+                  (if (eq? (if-block-true b) s)
+                      (if-block-true-set! b new)
+                      (if-block-false-set! b new))
+                  (set! extra-block* (cons new extra-block*)))))
+            (define fix-edge!
+              (lambda (b s)
+                (let* ([exit (vector-ref exit-v (block-index b))]
+                       [entry (entry-of s)]
+                       [m* (edge-moves exit entry)])
+                  (unless (null? m*)
+                    (let ([seq (sequentialize m* (edge-free exit entry s))])
+                      (if (not seq)
+                          (let ([victim (fold-left
+                                          (lambda (best a)
+                                            (let ([x (car a)])
+                                              (if (and (not (uvar-unspillable? x))
+                                                       (or (not best) (fx< (uvar-weight x) (uvar-weight best))))
+                                                  x
+                                                  best)))
+                                          #f entry)])
+                            (set! failed? #t)
+                            (uvar-spilled! victim #t))
+                          (let ([e* (map (lambda (m) (reg-move (car m) (cdr m))) seq)])
+                            (cond
+                              [(not (if-block? b))
+                               (let ([i (block-index b)])
+                                 (vector-set! code-v i (append (vector-ref code-v i) e*)))]
+                              [(and (pair? (block-in-link* s)) (null? (cdr (block-in-link* s))))
+                               (let ([i (block-index s)])
+                                 (vector-set! code-v i (append e* (vector-ref code-v i))))]
+                              [else
+                               ; deferred, because a later edge can still fail,
+                               ; and a retry can't undo a change to the graph
+                               (set! pending-split* (cons (lambda () (split-edge! b s e*)) pending-split*))]))))))))
+            (fold-left (lambda (i b) (block-index-set! b i) (fx+ i 1)) 0 order*)
+            (set-up-variables!)
+            (for-each solve-block! order*)
+            ; A back edge is solved before its target, so it has to guess where
+            ; the target wants pieces. If that leaves a copy on a back edge in a
+            ; loop, solve again with the target's layout, since those copies are
+            ; the ones that cost the most at run time.
+            (when (and (not failed?) (ormap loop-edge-mismatch? order*))
+              (set! target-v (vector-copy entry-v))
+              (vector-fill! entry-v #f)
+              (for-each solve-block! order*))
+            (unless failed?
+              (for-each
+                (lambda (b)
+                  (for-each (lambda (s) (unless failed? (fix-edge! b s))) (block-successor* b))
+                  (when (newframe-block? b)
+                    ; call-live variables are in the frame, so no piece crosses a call
+                    (for-each
+                      (lambda (rp)
+                        (unless (null? (entry-of rp))
+                          (sorry! who "pieces ~s live at return point" (entry-of rp))))
+                      (cons (newframe-block-rp b) (newframe-block-rp* b)))))
+                order*))
+            (unless failed?
+              (for-each (lambda (split!) (split!)) pending-split*)
+              (for-each
+                (lambda (b)
+                  (let ([i (block-index b)])
+                    (block-effect*-set! b (vector-ref code-v i))
+                    (cond
+                      [(if-block? b) (if-block-pred-set! b (vector-ref end-v i))]
+                      [(tail-block? b) (tail-block-tail-set! b (vector-ref end-v i))])))
+                order*))
+            (values `(dummy) extra-block* (not failed?)))))
+
       (define-syntax with-live-info-record-writer
         (lambda (x)
           (syntax-case x ()
@@ -10760,42 +11441,55 @@
                                             (let ([libspec (info-lambda-libspec info)])
                                               (and libspec (libspec-does-not-expect-headroom? libspec))))])
                                (vector-for-each (lambda (reg) (reg-precolored-set! reg reg-spillinfo #f)) regvec)
-                               (let* ([kunspillable (length unspillable*)] [unvarvec (make-vector kunspillable)])
-                                 ; set up var indices & unvarvec mapping from indices to unspillables
-                                 (fold-left (lambda (i x) (var-index-set! x reg-spillinfo i) (vector-set! unvarvec i x) (fx+ i 1)) 0 unspillable*)
-                                 ; select-instrcutions! kept intra-block live analysis up-to-date, so now
-                                 ; record (reg v spillable v unspillable) x unspillable conflicts
-                                 (RApass unparse-L15d do-unspillable-conflict! kfv kspillable reg-spillinfo varvec live-size kunspillable unvarvec block*)
-                                 #;(show-conflicts (info-lambda-name info) varvec unvarvec reg-spillinfo)
-                                 (RApass unparse-L15d assign-registers! info varvec unvarvec reg-spillinfo)
-                                 ; release the unspillable conflict sets
-                                 (for-each (lambda (x) (var-unspillable-conflict*-set! x reg-spillinfo #f)) spillable*)
-                                 (vector-for-each (lambda (x) (var-unspillable-conflict*-set! x reg-spillinfo #f)) regvec)
-                                 #;(show-homes unspillable*)
-                                 (if (everybody-home?)
-                                     (let ([dummy (RApass unparse-L15e finalize-register-locations! dummy block*)])
-                                       ; release the spillable conflict sets
-                                       (vector-for-each (lambda (reg) (var-spillable-conflict*-set! reg reg-spillinfo #f)) regvec)
-                                       (do ([i max-fv (fx- i 1)]) ((fx< i 0)) (var-spillable-conflict*-set! (get-fv i) reg-spillinfo #f))
-                                       (let-values ([(dummy entry-block* block*)
-                                                     (xpass expose-overflow-check-blocks!
-                                                       (lambda (val*)
-                                                         (apply (lambda (dummy entry-block* block*)
-                                                                  (block-printer unparse-L16 (info-lambda-name info) block*))
-                                                           val*))
-                                                       (list dummy entry-block* block*))])
-                                         (safe-assert (andmap block-label (append entry-block* block*)))
-                                         (safe-assert (lambda (b) (eq? (local-label-block (block-label b)) b)) (append entry-block* block*))
-                                         `(lambda ,info (,entry-block* ...) (,block* ...))))
-                                     (begin
-                                       (for-each restore-block-info! block* bcache*)
-                                       (vector-for-each (lambda (r c*) (var-spillable-conflict*-set! r reg-spillinfo c*))
-                                                        regvec saved-reg-csets)
-                                       (for-each (lambda (x) (uvar-location-set! x #f)) spillable*)
-                                       (for-each uvar-move*-set! spillable* saved-move*)
-                                       (set! unspillable* '())
-                                       (RApass unparse-L15b assign-frame! (filter uvar-spilled? spillable*) reg-spillinfo)
-                                       (loop)))))))))))))))])))
+                               (let ()
+                                 (define finish
+                                   (lambda (dummy block*)
+                                     ; release the spillable conflict sets
+                                     (vector-for-each (lambda (reg) (var-spillable-conflict*-set! reg reg-spillinfo #f)) regvec)
+                                     (do ([i max-fv (fx- i 1)]) ((fx< i 0)) (var-spillable-conflict*-set! (get-fv i) reg-spillinfo #f))
+                                     (let-values ([(dummy entry-block* block*)
+                                                   (xpass expose-overflow-check-blocks!
+                                                     (lambda (val*)
+                                                       (apply (lambda (dummy entry-block* block*)
+                                                                (block-printer unparse-L16 (info-lambda-name info) block*))
+                                                         val*))
+                                                     (list dummy entry-block* block*))])
+                                       (safe-assert (andmap block-label (append entry-block* block*)))
+                                       (safe-assert (lambda (b) (eq? (local-label-block (block-label b)) b)) (append entry-block* block*))
+                                       `(lambda ,info (,entry-block* ...) (,block* ...)))))
+                                 (define retry
+                                   (lambda ()
+                                     (for-each restore-block-info! block* bcache*)
+                                     (vector-for-each (lambda (r c*) (var-spillable-conflict*-set! r reg-spillinfo c*))
+                                                      regvec saved-reg-csets)
+                                     (for-each (lambda (x) (uvar-location-set! x #f)) spillable*)
+                                     (for-each uvar-move*-set! spillable* saved-move*)
+                                     (set! unspillable* '())
+                                     (RApass unparse-L15b assign-frame! (filter uvar-spilled? spillable*) reg-spillinfo)
+                                     (loop)))
+                                 (if (use-puzzle-allocator?)
+                                     (let-values ([(dummy extra-block* ok?)
+                                                   (xpass puzzle-registers!
+                                                     (lambda (val*) (block-printer unparse-L15e (info-lambda-name info) block*))
+                                                     (list dummy entry-block* block* varvec (fx+ kspillable kfv) live-size kspillable reg-spillinfo))])
+                                       (if ok?
+                                           (finish dummy (append extra-block* block*))
+                                           (retry)))
+                                     (let* ([kunspillable (length unspillable*)] [unvarvec (make-vector kunspillable)])
+                                       ; set up var indices & unvarvec mapping from indices to unspillables
+                                       (fold-left (lambda (i x) (var-index-set! x reg-spillinfo i) (vector-set! unvarvec i x) (fx+ i 1)) 0 unspillable*)
+                                       ; select-instrcutions! kept intra-block live analysis up-to-date, so now
+                                       ; record (reg v spillable v unspillable) x unspillable conflicts
+                                       (RApass unparse-L15d do-unspillable-conflict! kfv kspillable reg-spillinfo varvec live-size kunspillable unvarvec block*)
+                                       #;(show-conflicts (info-lambda-name info) varvec unvarvec reg-spillinfo)
+                                       (RApass unparse-L15d assign-registers! info varvec unvarvec reg-spillinfo)
+                                       ; release the unspillable conflict sets
+                                       (for-each (lambda (x) (var-unspillable-conflict*-set! x reg-spillinfo #f)) spillable*)
+                                       (vector-for-each (lambda (x) (var-unspillable-conflict*-set! x reg-spillinfo #f)) regvec)
+                                       #;(show-homes unspillable*)
+                                       (if (everybody-home?)
+                                           (finish (RApass unparse-L15e finalize-register-locations! dummy block*) block*)
+                                           (retry))))))))))))))))])))
 
     ; NB: commonize with earlier
     (define-pass np-remove-repeater-blocks-again! : L16 (ir) -> L16 ()
